@@ -89,14 +89,17 @@ final class MailStore: ObservableObject {
     private(set) var gmail: GmailClient
     private var blockedLabelID: String?
     let blockLabelName: String
-    private var knownCache: [String: Bool] = [:]
+    private(set) var knownCache: [String: Bool] = [:]
+    @Published var inboxNext: String?            // Gmail page token for the next batch of inbox conversations
+    @Published var loadingMore = false
+    var lastLabelsAt: Date?, lastSmartAt: Date?
+    static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
     private var pendingSends: [UUID: Task<Void, Never>] = [:]
     var undoArchive: [String] = []
     private var draftMap: [String: String] = [:]   // message id -> draft id
 
     /// Last inbox list, shown at launch while Gmail refreshes. nil = no cache (tests).
     let cacheURL: URL?
-    private var listIsFromCache = false
 
     init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(),
          blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil) {
@@ -162,13 +165,12 @@ final class MailStore: ObservableObject {
         guard let url = cacheURL, inbox.isEmpty, let d = try? Data(contentsOf: url),
               let c = try? JSONDecoder().decode(InboxCache.self, from: d), c.account == accountEmail, !c.mails.isEmpty else { return }
         inbox = applySurfaced(c.mails).sorted { $0.date > $1.date }
-        listIsFromCache = true
     }
 
     // Bodies are left out: opening an email fetches it in full anyway.
     func saveCache() {
         guard let url = cacheURL else { return }
-        let slim = inbox.map { var m = $0; m.html = nil; m.text = nil; return m }
+        let slim = inbox.prefix(200).map { var m = $0; m.html = nil; m.text = nil; return m }
         if let d = try? JSONEncoder().encode(InboxCache(account: accountEmail, mails: slim)) { try? d.write(to: url, options: .atomic) }
     }
 
@@ -178,57 +180,86 @@ final class MailStore: ObservableObject {
         loadCache()
         await refresh()
         sendAs = (try? await gmail.sendAs()) ?? []
-        await loadBlocked()
         _ = await verifyScheduled()
         await runTimers()   // anything that came due while Mail was closed happens now
+        await loadBlocked()   // last: it makes one call per blocked sender
     }
 
     func refresh() async {
         loading = true
         defer { loading = false }
         do {
-            let ids = try await gmail.listIDs(labels: ["INBOX"], max: 80)
-            if let ls = try? await gmail.labels() {
+            // the list and (every few minutes) the labels are asked for at the same moment
+            let labelsDue = labelList.isEmpty || lastLabelsAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
+            async let pageR = gmail.threadPage(labels: ["INBOX"], max: 80)
+            async let labelsR: [GLabel]? = labelsDue ? try? await gmail.labels() : nil
+            let page = try await pageR
+            if let ls = await labelsR {
+                lastLabelsAt = Date()
                 pinLabelID = ls.first { $0.name == MailStore.pinLabelName }?.id
                 asideLabelID = ls.first { $0.name == MailStore.asideLabelName }?.id
                 snoozeLabelID = MailStore.snoozeLabelNames.lazy.compactMap { n in ls.first { $0.name == n }?.id }.first
                 setLabels(ls)
             }
-            await loadAside()
-            await loadSnoozed()
-            // cached rows may carry stale read/unread marks, so they are refetched, not reused
-            let have = listIsFromCache ? [:] : Dictionary(uniqueKeysWithValues: inbox.map { ($0.id, $0) })
-            let missing = ids.filter { have[$0] == nil }
-            let fresh = await gmail.messages(ids: missing)
-            var all = ids.compactMap { have[$0] }
-            all.append(contentsOf: fresh)
-            // keep local label state for messages we already hold
+            // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
+            let have = Dictionary(inbox.map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
+            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID }.map(\.id)
+            async let aside: Void = loadAside()
+            async let snz: Void = loadSnoozed()
+            let got = await gmail.threads(need)
+            await aside; await snz
+            // a conversation that failed to load keeps its old row instead of vanishing
+            let all = page.refs.compactMap { got.mails[$0.id] ?? have[$0.id] }
             inbox = applySurfaced(all).sorted { $0.date > $1.date }
+            inboxNext = page.next
             pruneSurfaced()
-            listIsFromCache = false
             saveCache()
-            error = nil
-            await classifySenders()
-            await loadOther()
-            await refreshSmartCounts()
+            error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
+            async let cls: Void = classifySenders()
+            async let oth: Void = loadOther()
+            let smartDue = lastSmartAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
+            async let smt: Void = smartDue ? refreshSmartCounts() : ()
+            await cls; await oth; await smt
         } catch GmailError.signInAgain {
             await auth.signOut()
             auth.message = "Your Google sign-in expired. Please sign in again."
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load mail." }
     }
 
+    /// The next batch of older conversations ("Show older emails" at the bottom of the inbox).
+    func loadMoreInbox() async {
+        guard let tok = inboxNext, !loadingMore else { return }
+        loadingMore = true; defer { loadingMore = false }
+        do {
+            let page = try await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok)
+            let have = Set(inbox.map(\.threadID))
+            let got = await gmail.threads(page.refs.map(\.id).filter { !have.contains($0) })
+            inbox = applySurfaced(inbox + page.refs.compactMap { got.mails[$0.id] }).sorted { $0.date > $1.date }
+            inboxNext = page.next
+            if !got.failed.isEmpty { error = "Some older conversations could not be loaded. Try \"Show older emails\" again." }
+            saveCache()
+            await classifySenders()
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load older mail." }
+    }
+
     /// Decide who is new: not approved, no mail from them before screening began, never written to.
-    private func classifySenders() async {
+    /// A lookup that fails (offline, rate limit) is skipped and not remembered, so the sender is asked about again next time.
+    func classifySenders() async {
         guard settings.screenNewSenders else { return }
-        let unknown = Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil }
+        let unknown = Array(Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil })
         let cutoff = DateFormatter.gmailDay.string(from: book.screeningStart)
+        let g = gmail
+        // known = wrote to us before screening started, or we wrote to them
+        let results = await mapLimited(unknown, limit: 4) { addr -> (String, Bool?) in
+            do {
+                if try await g.countEstimate(q: "from:\(addr) before:\(cutoff)") > 0 { return (addr, true) }
+                return (addr, try await g.countEstimate(q: "in:sent to:\(addr)") > 0)
+            } catch { return (addr, nil) }
+        }
         var learned: [String] = []
-        for addr in unknown {
-            // known = wrote to us before screening started, or we wrote to them
-            let before = (try? await gmail.countEstimate(q: "from:\(addr) before:\(cutoff)")) ?? 0
-            let sent = before > 0 ? 1 : ((try? await gmail.countEstimate(q: "in:sent to:\(addr)")) ?? 0)
-            let known = before > 0 || sent > 0
-            knownCache[addr] = !known ? false : true
+        for (addr, known) in results {
+            guard let known else { continue }
+            knownCache[addr] = known
             if known { learned.append(addr) }
         }
         if !learned.isEmpty { book.approve(all: learned) }
@@ -309,7 +340,7 @@ final class MailStore: ObservableObject {
     }
 
     private func setRead(_ m: Mail) async {
-        try? await gmail.modify(ids: [m.id], remove: ["UNREAD"])
+        try? await gmail.modify(ids: [m.id] + (m.siblings ?? []), remove: ["UNREAD"])
         for i in inbox.indices where inbox[i].id == m.id { inbox[i].labels.removeAll { $0 == "UNREAD" } }
         for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { $0 == "UNREAD" } }
         for i in aside.indices where aside[i].id == m.id { aside[i].labels.removeAll { $0 == "UNREAD" } }
@@ -338,7 +369,12 @@ final class MailStore: ObservableObject {
         do {
             var remove = ["INBOX"] + alsoRemove
             if wasAside, let l = asideLabelID, !setAside { remove.append(l) }
-            if trashIt { try await gmail.trash(id: m.id) } else { try await gmail.modify(ids: [m.id], add: add, remove: remove) }   // Gmail documents trash/untrash for the Trash label
+            if trashIt { try await gmail.trash(id: m.id); for s in m.siblings ?? [] { try await gmail.trash(id: s) } }
+            else {
+                try await gmail.modify(ids: [m.id], add: add, remove: remove)
+                // the row stands for the whole conversation: its other inbox emails leave too
+                if let s = m.siblings, !s.isEmpty { try await gmail.modify(ids: s, remove: ["INBOX"]) }
+            }   // Gmail documents trash/untrash for the Trash label
             inbox.removeAll { $0.id == m.id }
             if keepOther { for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { remove.contains($0) }; other[i].labels += add } }
             else { other.removeAll { $0.id == m.id } }
@@ -378,7 +414,7 @@ final class MailStore: ObservableObject {
 
     func loadAside() async {
         guard let l = asideLabelID else { aside = []; return }
-        guard let ids = try? await gmail.listIDs(labels: [l], max: 100) else { return }
+        guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
         let have = Dictionary(aside.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let fresh = await gmail.messages(ids: ids.filter { have[$0] == nil })
         aside = ids.compactMap { have[$0] } + fresh
@@ -400,21 +436,26 @@ final class MailStore: ObservableObject {
 
     /// Undo brings the archived (or set-aside) email back to the inbox and reopens it.
     func undoLast() async {
+        var failed: String?
+        func note(_ e: Error) { failed = (e as? LocalizedError)?.errorDescription ?? "Undo did not go through. Check your connection and try again." }
         if !undoArchive.isEmpty, let u = undoFolder {
             let ids = undoArchive; undoArchive = []; undoFolder = nil
-            if undoUntrash { for id in ids { try? await gmail.untrash(id: id) }; undoUntrash = false }
-            if !u.add.isEmpty || !u.remove.isEmpty { try? await gmail.modify(ids: ids, add: u.add, remove: u.remove) }
+            do {
+                if undoUntrash { for id in ids { try await gmail.untrash(id: id) }; undoUntrash = false }
+                if !u.add.isEmpty || !u.remove.isEmpty { try await gmail.modify(ids: ids, add: u.add, remove: u.remove) }
+            } catch { note(error) }
             toast = nil
             await refresh()
         } else if !undoArchive.isEmpty {
             let ids = undoArchive; undoArchive = []
             let fromAside = undoAside; undoAside = false
-            try? await gmail.modify(ids: ids, add: ["INBOX"], remove: fromAside ? (asideLabelID.map { [$0] } ?? []) : [])
-            if fromAside { ids.forEach { asides.forget($0) } }
+            do { try await gmail.modify(ids: ids, add: ["INBOX"], remove: fromAside ? (asideLabelID.map { [$0] } ?? []) : []) } catch { note(error) }
+            if failed == nil && fromAside { ids.forEach { asides.forget($0) } }
             toast = nil
             await refresh()
-            if let back = (inbox + other).first(where: { $0.id == ids[0] }) { await open(back) }
+            if failed == nil, let back = (inbox + other).first(where: { $0.id == ids[0] }) { await open(back) }
         }
+        if let failed { error = failed }
     }
 
     func showToast(_ text: String, action: String? = nil, seconds: Double = 8, link: URL? = nil) {
@@ -455,17 +496,19 @@ final class MailStore: ObservableObject {
     /// Always a Gmail filter plus label, so the block also holds on John's phone.
     /// `wholeCompany` blocks every address at the domain. Existing mail is moved as a second step.
     @discardableResult
-    func block(_ addr: Address, wholeCompany: Bool) async -> Bool {
+    func block(_ addr: Address, wholeCompany: Bool, reload: Bool = true) async -> Bool {
         do {
             let label = try await ensureBlockedLabel()
             let from = wholeCompany ? "@\(addr.domain)" : addr.email
             _ = try await gmail.createFilter(from: from, addLabel: label)
-            await moveExisting(from: from, label: label)
+            var moveFailed = false
+            do { try await moveExisting(from: from, label: label) } catch { moveFailed = true }
             blockMenuFor = nil
             status = wholeCompany ? "Blocked everyone at \(addr.domain). They were not told." : "Blocked \(addr.email). They were not told."
             if openMail?.from.email == addr.email { openMail = nil; selectedID = nil }
             inbox.removeAll { wholeCompany ? $0.from.domain == addr.domain : $0.from.email == addr.email }
-            await loadBlocked()
+            if reload { await loadBlocked() }
+            if moveFailed { self.error = "Blocked \(from), but their old emails could not be moved yet. Block them again to retry." }
             return true
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? "Could not block that sender."
@@ -473,14 +516,17 @@ final class MailStore: ObservableObject {
         }
     }
 
-    private func moveExisting(from: String, label: String) async {
-        let ids = (try? await gmail.listIDs(q: "from:\(from) in:inbox", max: 500)) ?? []
-        try? await gmail.modify(ids: ids, add: [label], remove: ["INBOX"])
+    private func moveExisting(from: String, label: String) async throws {
+        let ids = try await gmail.listIDs(q: "from:\(from) in:inbox", max: GmailClient.all)
+        try await gmail.modify(ids: ids, add: [label], remove: ["INBOX"])
     }
 
     func blockAllNewSenders() async {
         confirmBlockAll = false
-        for m in newSenderRows { _ = await block(m.from, wholeCompany: false) }
+        let rows = newSenderRows
+        _ = try? await ensureBlockedLabel()   // once, so the parallel blocks do not each try to create it
+        _ = await mapLimited(rows, limit: 3) { m in await self.block(m.from, wholeCompany: false, reload: false) }
+        await loadBlocked()
         status = "Blocked everyone. They were not told."
     }
 
@@ -489,13 +535,12 @@ final class MailStore: ObservableObject {
             let labelID = try await ensureLabelIfExists()
             guard let labelID else { blocked = []; return }
             let fs = try await gmail.filters().filter { ($0.action?.addLabelIds ?? []).contains(labelID) && $0.criteria?.from != nil }
-            var out: [BlockedEntry] = []
-            for f in fs {
+            let g = gmail, name = blockLabelName
+            blocked = await mapLimited(fs, limit: 4) { f in
                 let from = f.criteria!.from!
-                let n = (try? await gmail.countEstimate(q: "label:\"\(blockLabelName)\" from:\(from)")) ?? 0
-                out.append(BlockedEntry(id: f.id, from: from, count: n))
+                let n = (try? await g.countEstimate(q: "label:\"\(name)\" from:\(from)")) ?? 0
+                return BlockedEntry(id: f.id, from: from, count: n)
             }
-            blocked = out
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
@@ -509,7 +554,7 @@ final class MailStore: ObservableObject {
         do {
             try await gmail.deleteFilter(id: e.id)
             if let label = try await ensureLabelIfExists() {
-                let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(e.from)", max: 500)
+                let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(e.from)", max: GmailClient.all)
                 try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
             }
             if !e.isCompany { book.approve(e.from) }

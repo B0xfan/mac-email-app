@@ -140,6 +140,10 @@ struct InboxBody: View {
                 ForEach(g.mails) { row($0) }
             }
         }
+        if store.inboxNext != nil {
+            Button(store.loadingMore ? "Loading..." : "Show older emails") { Task { await store.loadMoreInbox() } }
+                .buttonStyle(LinkButtonStyle()).disabled(store.loadingMore).padding(12)
+        }
     }
     private func toggle(_ id: String) {
         if let i = settings.foldedGroups.firstIndex(of: id) { settings.foldedGroups.remove(at: i) } else { settings.foldedGroups.append(id) }

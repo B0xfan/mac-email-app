@@ -79,6 +79,8 @@ struct Mail: Identifiable, Hashable, Codable {
     var html: String?
     var text: String?
     var attachments: [Attachment]
+    var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
+    var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
 
     var unread: Bool { labels.contains("UNREAD") }
     var inInbox: Bool { labels.contains("INBOX") }

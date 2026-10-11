@@ -49,7 +49,7 @@ extension MailStore {
 
     func loadSnoozed() async {
         guard let l = snoozeLabelID else { snoozed = []; return }
-        guard let ids = try? await gmail.listIDs(labels: [l], max: 100) else { return }
+        guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
         let have = Dictionary(snoozed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         snoozed = ids.compactMap { have[$0] } + (await gmail.messages(ids: ids.filter { have[$0] == nil }))
         // brought back some other way (Undo, the phone): forget the time

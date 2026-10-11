@@ -138,9 +138,12 @@ extension MailStore {
     func folderName(_ id: String) -> String { folders.first { $0.id == id }?.name ?? "" }
 
     func refreshSmartCounts() async {
-        var out: [UUID: Int] = [:]
-        for f in organizer.smart where !f.query.isEmpty { out[f.id] = (try? await gmail.listIDs(q: f.query, max: 100).count) ?? smartCounts[f.id] ?? 0 }
-        smartCounts = out
+        lastSmartAt = Date()
+        let g = gmail, old = smartCounts
+        let rows = await mapLimited(organizer.smart.filter { !$0.query.isEmpty }, limit: 3) { f in
+            (f.id, (try? await g.listIDs(q: f.query, max: 100).count) ?? old[f.id] ?? 0)
+        }
+        smartCounts = Dictionary(rows, uniquingKeysWith: { a, _ in a })
     }
 
     /// For the live "N emails match right now" line; nil if Gmail could not be reached.

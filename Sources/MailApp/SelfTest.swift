@@ -741,6 +741,101 @@ enum SelfTest {
         let inj = MIME.build(MIME.Outgoing(from: "a@x.example", to: "b@x.example\r\nBcc: evil@x.example", subject: "Hi\r\nBcc: evil@x.example", html: "h", text: "t", inReplyTo: "<1>\nX-Evil: 1"))
         let head = String(decoding: inj, as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
         check("CR/LF in subject, to or reply id cannot start an extra header line", !head.contains("\nBcc:") && !head.contains("\nX-Evil:") && head.contains("Subject: Hi"))
+        // round 2: paging, conversations, stale labels, failed lookups (stubbed Gmail, nothing real touched)
+        nonisolated(unsafe) var hist = ["T1": "10", "T2": "20", "T3": "30"]
+        nonisolated(unsafe) var t1Unread = true, failT1 = false, failCount = false
+        nonisolated(unsafe) var tGets: [String] = [], r2calls: [String] = [], listTokens: [String] = []
+        nonisolated(unsafe) var countHits = 0, countKnown = false
+        func qv(_ u: URL, _ n: String) -> String? { URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == n }?.value }
+        func msgJSON(_ id: String, _ t: String, _ labels: [String], _ ms: Int) -> String {
+            "{\"id\":\"\(id)\",\"threadId\":\"\(t)\",\"labelIds\":[\(labels.map { "\"\($0)\"" }.joined(separator: ","))],\"internalDate\":\"\(ms)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"a@x.example\"},{\"name\":\"Subject\",\"value\":\"S \(t)\"}]}}"
+        }
+        StubProtocol.handler = { req in
+            let u = req.url!, us = u.absoluteString, path = u.path, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""
+            if us.contains("oauth2") || us.contains("token") && !us.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            r2calls.append("\(req.httpMethod ?? "") \(path)?\(u.query ?? "") \(b)")
+            if path.hasSuffix("/threads") {
+                let th: (String) -> String = { "{\"id\":\"\($0)\",\"historyId\":\"\(hist[$0] ?? "1")\"}" }
+                return qv(u, "pageToken") == "P2" ? (200, "{\"threads\":[\(th("T3"))]}") : (200, "{\"threads\":[\(th("T1")),\(th("T2"))],\"nextPageToken\":\"P2\"}")
+            }
+            if path.contains("/threads/") {
+                let id = u.lastPathComponent; tGets.append(id)
+                if id == "T1" && failT1 { return (400, "{}") }
+                let unread = id == "T1" && t1Unread
+                return (200, "{\"id\":\"\(id)\",\"historyId\":\"\(hist[id] ?? "1")\",\"messages\":[\(msgJSON(id + "a", id, ["INBOX"], 1_700_000_000_000)),\(msgJSON(id + "b", id, unread ? ["INBOX", "UNREAD"] : ["INBOX"], 1_700_000_100_000))]}")
+            }
+            if path.hasSuffix("/messages") {
+                if let q = qv(u, "q"), q.contains("before:") || q.hasPrefix("in:sent") { countHits += 1; return failCount ? (400, "{}") : (200, "{\"resultSizeEstimate\":\(countKnown ? 3 : 0)}") }
+                let label = qv(u, "labelIds"), tok = qv(u, "pageToken"); listTokens.append(tok ?? "-")
+                if label == "Label_S" { return tok == "S2" ? (200, "{\"messages\":[{\"id\":\"s3\"}]}") : (200, "{\"messages\":[{\"id\":\"s1\"},{\"id\":\"s2\"}],\"nextPageToken\":\"S2\"}") }
+                if qv(u, "q")?.hasSuffix("in:inbox") == true { return tok == "B2" ? (200, "{\"messages\":[{\"id\":\"b3\"}]}") : (200, "{\"messages\":[{\"id\":\"b1\"},{\"id\":\"b2\"}],\"nextPageToken\":\"B2\"}") }
+                return (200, "{}")
+            }
+            if path.contains("/messages/") { let id = u.lastPathComponent; return (200, msgJSON(id, id, ["Label_S"], 1_700_000_000_000)) }
+            if path.hasSuffix("/labels") && req.httpMethod == "GET" { return (200, "{\"labels\":[{\"id\":\"Label_S\",\"name\":\"Snoozed\"},{\"id\":\"Label_B\",\"name\":\"Blocked\"}]}") }
+            if path.hasSuffix("/settings/filters") && req.httpMethod == "POST" { return (200, "{\"id\":\"F1\"}") }
+            return (200, "{}")
+        }
+        @MainActor func r2store(screen: Bool = false) -> MailStore {
+            let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("b2")),
+                               seen: SeenBook(url: cbURL.appendingPathExtension("s")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil),
+                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("r2-\(UUID().uuidString).json")))
+            st.settings.screenNewSenders = screen; st.settings.inboxView = .classic
+            return st
+        }
+        defer { try? FileManager.default.removeItem(at: cbURL.appendingPathExtension("b2")) }
+        let pg = try? await rg.listIDs(labels: ["Label_S"], max: 100)
+        let pgCap = try? await rg.listIDs(labels: ["Label_S"], max: 2)
+        check("paging: listIDs follows the page tokens (3 ids over 2 pages) and stops at the limit asked for", pg == ["s1", "s2", "s3"] && pgCap == ["s1", "s2"])
+        let rs = await MainActor.run { r2store() }
+        await rs.refresh()
+        let r1 = await MainActor.run { (rs.inbox.map(\.id), rs.inbox.first { $0.threadID == "T1" }, rs.inboxNext) }
+        check("inbox by conversation: one row per conversation (newest inbox email), unread if any is, its other emails kept for Archive",
+              r1.0.sorted() == ["T1b", "T2b"] && r1.1?.unread == true && r1.1?.siblings == ["T1a"] && r1.2 == "P2")
+        await rs.loadMoreInbox()
+        let r2 = await MainActor.run { (rs.inbox.map(\.threadID).sorted(), rs.inboxNext) }
+        check("inbox paging: Show older emails adds the next page and ends when Gmail has no more", r2.0 == ["T1", "T2", "T3"] && r2.1 == nil)
+        // stale labels: the phone read T1 (its version tag changed); T2 is untouched and is not fetched again
+        tGets = []; hist["T1"] = "11"; t1Unread = false
+        await rs.refresh()
+        let r3 = await MainActor.run { rs.inbox.first { $0.threadID == "T1" }?.unread }
+        check("stale state: a conversation changed on the phone is refetched (now read); unchanged ones are reused", r3 == false && tGets.contains("T1") && !tGets.contains("T2"))
+        // partial failure: T1 cannot be fetched this time; its old row stays and an error bar is set
+        tGets = []; hist["T1"] = "12"; t1Unread = true; failT1 = true
+        await rs.refresh()
+        let r4 = await MainActor.run { (rs.inbox.first { $0.threadID == "T1" }?.unread, rs.inbox.count, rs.error) }
+        check("partial failure: the old row is kept for a conversation that failed to load, and the error bar says so", r4.0 == false && r4.1 == 2 && r4.2?.contains("1 conversation") == true)
+        failT1 = false
+        // archiving a conversation row takes its other emails out of the inbox too
+        r2calls = []
+        let t2row = await MainActor.run { rs.inbox.first { $0.threadID == "T2" }! }
+        await rs.archive(t2row)
+        check("archive: a conversation row archives every inbox email of it", r2calls.contains { $0.contains("batchModify") && $0.contains("\"T2b\"") } && r2calls.contains { $0.contains("batchModify") && $0.contains("\"T2a\"") })
+        // new-sender lookup that fails is skipped and not remembered; a good one is
+        let cs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("c1", "newbie@x.example", h: 1)]; return st }
+        failCount = true; countHits = 0
+        await cs.classifySenders()
+        let k1 = await MainActor.run { cs.knownCache["newbie@x.example"] }
+        failCount = false; countKnown = false
+        await cs.classifySenders()
+        let k2 = await MainActor.run { cs.knownCache["newbie@x.example"] }
+        await MainActor.run { cs.inbox = [mk("c2", "friend@x.example", h: 1)] }
+        countKnown = true
+        await cs.classifySenders()
+        let k3 = await MainActor.run { (cs.knownCache["friend@x.example"], cs.book.isApproved("friend@x.example")) }
+        await MainActor.run { cs.settings.screenNewSenders = false }
+        check("new senders: a failed lookup is not cached as unknown; a clean 'no mail before' is new; one with history is approved", k1 == nil && k2 == false && k3.0 == true && k3.1)
+        // Snoozed list pages; the saved time of an email on page 2 survives
+        let ss2 = await MainActor.run { let st = r2store(); st.snoozeLabelID = "Label_S"; st.timing.change { $0.snoozes["s3"] = Date().addingTimeInterval(3600); $0.snoozes["gone"] = Date().addingTimeInterval(3600) }; return st }
+        await ss2.loadSnoozed()
+        let sz = await MainActor.run { (ss2.snoozed.map(\.id), ss2.timing.data.snoozes.keys.sorted()) }
+        check("snoozed paging: all 3 listed across pages; time kept for s3 (on page 2), dropped only for the one truly gone", sz.0 == ["s1", "s2", "s3"] && sz.1 == ["s3"])
+        // blocking moves every existing email from the sender, across pages
+        r2calls = []
+        let bs = await MainActor.run { r2store() }
+        let okB = await bs.block(Address(name: "", email: "spam@x.example"), wholeCompany: false)
+        check("block: existing emails are moved from every page of results (b1, b2, b3)", okB && r2calls.contains { $0.contains("batchModify") && $0.contains("\"b1\"") && $0.contains("\"b2\"") && $0.contains("\"b3\"") })
+        StubProtocol.handler = nil
         // print page
         let doc = PrintHTML.document([ppl], loadImages: false, blockTrackers: true)
         check("print page: subject, sender and text; remote pictures stay blocked unless showing", doc.contains("Venue") && doc.contains("p@x.example") && !doc.contains("https: http:"))

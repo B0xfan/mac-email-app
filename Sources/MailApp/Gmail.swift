@@ -19,6 +19,8 @@ struct GMessage: Decodable {
     let internalDate: String?
     let payload: GPart?
 }
+struct GThread: Decodable { let id: String; let historyId: String?; let messages: [GMessage]? }
+struct ThreadRef: Sendable { let id: String; let historyID: String }
 struct GLabel: Decodable, Equatable { let id: String; let name: String; let type: String?; var labelListVisibility: String? = nil }
 struct GFilter: Decodable {
     struct Criteria: Decodable { let from: String?; let query: String? }
@@ -99,12 +101,62 @@ final class GmailClient: @unchecked Sendable {
         json(try await send("/profile"))["emailAddress"] as? String ?? ""
     }
 
-    func listIDs(q: String? = nil, labels: [String] = [], max: Int = 60) async throws -> [String] {
-        var items = [URLQueryItem(name: "maxResults", value: String(max))]
+    /// One page of message ids plus the token for the next page (nil = last page).
+    func listPage(q: String? = nil, labels: [String] = [], max: Int, pageToken: String? = nil) async throws -> (ids: [String], next: String?) {
+        var items = [URLQueryItem(name: "maxResults", value: String(Swift.min(Swift.max(max, 1), 500)))]
         if let q, !q.isEmpty { items.append(.init(name: "q", value: q)) }
         for l in labels { items.append(.init(name: "labelIds", value: l)) }
+        if let pageToken { items.append(.init(name: "pageToken", value: pageToken)) }
         let r = json(try await send("/messages", query: items))
-        return (r["messages"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
+        return ((r["messages"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? [], r["nextPageToken"] as? String)
+    }
+
+    /// Up to `max` ids, following Gmail's page tokens. Pass `GmailClient.all` for "every match".
+    static let all = 20_000   // shortcut: a safety bound, not a real limit for a personal mailbox
+    func listIDs(q: String? = nil, labels: [String] = [], max: Int = 60) async throws -> [String] {
+        var out: [String] = [], tok: String? = nil
+        repeat {
+            let p = try await listPage(q: q, labels: labels, max: max - out.count, pageToken: tok)
+            out += p.ids; tok = p.next
+        } while tok != nil && out.count < max
+        return Array(out.prefix(max))
+    }
+
+    /// One page of conversations (newest first) with the version tag Gmail changes whenever anything in them changes.
+    func threadPage(labels: [String], max: Int, pageToken: String? = nil) async throws -> (refs: [ThreadRef], next: String?) {
+        var items = [URLQueryItem(name: "maxResults", value: String(max))]
+        for l in labels { items.append(.init(name: "labelIds", value: l)) }
+        if let pageToken { items.append(.init(name: "pageToken", value: pageToken)) }
+        let r = json(try await send("/threads", query: items))
+        let refs = (r["threads"] as? [[String: Any]])?.compactMap { t -> ThreadRef? in
+            guard let id = t["id"] as? String else { return nil }
+            return ThreadRef(id: id, historyID: t["historyId"] as? String ?? "")
+        } ?? []
+        return (refs, r["nextPageToken"] as? String)
+    }
+
+    /// One row for a whole conversation: its newest inbox message, unread if any inbox message is, plus the other inbox messages.
+    func thread(id: String) async throws -> Mail {
+        var q = [URLQueryItem(name: "format", value: "metadata")]
+        for h in Self.metadataHeaders { q.append(.init(name: "metadataHeaders", value: h)) }
+        let d = try await send("/threads/\(id)", query: q)
+        guard let t = try? JSONDecoder().decode(GThread.self, from: d), let all = t.messages, !all.isEmpty else { throw GmailError.http(0, "unreadable conversation") }
+        let inInbox = all.filter { ($0.labelIds ?? []).contains("INBOX") }
+        let mine = inInbox.isEmpty ? all : inInbox
+        let rep = mine.max { (Double($0.internalDate ?? "") ?? 0) < (Double($1.internalDate ?? "") ?? 0) }!
+        var m = Mail(rep)
+        if mine.contains(where: { ($0.labelIds ?? []).contains("UNREAD") }) && !m.labels.contains("UNREAD") { m.labels.append("UNREAD") }
+        m.siblings = mine.map(\.id).filter { $0 != rep.id }
+        m.historyID = t.historyId
+        return m
+    }
+
+    /// Conversations fetched a few at a time; `failed` are the ids that could not be read.
+    func threads(_ ids: [String]) async -> (mails: [String: Mail], failed: [String]) {
+        let r = await mapLimited(ids, limit: 6) { id in (id, try? await self.thread(id: id)) }
+        var ok: [String: Mail] = [:], bad: [String] = []
+        for (id, m) in r { if let m { ok[id] = m } else { bad.append(id) } }
+        return (ok, bad)
     }
 
     func countEstimate(q: String) async throws -> Int {
@@ -112,10 +164,12 @@ final class GmailClient: @unchecked Sendable {
         return r["resultSizeEstimate"] as? Int ?? 0
     }
 
+    static let metadataHeaders = ["From", "To", "Cc", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"]
+
     func message(id: String, full: Bool) async throws -> Mail {
         var q = [URLQueryItem(name: "format", value: full ? "full" : "metadata")]
         if !full {
-            for h in ["From", "To", "Cc", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"] {
+            for h in Self.metadataHeaders {
                 q.append(.init(name: "metadataHeaders", value: h))
             }
         }
@@ -124,20 +178,13 @@ final class GmailClient: @unchecked Sendable {
         return Mail(g)
     }
 
-    /// Metadata for many messages, a few at a time (paced to the Gmail quota).
-    func messages(ids: [String], full: Bool = false) async -> [Mail] {
-        var out: [String: Mail] = [:]
-        var i = 0
-        while i < ids.count {
-            let chunk = Array(ids[i..<min(i + 6, ids.count)])
-            await withTaskGroup(of: Mail?.self) { g in
-                for id in chunk { g.addTask { try? await self.message(id: id, full: full) } }
-                for await m in g { if let m { out[m.id] = m } }
-            }
-            i += 6
-        }
-        return ids.compactMap { out[$0] }
+    /// Metadata for many messages, a few at a time (paced to the Gmail quota). `failed` are the ids that could not be read.
+    func messagesChecked(ids: [String], full: Bool = false) async -> (mails: [Mail], failed: [String]) {
+        let r = await mapLimited(ids, limit: 6) { id in (id, try? await self.message(id: id, full: full)) }
+        return (r.compactMap { $0.1 }, r.filter { $0.1 == nil }.map(\.0))
     }
+
+    func messages(ids: [String], full: Bool = false) async -> [Mail] { await messagesChecked(ids: ids, full: full).mails }
 
     func attachment(messageID: String, attachmentID: String) async throws -> Data {
         let r = json(try await send("/messages/\(messageID)/attachments/\(attachmentID)"))
@@ -264,4 +311,18 @@ enum Base64URL {
         while t.count % 4 != 0 { t += "=" }
         return Data(base64Encoded: t)
     }
+}
+
+/// Runs `f` over `items` with at most `limit` at once; results come back in the order of `items`.
+func mapLimited<T: Sendable, R: Sendable>(_ items: [T], limit: Int = 4, _ f: @escaping @Sendable (T) async -> R) async -> [R] {
+    var out = [R?](repeating: nil, count: items.count)
+    await withTaskGroup(of: (Int, R).self) { g in
+        var next = 0
+        while next < Swift.min(limit, items.count) { let i = next; next += 1; g.addTask { (i, await f(items[i])) } }
+        while let (i, r) = await g.next() {
+            out[i] = r
+            if next < items.count { let j = next; next += 1; g.addTask { (j, await f(items[j])) } }
+        }
+    }
+    return out.map { $0! }
 }
