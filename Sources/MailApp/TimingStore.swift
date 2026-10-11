@@ -140,11 +140,14 @@ extension MailStore {
                 if self?.toast?.id == tid { self?.toast?.text = MailStore.sendingText(left) }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard let self, !Task.isCancelled, self.claim(s.draftID) else { return }   // a quit already took it
-            defer { self.inFlight.remove(s.draftID) }
+            guard let self, !Task.isCancelled, let mark = self.claim(s.draftID) else { return }   // a quit already took it
+            defer { self.inFlight[s.draftID] = nil }
             self.pendingScheduled = nil
+            let g = self.gmail
             do {
-                let sent = try await self.gmail.sendDraft(id: s.draftID)
+                let sent = try await Task.detached { () -> (id: String, threadID: String) in
+                    do { let r = try await g.sendDraft(id: s.draftID); mark.finish(true); return r } catch { mark.finish(false); throw error }
+                }.value
                 self.timing.change { t in
                     t.scheduled.removeAll { $0.draftID == s.draftID }
                     if let r = s.remindAt { t.followUps.append(FollowUp(messageID: sent.id, threadID: sent.threadID, sentAt: Date(), at: r, to: s.to, subject: s.subject)) }

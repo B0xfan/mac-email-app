@@ -113,10 +113,14 @@ extension MailStore {
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if Task.isCancelled { return }
-            guard let self, !Task.isCancelled, self.claim(token.uuidString) else { return }   // a quit already took it
-            defer { self.inFlight.remove(token.uuidString) }
+            guard let self, !Task.isCancelled, let mark = self.claim(token.uuidString) else { return }   // a quit already took it
+            defer { self.inFlight[token.uuidString] = nil }
+            let g = self.gmail
             do {
-                let sent = try await self.gmail.sendRaw(raw, threadID: d.threadID)
+                // the request itself runs off the main thread and reports to the marker, so a quit can wait for it
+                let sent = try await Task.detached { () -> (id: String, threadID: String) in
+                    do { let r = try await g.sendRaw(raw, threadID: d.threadID); mark.finish(true); return r } catch { mark.finish(false); throw error }
+                }.value
                 self.forgetPending(token)
                 if let r = d.remindAt { self.addFollowUp(messageID: sent.id, threadID: sent.threadID, at: r, to: d.to, subject: d.subject) }
                 if let did = d.draftID { try? await self.gmail.deleteDraft(id: did) }
@@ -145,38 +149,41 @@ extension MailStore {
         compose = restored
     }
 
-    /// One marker per send (a send's token, or a scheduled draft's id): whoever sets it first owns the send, so a
-    /// send already going out is never sent a second time.
-    func claim(_ key: String) -> Bool { inFlight.insert(key).inserted }
+    /// One marker per send (a send's token, or a scheduled draft's id): whoever takes it first owns the send, so a
+    /// send already going out is never sent a second time. nil = somebody already has it.
+    func claim(_ key: String) -> SendMarker? {
+        guard inFlight[key] == nil else { return nil }
+        let m = SendMarker(); inFlight[key] = m
+        return m
+    }
 
     /// Called when the app quits: anything still waiting out its Undo delay, and every scheduled email that is due,
     /// goes out now instead of being lost. A send already on its way is waited for, not repeated.
     func flushPendingSendsOnQuit(now: Date = Date()) {
+        let onItsWay = inFlight   // taken before this function claims anything itself
         var jobs: [(token: UUID?, draft: String?, run: @Sendable () async -> Bool)] = []
-        var mine: Set<String> = []
         let g = gmail
-        for (token, (d, body)) in pendingMail where pendingSends[token] != nil && claim(token.uuidString) {
+        for (token, (d, body)) in pendingMail where pendingSends[token] != nil && claim(token.uuidString) != nil {
             pendingSends[token]?.cancel()
-            mine.insert(token.uuidString)
             let raw = MIME.build(buildOutgoing(d, bodyHTML: body)), tid = d.threadID
             jobs.append((token, nil, { (try? await g.sendRaw(raw, threadID: tid)) != nil }))
         }
         var due = timing.data.scheduled.filter { $0.at <= now }.map(\.draftID)
         if let p = pendingScheduled { due.append(p.draftID); scheduledTask?.cancel() }
-        for id in Set(due) where claim(id) {
-            mine.insert(id)
-            jobs.append((nil, id, { (try? await g.sendDraft(id: id)) != nil }))
-        }
+        for id in Set(due) where claim(id) != nil { jobs.append((nil, id, { (try? await g.sendDraft(id: id)) != nil })) }
         let group = DispatchGroup(), done = SendFlags()
         for (i, job) in jobs.enumerated() { group.enter(); Task.detached { if await job.run() { done.mark(i) }; group.leave() } }
-        // keep the main loop turning so sends that were already in flight can finish
-        let deadline = Date().addingTimeInterval(8)
-        while Date() < deadline, group.wait(timeout: .now()) == .timedOut || !inFlight.subtracting(mine).isEmpty { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
-        // a mail file is kept unless its send went through, so a failed quit-send comes back as a draft next launch
-        for (i, job) in jobs.enumerated() where done.has(i) {
-            if let t = job.token { forgetPending(t) }
-            if let id = job.draft { timing.change { $0.scheduled.removeAll { $0.draftID == id } } }
+        _ = group.wait(timeout: .now() + 8)
+        for (key, m) in onItsWay {
+            if m.group.wait(timeout: .now() + 8) == .success, m.ok { finishedOnQuit(key) }
         }
+        // a mail file is kept unless its send went through, so a failed quit-send comes back as a draft next launch
+        for (i, job) in jobs.enumerated() where done.has(i) { finishedOnQuit(job.token?.uuidString ?? job.draft ?? "") }
+    }
+
+    /// The send for this key is known to have gone out: forget its pending file, or take the draft off Scheduled.
+    private func finishedOnQuit(_ key: String) {
+        if let t = UUID(uuidString: key) { forgetPending(t) } else { timing.change { $0.scheduled.removeAll { $0.draftID == key } } }
     }
 
     // MARK: Crash safety for the Undo Send countdown
@@ -237,4 +244,14 @@ final class SendFlags: @unchecked Sendable {
     private var items = Set<Int>(); private let lock = NSLock()
     func mark(_ i: Int) { lock.lock(); items.insert(i); lock.unlock() }
     func has(_ i: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return items.contains(i) }
+}
+
+/// Tells a quitting app when a send that is already going out has finished, and whether it went through.
+final class SendMarker: @unchecked Sendable {
+    let group = DispatchGroup()
+    private let lock = NSLock()
+    private var succeeded = false
+    init() { group.enter() }
+    var ok: Bool { lock.lock(); defer { lock.unlock() }; return succeeded }
+    func finish(_ ok: Bool) { lock.lock(); succeeded = ok; lock.unlock(); group.leave() }
 }

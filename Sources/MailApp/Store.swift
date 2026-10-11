@@ -96,7 +96,7 @@ final class MailStore: ObservableObject {
     static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
     var pendingSends: [UUID: Task<Void, Never>] = [:]
     var pendingMail: [UUID: (ComposeDraft, String)] = [:]   // the mail behind each countdown (draft, body)
-    var inFlight: Set<String> = []
+    var inFlight: [String: SendMarker] = [:]   // sends going out right now, by send token or scheduled draft id
     var undoSend: (UUID, ComposeDraft, String, UUID)?
     var undoArchive: [String] = []
     var undoSibs: [String] = []     // other emails of a conversation that only left the inbox (Move/Snooze): Undo puts them back
