@@ -226,8 +226,9 @@ struct TimePickerCard: View {
                     : Text("Mail could not read that time. Try \u{201C}Tuesday 3pm\u{201D}.").foregroundStyle(Theme.blk)
                 }
             }
-            .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 6)
+            .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 2)
             .accessibilityAddTraits(.updatesFrequently)
+            Text("Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
         }
         .padding(6).frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
@@ -271,7 +272,7 @@ struct SnoozedList: View {
     @ObservedObject var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
-            PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread.")
+            PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread. Mail must be open for this to happen on time.")
             ForEach(store.listMails) { m in
                 MessageRow(mail: m, selected: store.selectedID == m.id, tag: store.timing.data.snoozes[m.id].map { "Back " + TimeParser.short($0) },
                            onBack: { Task { await store.wake([m.id]) } }, onTime: { store.picker = .changeSnooze(m.id) }) { Task { await store.open(m) } }
@@ -289,7 +290,7 @@ struct ScheduledList: View {
     @ObservedObject var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
-            PlaceHeader(title: "Scheduled", note: "Emails waiting to be sent. They wait in Gmail as drafts, so your phone shows them in Drafts.")
+            PlaceHeader(title: "Scheduled", note: "Emails waiting to be sent. They wait in Gmail as drafts, so your phone shows them in Drafts. Mail must be open for them to go out on time.")
             ForEach(store.timing.data.scheduled.sorted { $0.at < $1.at }) { s in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {

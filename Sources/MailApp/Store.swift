@@ -14,7 +14,7 @@ struct BlockedEntry: Identifiable, Hashable {
 
 struct ToastInfo: Equatable { var text: String; var action: String?; var link: URL? = nil; var id = UUID() }
 
-enum ComposeMode: Equatable { case new, reply(String), forward(String) }
+enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) }
 
 @MainActor
 final class MailStore: ObservableObject {
@@ -95,15 +95,20 @@ final class MailStore: ObservableObject {
     var lastLabelsAt: Date?, lastSmartAt: Date?
     static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
     private var pendingSends: [UUID: Task<Void, Never>] = [:]
+    private var pendingMail: [UUID: (ComposeDraft, String)] = [:]   // the mail behind each countdown (draft, body)
+    var inFlight: Set<String> = []
     var undoArchive: [String] = []
+    var undoSibs: [String] = []     // other emails of a conversation that only left the inbox (Move/Snooze): Undo puts them back
     private var draftMap: [String: String] = [:]   // message id -> draft id
 
     /// Last inbox list, shown at launch while Gmail refreshes. nil = no cache (tests).
     let cacheURL: URL?
+    /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
+    let pendingDir: URL?
 
     init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(),
-         blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil) {
-        self.cacheURL = cacheURL
+         blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil) {
+        self.cacheURL = cacheURL; self.pendingDir = pendingDir
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.blockLabelName = blockLabelName
     }
 
@@ -158,6 +163,9 @@ final class MailStore: ObservableObject {
     static var defaultCacheURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail/inbox-cache.json")
     }
+    static var defaultPendingDir: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail/pending-sends")
+    }
     private struct InboxCache: Codable { var account: String; var mails: [Mail] }
 
     /// Missing, corrupt or other-account cache: ignored, behaviour is as before.
@@ -179,6 +187,7 @@ final class MailStore: ObservableObject {
         accountEmail = email ?? ""
         loadCache()
         await refresh()
+        await recoverPendingSends()
         sendAs = (try? await gmail.sendAs()) ?? []
         _ = await verifyScheduled()
         await runTimers()   // anything that came due while Mail was closed happens now
@@ -193,7 +202,13 @@ final class MailStore: ObservableObject {
             let labelsDue = labelList.isEmpty || lastLabelsAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
             async let pageR = gmail.threadPage(labels: ["INBOX"], max: 80)
             async let labelsR: [GLabel]? = labelsDue ? try? await gmail.labels() : nil
-            let page = try await pageR
+            var page = try await pageR
+            // older conversations the user already loaded ("Show older emails") stay loaded: walk as many pages as were showing
+            let depth = inbox.count
+            while page.refs.count < depth, let tok = page.next {
+                guard let more = try? await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok) else { break }
+                page = (refs: page.refs + more.refs, next: more.next)
+            }
             if let ls = await labelsR {
                 lastLabelsAt = Date()
                 pinLabelID = ls.first { $0.name == MailStore.pinLabelName }?.id
@@ -384,7 +399,8 @@ final class MailStore: ObservableObject {
                 aside.append(x); asides.record(m.id)
             } else { asides.forget(m.id) }
             saveCache()
-            undoArchive = [m.id]; undoAside = setAside
+            let sibs = m.siblings ?? [], keepSibs = exactUndo && !trashIt
+            undoArchive = keepSibs ? [m.id] : [m.id] + sibs; undoSibs = keepSibs ? sibs : []; undoAside = setAside
             undoUntrash = trashIt
             undoFolder = exactUndo ? (add: (m.labels.contains("INBOX") ? ["INBOX"] : []) + alsoRemove + (wasAside ? (asideLabelID.map { [$0] } ?? []) : []), remove: add) : nil
             showToast(text, action: "Undo")
@@ -443,6 +459,7 @@ final class MailStore: ObservableObject {
             do {
                 if undoUntrash { for id in ids { try await gmail.untrash(id: id) }; undoUntrash = false }
                 if !u.add.isEmpty || !u.remove.isEmpty { try await gmail.modify(ids: ids, add: u.add, remove: u.remove) }
+                if !undoSibs.isEmpty { try await gmail.modify(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
             } catch { note(error) }
             toast = nil
             await refresh()
@@ -715,6 +732,8 @@ final class MailStore: ObservableObject {
         compose = nil
         toast = ToastInfo(text: MailStore.sendingText(delay), action: "Undo")
         let tid = toast!.id
+        pendingMail[token] = (d, bodyHTML)
+        savePending(token)
         pendingSends[token] = Task { [weak self] in
             for left in stride(from: delay - 1, to: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -723,14 +742,17 @@ final class MailStore: ObservableObject {
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if Task.isCancelled { return }
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.claim(token.uuidString) else { return }   // a quit already took it
+            defer { self.inFlight.remove(token.uuidString) }
             do {
                 let sent = try await self.gmail.sendRaw(raw, threadID: d.threadID)
+                self.forgetPending(token)
                 if let r = d.remindAt { self.addFollowUp(messageID: sent.id, threadID: sent.threadID, at: r, to: d.to, subject: d.subject) }
                 if let did = d.draftID { try? await self.gmail.deleteDraft(id: did) }
                 if self.toast?.id == tid { self.showToast("Sent.", seconds: 4) }
             } catch {
                 // the window was closed to send: bring the whole email back so nothing typed is lost
+                self.forgetPending(token)
                 if self.compose == nil { var r = d; r.restoredBodyHTML = bodyHTML; self.compose = r }
                 if self.toast?.id == tid { self.toast = nil }
                 self.error = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent."
@@ -746,20 +768,71 @@ final class MailStore: ObservableObject {
         if pendingScheduled != nil { undoScheduledSend(); return }
         guard let (token, d, body, tid) = undoSend else { return }
         pendingSends[token]?.cancel(); pendingSends[token] = nil
+        forgetPending(token)
         undoSend = nil
         if toast?.id == tid { toast = nil }
         var restored = d; restored.restoredBodyHTML = body
         compose = restored
     }
 
-    /// Called when the app quits: anything still waiting out its Undo delay is sent now, not lost.
-    func flushPendingSendsOnQuit() {
-        guard let (token, d, body, _) = undoSend, pendingSends[token] != nil else { return }
-        pendingSends[token]?.cancel()
-        let raw = MIME.build(buildOutgoing(d, bodyHTML: body))
-        let sem = DispatchSemaphore(value: 0)
-        Task.detached { try? await self.gmail.sendRaw(raw, threadID: d.threadID); sem.signal() }
-        _ = sem.wait(timeout: .now() + 8)
+    /// One marker per send (a send's token, or a scheduled draft's id): whoever sets it first owns the send, so a
+    /// send already going out is never sent a second time.
+    func claim(_ key: String) -> Bool { inFlight.insert(key).inserted }
+
+    /// Called when the app quits: anything still waiting out its Undo delay, and every scheduled email that is due,
+    /// goes out now instead of being lost. A send already on its way is waited for, not repeated.
+    func flushPendingSendsOnQuit(now: Date = Date()) {
+        var jobs: [(token: UUID?, draft: String?, run: @Sendable () async -> Bool)] = []
+        var mine: Set<String> = []
+        let g = gmail
+        for (token, (d, body)) in pendingMail where pendingSends[token] != nil && claim(token.uuidString) {
+            pendingSends[token]?.cancel()
+            mine.insert(token.uuidString)
+            let raw = MIME.build(buildOutgoing(d, bodyHTML: body)), tid = d.threadID
+            jobs.append((token, nil, { (try? await g.sendRaw(raw, threadID: tid)) != nil }))
+        }
+        var due = timing.data.scheduled.filter { $0.at <= now }.map(\.draftID)
+        if let p = pendingScheduled { due.append(p.draftID); scheduledTask?.cancel() }
+        for id in Set(due) where claim(id) {
+            mine.insert(id)
+            jobs.append((nil, id, { (try? await g.sendDraft(id: id)) != nil }))
+        }
+        let group = DispatchGroup(), done = SendFlags()
+        for (i, job) in jobs.enumerated() { group.enter(); Task.detached { if await job.run() { done.mark(i) }; group.leave() } }
+        // keep the main loop turning so sends that were already in flight can finish
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline, group.wait(timeout: .now()) == .timedOut || !inFlight.subtracting(mine).isEmpty { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        // a mail file is kept unless its send went through, so a failed quit-send comes back as a draft next launch
+        for (i, job) in jobs.enumerated() where done.has(i) {
+            if let t = job.token { forgetPending(t) }
+            if let id = job.draft { timing.change { $0.scheduled.removeAll { $0.draftID == id } } }
+        }
+    }
+
+    // MARK: Crash safety for the Undo Send countdown
+
+    private struct PendingSend: Codable { var draft: ComposeDraft; var body: String }
+    private func pendingFile(_ t: UUID) -> URL? { pendingDir?.appendingPathComponent("\(t.uuidString).json") }
+    private func savePending(_ t: UUID) {
+        guard let dir = pendingDir, let f = pendingFile(t), let (d, b) = pendingMail[t] else { return }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        if let data = try? JSONEncoder().encode(PendingSend(draft: d, body: b)) { try? data.write(to: f, options: .atomic) }
+    }
+    private func forgetPending(_ t: UUID) { pendingMail[t] = nil; if let f = pendingFile(t) { try? FileManager.default.removeItem(at: f) } }
+
+    /// At launch: an email that was counting down when Mail stopped without sending it. It is never sent by itself:
+    /// it is saved as a Gmail draft and opened for the user to check.
+    func recoverPendingSends() async {
+        guard let dir = pendingDir, let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        let mine = Set(pendingMail.keys.map { "\($0.uuidString).json" })
+        var shown = false
+        for f in files where f.pathExtension == "json" && !mine.contains(f.lastPathComponent) {
+            guard let data = try? Data(contentsOf: f), let p = try? JSONDecoder().decode(PendingSend.self, from: data) else { try? FileManager.default.removeItem(at: f); continue }
+            var d = p.draft; d.restoredBodyHTML = p.body
+            if let id = try? await gmail.saveDraft(MIME.build(buildOutgoing(p.draft, bodyHTML: p.body)), threadID: d.threadID, replacing: d.draftID) { d.draftID = id; try? FileManager.default.removeItem(at: f) }
+            if compose == nil && !shown { compose = d; shown = true }
+        }
+        if shown { showToast("Mail closed before this email was sent. It was not sent. Check it, then press Send.", seconds: 12) }
     }
 
     // MARK: - Attachments
@@ -784,7 +857,7 @@ final class MailStore: ObservableObject {
     }
 }
 
-struct ComposeDraft: Equatable {
+struct ComposeDraft: Equatable, Codable {
     var from: String
     var to: String
     var cc: String = ""
@@ -802,7 +875,7 @@ struct ComposeDraft: Equatable {
     var attachments: [DraftAttachment] = []
 }
 
-struct DraftAttachment: Equatable, Identifiable {
+struct DraftAttachment: Equatable, Identifiable, Codable {
     var id = UUID()
     let name: String
     let data: Data
@@ -875,4 +948,11 @@ final class AsideBook {
         if days < 14 { return "Set aside last week" }
         return "Set aside " + d.formatted(.dateTime.month(.abbreviated).day())
     }
+}
+
+/// Which quit-time sends went through (written from background tasks, read on the main thread).
+final class SendFlags: @unchecked Sendable {
+    private var items = Set<Int>(); private let lock = NSLock()
+    func mark(_ i: Int) { lock.lock(); items.insert(i); lock.unlock() }
+    func has(_ i: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return items.contains(i) }
 }

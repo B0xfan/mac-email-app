@@ -118,7 +118,7 @@ extension MailStore {
             try await gmail.modify(ids: [m.id], add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
             applyLabels(m.id, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
             saveCache()
-            undoArchive = [m.id]; undoAside = false; undoUntrash = false
+            undoArchive = [m.id]; undoSibs = []; undoAside = false; undoUntrash = false
             undoFolder = (add: wasUnread ? ["UNREAD"] : [], remove: wasUnread ? [] : ["UNREAD"])
             showToast(wasUnread ? "Marked read." : "Marked unread.", action: "Undo")
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
@@ -135,7 +135,7 @@ extension MailStore {
             await togglePin(m)
             guard let l = pinLabelID, let now = (inbox + other).first(where: { $0.id == m.id }) else { return }
             let pinned = now.labels.contains(l)
-            undoArchive = [m.id]; undoAside = false; undoUntrash = false
+            undoArchive = [m.id]; undoSibs = []; undoAside = false; undoUntrash = false
             undoFolder = (add: pinned ? [] : [l], remove: pinned ? [l] : [])
             showToast(pinned ? "Pinned." : "Unpinned.", action: "Undo")
         }

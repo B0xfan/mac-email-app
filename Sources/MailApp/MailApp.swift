@@ -46,7 +46,7 @@ final class AppModel: ObservableObject {
     init() {
         let s = SignInModel()
         signIn = s
-        store = MailStore(auth: s, gmail: GmailClient(auth: s.auth), cacheURL: MailStore.defaultCacheURL)
+        store = MailStore(auth: s, gmail: GmailClient(auth: s.auth), cacheURL: MailStore.defaultCacheURL, pendingDir: MailStore.defaultPendingDir)
         AppModel.current = self
     }
 }

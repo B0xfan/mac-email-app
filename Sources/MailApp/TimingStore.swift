@@ -140,7 +140,8 @@ extension MailStore {
                 if self?.toast?.id == tid { self?.toast?.text = MailStore.sendingText(left) }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.claim(s.draftID) else { return }   // a quit already took it
+            defer { self.inFlight.remove(s.draftID) }
             self.pendingScheduled = nil
             do {
                 let sent = try await self.gmail.sendDraft(id: s.draftID)
