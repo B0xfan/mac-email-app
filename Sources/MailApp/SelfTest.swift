@@ -922,7 +922,7 @@ enum SelfTest {
             try? await Task.sleep(nanoseconds: 1_300_000_000)   // the countdown is over and the send is on its way
             await MainActor.run { qa.flushPendingSendsOnQuit() }
             let filesAfter = ((try? fm.contentsOfDirectory(atPath: pdir.path)) ?? []).count
-            check("quit while a send is already going out: sent exactly once (no double send), pending file written and then cleared", fileMade && sendN == 1 && filesAfter == 0)
+            check("quit while a send is already going out: sent exactly once (no double send), pending file written and then cleared [file \(fileMade), sends \(sendN), left \(filesAfter)]", fileMade && sendN == 1 && filesAfter == 0)
             // still counting down at quit: sent once now, and the countdown cannot send it again
             slowSend = false; sendN = 0
             await MainActor.run { AppSettings.shared.undoDelay = 3; qa.send(draft, bodyHTML: "<p>again</p>") }

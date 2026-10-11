@@ -40,7 +40,7 @@ extension MailStore {
         if all { out += Address.parseList(m.to) + Address.parseList(m.cc) }
         var seen = Set<String>(), list: [String] = []
         for a in out where a.email.contains("@") && seen.insert(a.email).inserted && (!mine.contains(a.email) || a == primary) {
-            list.append(a.name.isEmpty ? a.email : "\"\(a.name.replacingOccurrences(of: "\"", with: ""))\" <\(a.email)>")
+            list.append(a.email)
         }
         return list.joined(separator: ", ")
     }
