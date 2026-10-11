@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 
@@ -202,3 +203,4 @@ enum Snapshots {
 extension MailStore {
     func setKnownForSnapshot(_ email: String, known: Bool) { setKnown(email, known) }
 }
+#endif

@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 import PDFKit
@@ -100,3 +101,4 @@ enum PolishTest {
         return ok
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 
@@ -143,3 +144,4 @@ enum DropTest {
         return ok
     }
 }
+#endif

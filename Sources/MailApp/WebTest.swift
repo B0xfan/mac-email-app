@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 import WebKit
@@ -161,3 +162,4 @@ enum WebTest {
         return ok
     }
 }
+#endif

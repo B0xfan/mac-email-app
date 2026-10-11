@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import Foundation
 
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
@@ -842,3 +843,4 @@ enum SelfTest {
         return ok
     }
 }
+#endif

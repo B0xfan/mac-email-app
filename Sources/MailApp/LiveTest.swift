@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 
@@ -88,3 +89,4 @@ enum LiveTest {
         return ok
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if TESTHARNESS
 import SwiftUI
 import AppKit
 
@@ -117,3 +118,4 @@ enum TimingShots {
         return ok
     }
 }
+#endif

@@ -59,6 +59,7 @@ struct MailApp: App {
     init() {
         let args = CommandLine.arguments
         setvbuf(stdout, nil, _IOLBF, 0)
+        #if TESTHARNESS
         if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots"].contains(where: args.contains) { Keychain.testMode = true }
         if args.contains("--selftest") {
             Task { exit(await SelfTest.run() ? 0 : 1) }
@@ -85,9 +86,8 @@ struct MailApp: App {
         } else if let i = args.firstIndex(of: "--webtest"), i + 1 < args.count {
             let port = args[i + 1]
             Task { @MainActor in exit(await WebTest.run(port: port) ? 0 : 1) }
-        } else if args.contains("--gmailtest") {
-            Task { exit(await GmailTest.run() ? 0 : 1) }
         }
+        #endif
     }
 
     var body: some Scene {
