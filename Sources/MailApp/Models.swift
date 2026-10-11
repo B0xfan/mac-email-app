@@ -237,6 +237,9 @@ enum MIME {
         var extraHeaders: [String: String] = [:]
     }
 
+    /// A header value can never carry a line break, whatever the caller passes.
+    static func oneLine(_ s: String) -> String { s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ") }
+
     static func build(_ o: Outgoing) -> Data {
         let boundaryMixed = "mixed-" + UUID().uuidString
         let boundaryAlt = "alt-" + UUID().uuidString
@@ -249,6 +252,7 @@ enum MIME {
         if !o.inReplyTo.isEmpty { h.append("In-Reply-To: \(o.inReplyTo)") }
         if !o.references.isEmpty { h.append("References: \(o.references)") }
         for (k, v) in o.extraHeaders { h.append("\(k): \(v)") }
+        h = h.map(oneLine)
         func chunk(_ d: Data) -> String {
             let b = d.base64EncodedString()
             var out = "", i = b.startIndex
@@ -266,8 +270,8 @@ enum MIME {
             h.append("Content-Type: multipart/mixed; boundary=\"\(boundaryMixed)\"")
             body = "--\(boundaryMixed)\r\nContent-Type: multipart/alternative; boundary=\"\(boundaryAlt)\"\r\n\r\n\(alt)"
             for a in o.attachments {
-                let n = encodeHeader(a.name)
-                body += "--\(boundaryMixed)\r\nContent-Type: \(a.mime); name=\"\(n)\"\r\nContent-Disposition: attachment; filename=\"\(n)\"\r\nContent-Transfer-Encoding: base64\r\n\r\n\(chunk(a.data))"
+                let n = oneLine(encodeHeader(a.name))
+                body += "--\(boundaryMixed)\r\nContent-Type: \(oneLine(a.mime)); name=\"\(n)\"\r\nContent-Disposition: attachment; filename=\"\(n)\"\r\nContent-Transfer-Encoding: base64\r\n\r\n\(chunk(a.data))"
             }
             body += "--\(boundaryMixed)--\r\n"
         }

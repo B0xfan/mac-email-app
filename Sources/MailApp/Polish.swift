@@ -173,18 +173,13 @@ struct MenuBarContent: View {
 // MARK: - 4. Share from other apps (the receiving side; the Share-menu item itself is the extension)
 
 extension MailStore {
-    /// audreymail://share?subject=...&body=...&file=/path ... opens a new email with those filled in.
+    /// audreymail://share?subject=...&body=... opens a new email with those filled in. A file= value is ignored on purpose: a link must never attach local files.
     func handleShare(_ url: URL) {
         guard url.scheme?.lowercased() == "audreymail", let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return }
         homeShown = false
         newCompose()
         compose?.subject = items.first { $0.name == "subject" }?.value ?? ""
         compose?.restoredBodyHTML = ComposeStart.html(text: items.first { $0.name == "body" }?.value ?? "", signature: settings.signature)
-        for f in items where f.name == "file" {
-            guard let p = f.value, let data = try? Data(contentsOf: URL(fileURLWithPath: p)), data.count < 20_000_000 else { continue }
-            let u = URL(fileURLWithPath: p)
-            compose?.attachments.append(DraftAttachment(name: u.lastPathComponent, data: data, mime: UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"))
-        }
     }
 }
 

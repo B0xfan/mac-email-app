@@ -56,6 +56,9 @@ final class GmailClient: @unchecked Sendable {
 
     init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }
 
+    /// Sending is never retried: a timeout or 5xx can hide a send that went through, and a retry would send twice.
+    static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send")) }
+
     private func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
         var c = URLComponents(string: Self.base + path)!
@@ -70,14 +73,15 @@ final class GmailClient: @unchecked Sendable {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         let data: Data, resp: URLResponse
+        let canRetry = Self.mayRetry(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
         catch {
-            if retry < 2 { try await Task.sleep(nanoseconds: 600_000_000); return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1) }
+            if canRetry && retry < 2 { try await Task.sleep(nanoseconds: 600_000_000); return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1) }
             throw GmailError.offline
         }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if (200..<300).contains(code) { return data }
-        if (code == 429 || code >= 500) && retry < 3 {
+        if canRetry && (code == 429 || code >= 500) && retry < 3 {
             try await Task.sleep(nanoseconds: UInt64(800_000_000 * (retry + 1)))
             return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1)
         }

@@ -78,8 +78,8 @@ enum PolishTest {
         var uc = URLComponents(string: "audreymail://share")!
         uc.queryItems = [.init(name: "subject", value: "Venue floor plans"), .init(name: "body", value: "https://seaviewhall.example/floor-plans"), .init(name: "file", value: f.path)]
         store.handleShare(uc.url!)
-        check("share: a new email opens with the subject, the link and the file already in it",
-              store.compose?.subject == "Venue floor plans" && store.compose?.restoredBodyHTML.contains("seaviewhall.example/floor-plans") == true && store.compose?.attachments.map(\.name) == ["floor-plan.txt"])
+        check("share: a new email opens with the subject and the link; a file= in the link is ignored",
+              store.compose?.subject == "Venue floor plans" && store.compose?.restoredBodyHTML.contains("seaviewhall.example/floor-plans") == true && store.compose?.attachments.isEmpty == true)
         store.compose = nil
 
         // 5 print to a PDF

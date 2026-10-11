@@ -709,6 +709,23 @@ enum SelfTest {
         await MainActor.run { nb2.set("kept", for: ppl) }
         let nb3 = await MainActor.run { NotesBook(url: nurl) }
         check("private notes: still there after Mail restarts (file on this Mac)", await MainActor.run { nb3.text(ppl.threadID) } == "kept")
+        // round 1 safety fixes
+        check("send is never retried; reads still are", !GmailClient.mayRetry(method: "POST", path: "/messages/send") && !GmailClient.mayRetry(method: "POST", path: "/drafts/send")
+              && GmailClient.mayRetry(method: "GET", path: "/messages") && GmailClient.mayRetry(method: "POST", path: "/messages/batchModify"))
+        nonisolated(unsafe) var sendHits = 0
+        StubProtocol.handler = { req in
+            if req.url!.absoluteString.contains("oauth2") || req.url!.absoluteString.contains("token") && !req.url!.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            sendHits += 1; return (503, "{}")
+        }
+        let rauth = GoogleAuth(session: session, credentials: creds, file: signedFile("r.json", "RT"), legacy: noKeychain)
+        let rg = GmailClient(auth: rauth, session: session)
+        _ = try? await rg.sendRaw(Data("x".utf8), threadID: nil)
+        _ = try? await rg.sendDraft(id: "d1")
+        check("send/draft-send hit a failing server exactly once each (no double send)", sendHits == 2)
+        StubProtocol.handler = nil
+        let inj = MIME.build(MIME.Outgoing(from: "a@x.example", to: "b@x.example\r\nBcc: evil@x.example", subject: "Hi\r\nBcc: evil@x.example", html: "h", text: "t", inReplyTo: "<1>\nX-Evil: 1"))
+        let head = String(decoding: inj, as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
+        check("CR/LF in subject, to or reply id cannot start an extra header line", !head.contains("\nBcc:") && !head.contains("\nX-Evil:") && head.contains("Subject: Hi"))
         // print page
         let doc = PrintHTML.document([ppl], loadImages: false, blockTrackers: true)
         check("print page: subject, sender and text; remote pictures stay blocked unless showing", doc.contains("Venue") && doc.contains("p@x.example") && !doc.contains("https: http:"))

@@ -19,7 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showWindow()
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) { MailStore.clearAttachmentTemp() }
+
     func applicationWillTerminate(_ notification: Notification) {
+        MailStore.clearAttachmentTemp()
         MainActor.assumeIsolated { AppModel.current?.store.flushPendingSendsOnQuit() }
     }
 

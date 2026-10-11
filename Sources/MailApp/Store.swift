@@ -684,7 +684,12 @@ final class MailStore: ObservableObject {
                 if let r = d.remindAt { self.addFollowUp(messageID: sent.id, threadID: sent.threadID, at: r, to: d.to, subject: d.subject) }
                 if let did = d.draftID { try? await self.gmail.deleteDraft(id: did) }
                 if self.toast?.id == tid { self.showToast("Sent.", seconds: 4) }
-            } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent." }
+            } catch {
+                // the window was closed to send: bring the whole email back so nothing typed is lost
+                if self.compose == nil { var r = d; r.restoredBodyHTML = bodyHTML; self.compose = r }
+                if self.toast?.id == tid { self.toast = nil }
+                self.error = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent."
+            }
             self.pendingSends[token] = nil
         }
         undoSend = (token, d, bodyHTML, tid)
@@ -716,11 +721,21 @@ final class MailStore: ObservableObject {
 
     func openAttachment(_ a: Attachment, of m: Mail) async {
         guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID) else { return }
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-\(UUID().uuidString)")
+        let dir = Self.attachmentTemp.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent(a.name.replacingOccurrences(of: "/", with: "-"))
         try? data.write(to: url)
+        Self.quarantine(url)
         NSWorkspace.shared.open(url)
+    }
+
+    static var attachmentTemp: URL { FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-Attachments") }
+    static func clearAttachmentTemp() { try? FileManager.default.removeItem(at: attachmentTemp) }
+
+    /// Marks a downloaded file like a browser download, so Gatekeeper checks it before it opens.
+    static func quarantine(_ url: URL) {
+        let v = "0083;\(String(Int(Date().timeIntervalSince1970), radix: 16));AudreyMail;"
+        _ = v.withCString { setxattr(url.path, "com.apple.quarantine", $0, strlen($0), 0, 0) }
     }
 }
 
