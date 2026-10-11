@@ -74,12 +74,14 @@ enum PolishTest {
         store.toast = nil
 
         // 4 share (the receiving side)
-        let f = vault.appendingPathComponent("floor-plan.txt"); try? "plan".write(to: f, atomically: true, encoding: .utf8)
+        let inbox = vault.appendingPathComponent("ShareInbox"); let tok = UUID().uuidString
+        let tdir = inbox.appendingPathComponent(tok); try? FileManager.default.createDirectory(at: tdir, withIntermediateDirectories: true)
+        try? "plan".write(to: tdir.appendingPathComponent("floor-plan.txt"), atomically: true, encoding: .utf8)
         var uc = URLComponents(string: "audreymail://share")!
-        uc.queryItems = [.init(name: "subject", value: "Venue floor plans"), .init(name: "body", value: "https://seaviewhall.example/floor-plans"), .init(name: "file", value: f.path)]
-        store.handleShare(uc.url!)
-        check("share: a new email opens with the subject and the link; a file= in the link is ignored",
-              store.compose?.subject == "Venue floor plans" && store.compose?.restoredBodyHTML.contains("seaviewhall.example/floor-plans") == true && store.compose?.attachments.isEmpty == true)
+        uc.queryItems = [.init(name: "subject", value: "Venue floor plans"), .init(name: "body", value: "https://seaviewhall.example/floor-plans"), .init(name: "attach", value: tok)]
+        store.handleShare(uc.url!, inbox: inbox)
+        check("share: a new email opens with the subject, the link and the handed-off file, which is then deleted",
+              store.compose?.subject == "Venue floor plans" && store.compose?.restoredBodyHTML.contains("seaviewhall.example/floor-plans") == true && store.compose?.attachments.map(\.name) == ["floor-plan.txt"] && !FileManager.default.fileExists(atPath: tdir.path))
         store.compose = nil
 
         // 5 print to a PDF

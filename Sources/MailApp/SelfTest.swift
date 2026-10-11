@@ -37,6 +37,21 @@ enum SelfTest {
               PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
         check("client file loads", (try? ClientCredentials.load()) != nil)
 
+        // Share hand-off: only a UUID token resolves, only inside the hand-off folder
+        do {
+            let fm = FileManager.default
+            let inbox = fm.temporaryDirectory.appendingPathComponent("sharetest-\(UUID().uuidString)/ShareInbox")
+            let tok = UUID().uuidString, d = inbox.appendingPathComponent(tok)
+            try? fm.createDirectory(at: d, withIntermediateDirectories: true)
+            try? "x".write(to: d.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+            let outside = inbox.deletingLastPathComponent().appendingPathComponent("secret.txt"); try? "s".write(to: outside, atomically: true, encoding: .utf8)
+            check("share: a valid token from the folder resolves to its file", MailStore.shareFile(token: tok, inbox: inbox)?.lastPathComponent == "a.txt")
+            check("share: a path is rejected", MailStore.shareFile(token: outside.path, inbox: inbox) == nil)
+            check("share: .. is rejected", MailStore.shareFile(token: "../secret.txt", inbox: inbox) == nil && MailStore.shareFile(token: "\(tok)/../..", inbox: inbox) == nil)
+            check("share: an unknown token is rejected", MailStore.shareFile(token: UUID().uuidString, inbox: inbox) == nil)
+            try? fm.removeItem(at: inbox.deletingLastPathComponent())
+        }
+
         // Loopback listener catches a redirect
         do {
             let l = try LoopbackListener()

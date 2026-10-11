@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showWindow()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { MailStore.clearAttachmentTemp() }
+    func applicationDidFinishLaunching(_ notification: Notification) { MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
 
     func applicationWillTerminate(_ notification: Notification) {
         MailStore.clearAttachmentTemp()
