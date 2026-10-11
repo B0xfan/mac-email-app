@@ -135,7 +135,7 @@ final class TimingBook {
     init(url: URL? = TimingBook.defaultURL) {
         self.url = url
         let readable = url.flatMap { u in Keychain.testMode && u == Self.defaultURL ? nil : u }   // test runs never read John's real file
-        data = readable.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(TimingData.self, from: $0) } ?? TimingData()
+        data = JSONStore.load(TimingData.self, from: readable) ?? TimingData()
     }
     static var defaultURL: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail/timing.json")
@@ -143,9 +143,8 @@ final class TimingBook {
     func change(_ f: (inout TimingData) -> Void) { f(&data); save() }
     private func save() {
         // test runs never write John's real file
-        guard let url, !(Keychain.testMode && url == Self.defaultURL), let d = try? JSONEncoder().encode(data) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? d.write(to: url, options: .atomic)
+        guard let url, !(Keychain.testMode && url == Self.defaultURL) else { return }
+        JSONStore.save(data, to: url)
     }
 }
 

@@ -88,7 +88,7 @@ final class AppSettings: ObservableObject {
         menuBarAll = d.object(forKey: "menuBarAll") as? Bool ?? false
         todoList = TodoList(rawValue: d.string(forKey: "todoList") ?? "") ?? .obsidian
         vaultPath = d.string(forKey: "vaultPath") ?? ObsidianTask.defaultVault().path
-        todoMarks = d.stringArray(forKey: "todoMarks") ?? []
+        todoMarks = Array((d.stringArray(forKey: "todoMarks") ?? []).suffix(500))
         let cm = d.object(forKey: "checkMinutes") as? Int ?? 1
         checkMinutes = AppSettings.checkChoices.contains(cm) ? cm : 1
     }
@@ -109,24 +109,37 @@ struct SenderBookData: Codable {
     var approved: Set<String>
 }
 
+/// The one way the small JSON stores (senders, recently seen, set aside, timing) are found, read and saved on this Mac.
+enum JSONStore {
+    static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail")
+    static func url(_ name: String) -> URL {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(name)
+    }
+    static func load<T: Decodable>(_ type: T.Type, from url: URL?) -> T? {
+        url.flatMap { try? Data(contentsOf: $0) }.flatMap { try? JSONDecoder().decode(T.self, from: $0) }
+    }
+    static func save<T: Encodable>(_ value: T, to url: URL?) {
+        guard let url, let d = try? JSONEncoder().encode(value) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? d.write(to: url, options: .atomic)
+    }
+}
+
 final class SenderBook {
     private(set) var data: SenderBookData
     private let url: URL
 
     init(url: URL = SenderBook.defaultURL) {
         self.url = url
-        if let d = try? Data(contentsOf: url), let v = try? JSONDecoder().decode(SenderBookData.self, from: d) { data = v }
+        if let v = JSONStore.load(SenderBookData.self, from: url) { data = v }
         else {
             data = SenderBookData(screeningStart: Date(), approved: [])
             save()
         }
     }
 
-    static var defaultURL: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("senders.json")
-    }
+    static var defaultURL: URL { JSONStore.url("senders.json") }
 
     func isApproved(_ email: String) -> Bool { data.approved.contains(email.lowercased()) }
     func approve(_ email: String) { data.approved.insert(email.lowercased()); save() }
@@ -134,7 +147,5 @@ final class SenderBook {
     func revoke(_ email: String) { data.approved.remove(email.lowercased()); save() }
     var screeningStart: Date { data.screeningStart }
 
-    private func save() {
-        if let d = try? JSONEncoder().encode(data) { try? d.write(to: url, options: .atomic) }
-    }
+    private func save() { JSONStore.save(data, to: url) }
 }

@@ -43,6 +43,9 @@ struct Attachment: Hashable, Identifiable, Codable {
     let size: Int
 }
 
+/// A picture inside an email that the message text refers to as cid:name.
+struct CIDPart: Hashable, Codable { var mime: String; var data: Data?; var attachmentID: String? }
+
 struct UnsubscribeInfo: Hashable, Codable {
     var https: URL?
     var mailto: URL?
@@ -81,6 +84,8 @@ struct Mail: Identifiable, Hashable, Codable {
     var attachments: [Attachment]
     var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
     var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
+    var replyTo: String?        // the Reply-To header, when the sender set one
+    var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
 
     var unread: Bool { labels.contains("UNREAD") }
     var inInbox: Bool { labels.contains("INBOX") }
@@ -97,6 +102,7 @@ struct Mail: Identifiable, Hashable, Codable {
         from = Address.parse(h["from"] ?? "")
         to = h["to"] ?? ""
         cc = h["cc"] ?? ""
+        replyTo = h["reply-to"]
         let subj = MIME.decodeWords(h["subject"] ?? "")
         subject = subj.isEmpty ? "(no subject)" : subj
         messageIDHeader = h["message-id"] ?? ""
@@ -104,7 +110,12 @@ struct Mail: Identifiable, Hashable, Codable {
         unsubscribe = UnsubscribeInfo.parse(header: h["list-unsubscribe"], post: h["list-unsubscribe-post"])
         var html: String?, text: String?
         var atts: [Attachment] = []
+        var cids: [String: CIDPart] = [:]
         func walk(_ p: GPart) {
+            if let cid = p.headers?.first(where: { $0.name.lowercased() == "content-id" })?.value.trimmingCharacters(in: CharacterSet(charactersIn: "<> ")), !cid.isEmpty,
+               let mt = p.mimeType?.lowercased(), mt.hasPrefix("image/"), mt != "image/svg+xml" {
+                cids[cid] = CIDPart(mime: mt, data: p.body?.data.flatMap(Base64URL.decode), attachmentID: p.body?.attachmentId)
+            }
             if let fn = p.filename, !fn.isEmpty, let aid = p.body?.attachmentId {
                 atts.append(Attachment(name: fn, attachmentID: aid, size: p.body?.size ?? 0))
             } else if let d = p.body?.data, let data = Base64URL.decode(d) {
@@ -115,7 +126,7 @@ struct Mail: Identifiable, Hashable, Codable {
             for c in p.parts ?? [] { walk(c) }
         }
         if let p = g.payload { walk(p) }
-        self.html = html; self.text = text; attachments = atts
+        self.html = html; self.text = text; attachments = atts; cidParts = cids.isEmpty ? nil : cids
     }
 
     // Test / sample construction

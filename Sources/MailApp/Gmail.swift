@@ -2,6 +2,14 @@ import Foundation
 
 // MARK: - Wire types (Gmail REST)
 
+/// Addresses typed into a Gmail search are always quoted, so an odd address can never add search words of its own.
+enum GmailQuery {
+    static func term(_ s: String) -> String {
+        let c = s.filter { !$0.isWhitespace && !"\"(){}".contains($0) }
+        return c.hasPrefix("@") ? c : "\"\(c)\""   // a whole-company "@domain" is Gmail's own syntax and stays bare
+    }
+}
+
 struct GHeader: Decodable { let name: String; let value: String }
 struct GBody: Decodable { let size: Int?; let data: String?; let attachmentId: String? }
 struct GPart: Decodable {
@@ -164,7 +172,7 @@ final class GmailClient: @unchecked Sendable {
         return r["resultSizeEstimate"] as? Int ?? 0
     }
 
-    static let metadataHeaders = ["From", "To", "Cc", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"]
+    static let metadataHeaders = ["From", "To", "Cc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"]
 
     func message(id: String, full: Bool) async throws -> Mail {
         var q = [URLQueryItem(name: "format", value: full ? "full" : "metadata")]

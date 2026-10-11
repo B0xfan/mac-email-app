@@ -364,6 +364,7 @@ extension MailStore {
             case .clickup: open = try await todoSender.clickup(task, token: todoTokens.clickup, list: todoTokens.clickupList)
             }
             if !settings.todoMarks.contains(m.threadID) { settings.todoMarks.append(m.threadID) }
+            if settings.todoMarks.count > 500 { settings.todoMarks.removeFirst(settings.todoMarks.count - 500) }   // only the latest 500 keep their check mark
             todoMail = nil
             let t = ToastInfo(text: "Added to to-do.", action: open == nil ? nil : "Open", link: open)
             toast = t

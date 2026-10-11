@@ -240,6 +240,8 @@ struct ToolbarView: View {
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply" : "Reply, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
+            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply all" : "Reply all, open an email first", enabled: canAct) {
+                if let m = store.openMail { store.reply(m, all: true) } }
             IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward" : "Forward, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
             IconButton(symbol: "archivebox", label: canAct ? "Archive" : "Archive, open an email first", enabled: canAct) {

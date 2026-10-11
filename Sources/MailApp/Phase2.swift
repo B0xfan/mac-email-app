@@ -36,21 +36,17 @@ final class SeenBook {
 
     init(url: URL = SeenBook.defaultURL, now: Date = Date()) {
         self.url = url
-        if let d = try? Data(contentsOf: url), let v = try? JSONDecoder().decode([SeenEntry].self, from: d) { entries = v } else { entries = [] }
+        entries = JSONStore.load([SeenEntry].self, from: url) ?? []
         let cutoff = now.addingTimeInterval(-Double(Self.keepDays) * 86400)
         entries.removeAll { $0.at < cutoff }
     }
 
-    static var defaultURL: URL {
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("seen.json")
-    }
+    static var defaultURL: URL { JSONStore.url("seen.json") }
 
     func record(_ id: String, at: Date = Date()) {
         entries.removeAll { $0.id == id }
         entries.append(SeenEntry(id: id, at: at))
-        if let d = try? JSONEncoder().encode(entries) { try? d.write(to: url, options: .atomic) }
+        JSONStore.save(entries, to: url)
     }
 
     /// Newest first, only those opened within the last `days` days.

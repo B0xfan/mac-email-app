@@ -304,10 +304,20 @@ struct TodoTokens: Codable, Equatable {
 /// Same private-file way as the Google sign-in: a file only John's Mac account can read, written atomically.
 enum TodoTokenFile {
     static var defaultURL: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail/integrations.json") }
+    /// Read from disk once per run; saving updates the copy kept here.
+    nonisolated(unsafe) private static var cache: [URL: TodoTokens] = [:]
+    private static let lock = NSLock()
     static func load(_ url: URL = defaultURL) -> TodoTokens {
-        SignInFile.read(url).flatMap { try? JSONDecoder().decode(TodoTokens.self, from: $0) } ?? TodoTokens()
+        lock.lock(); defer { lock.unlock() }
+        if let c = cache[url] { return c }
+        let t = SignInFile.read(url).flatMap { try? JSONDecoder().decode(TodoTokens.self, from: $0) } ?? TodoTokens()
+        cache[url] = t
+        return t
     }
-    static func save(_ t: TodoTokens, to url: URL = defaultURL) throws { try SignInFile.write(try JSONEncoder().encode(t), to: url) }
+    static func save(_ t: TodoTokens, to url: URL = defaultURL) throws {
+        try SignInFile.write(try JSONEncoder().encode(t), to: url)
+        lock.lock(); cache[url] = t; lock.unlock()
+    }
 }
 
 enum TodoSendError: Error, LocalizedError, Equatable {
@@ -320,6 +330,12 @@ enum TodoSendError: Error, LocalizedError, Equatable {
         case .network: return "Mail could not reach the to-do list. Check the internet and try again."
         }
     }
+}
+
+/// Percent-encodes one piece of a web address (a path part or a query value).
+func urlPiece(_ s: String) -> String {
+    var ok = CharacterSet.alphanumerics; ok.insert(charactersIn: "-._~")
+    return s.addingPercentEncoding(withAllowedCharacters: ok) ?? ""
 }
 
 struct TodoSender {
@@ -368,7 +384,7 @@ struct TodoSender {
         if let p = t.project {
             var cursor: String?
             repeat {   // projects come in pages
-                let r = try await call("https://api.todoist.com/api/v1/projects?limit=200" + (cursor.map { "&cursor=" + $0 } ?? ""), "GET", auth: auth, body: nil, name: "Todoist")
+                let r = try await call("https://api.todoist.com/api/v1/projects?limit=200" + (cursor.map { "&cursor=" + urlPiece($0) } ?? ""), "GET", auth: auth, body: nil, name: "Todoist")
                 pid = ((r["results"] as? [[String: Any]]) ?? []).first { ($0["name"] as? String)?.lowercased() == p.lowercased() }?["id"] as? String
                 cursor = pid == nil ? r["next_cursor"] as? String : nil
             } while cursor != nil
@@ -400,7 +416,7 @@ struct TodoSender {
     func clickup(_ t: TodoTask, token: String, list: String) async throws -> URL? {
         guard !token.isEmpty else { throw TodoSendError.needsToken("ClickUp") }
         guard !list.isEmpty else { throw TodoSendError.needsToken("ClickUp list number (and ClickUp)") }
-        let r = try await call("https://api.clickup.com/api/v2/list/\(list)/task", "POST", auth: token, body: Self.clickupBody(t), name: "ClickUp")
+        let r = try await call("https://api.clickup.com/api/v2/list/\(urlPiece(list))/task", "POST", auth: token, body: Self.clickupBody(t), name: "ClickUp")
         return (r["url"] as? String).flatMap(URL.init)
     }
 }

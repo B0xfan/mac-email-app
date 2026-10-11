@@ -1,0 +1,250 @@
+import Foundation
+import SwiftUI
+import AppKit
+
+/// Opening, archiving, setting aside, undo, toasts, attachments and pins.
+extension MailStore {
+    // MARK: - Opening and reading
+
+    func open(_ m: Mail) async {
+        if mailbox == .drafts, let did = draftMap[m.id] {
+            selectedID = m.id
+            if let full = try? await gmail.message(id: m.id, full: true) {
+                var d = ComposeDraft(from: defaultFrom, to: full.to, subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
+                d.draftID = did
+                d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
+                d.threadID = nil
+                compose = d
+            }
+            return
+        }
+        selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
+        openMail = m
+        seen.record(m.id)
+        if let full = try? await gmail.message(id: m.id, full: true), selectedID == m.id {
+            openMail = full
+            let withPictures = await withInlineImages(full)   // pictures that are part of the email itself
+            if selectedID == m.id, withPictures.html != full.html { openMail = withPictures }
+        }
+        if m.unread { await setRead(m) }
+    }
+
+    private func setRead(_ m: Mail) async {
+        try? await gmail.modify(ids: [m.id] + (m.siblings ?? []), remove: ["UNREAD"])
+        for i in inbox.indices where inbox[i].id == m.id { inbox[i].labels.removeAll { $0 == "UNREAD" } }
+        for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { $0 == "UNREAD" } }
+        for i in aside.indices where aside[i].id == m.id { aside[i].labels.removeAll { $0 == "UNREAD" } }
+    }
+
+    /// Pictures that sit inside the email (cid:name in its text) are filled in from the email's own parts.
+    func withInlineImages(_ m: Mail) async -> Mail {
+        guard var h = m.html, let parts = m.cidParts, h.localizedCaseInsensitiveContains("cid:") else { return m }
+        for (cid, p) in parts.prefix(12) where h.localizedCaseInsensitiveContains("cid:" + cid) {
+            var data = p.data
+            if data == nil, let a = p.attachmentID { data = try? await gmail.attachment(messageID: m.id, attachmentID: a) }
+            guard let data, !data.isEmpty, data.count <= 3_000_000 else { continue }
+            h = h.replacingOccurrences(of: "cid:" + cid, with: "data:\(p.mime);base64,\(data.base64EncodedString())", options: .caseInsensitive)
+        }
+        var x = m; x.html = h
+        return x
+    }
+
+    // MARK: - Archive
+
+    func archiveOpen() async {
+        guard let m = openMail, !selectedIsNewSender else { return }
+        await archive(m)
+    }
+
+    /// Archives any email in the list (row button or open email). Moves on to the next email only if this one was open.
+    func archive(_ m: Mail) async { await leaveInbox(m, add: [], text: "Archived.", aside: false) }
+
+    /// Shared by Archive and Set Aside: the email leaves the inbox (and the Set Aside list), toast with Undo,
+    /// and the next email opens if this one was open.
+    /// `alsoRemove`/`keepOther`/`exactUndo` serve Move to folder: a move out of a folder view also drops that folder,
+    /// a move from Sent/Archive/search leaves the row where it is, and Undo puts back exactly what was changed.
+    func leaveInbox(_ m: Mail, add: [String], text: String, aside setAside: Bool,
+                            alsoRemove: [String] = [], keepOther: Bool = false, exactUndo: Bool = false, trashIt: Bool = false) async {
+        let wasOpen = openMail?.id == m.id
+        let before = listMails
+        let idx = before.firstIndex { $0.id == m.id }
+        let wasAside = aside.contains { $0.id == m.id }
+        do {
+            var remove = ["INBOX"] + alsoRemove
+            if wasAside, let l = asideLabelID, !setAside { remove.append(l) }
+            if trashIt { try await gmail.trash(id: m.id); for s in m.siblings ?? [] { try await gmail.trash(id: s) } }
+            else {
+                try await gmail.modify(ids: [m.id], add: add, remove: remove)
+                // the row stands for the whole conversation: its other inbox emails leave too
+                if let s = m.siblings, !s.isEmpty { try await gmail.modify(ids: s, remove: ["INBOX"]) }
+            }   // Gmail documents trash/untrash for the Trash label
+            inbox.removeAll { $0.id == m.id }
+            if keepOther { for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { remove.contains($0) }; other[i].labels += add } }
+            else { other.removeAll { $0.id == m.id } }
+            aside.removeAll { $0.id == m.id }
+            if setAside, let l = asideLabelID {
+                var x = m; x.labels.removeAll { $0 == "INBOX" }; if !x.labels.contains(l) { x.labels.append(l) }
+                aside.append(x); asides.record(m.id)
+            } else { asides.forget(m.id) }
+            saveCache()
+            let sibs = m.siblings ?? [], keepSibs = exactUndo && !trashIt
+            undoArchive = keepSibs ? [m.id] : [m.id] + sibs; undoSibs = keepSibs ? sibs : []; undoAside = setAside
+            undoUntrash = trashIt
+            undoFolder = exactUndo ? (add: (m.labels.contains("INBOX") ? ["INBOX"] : []) + alsoRemove + (wasAside ? (asideLabelID.map { [$0] } ?? []) : []), remove: add) : nil
+            showToast(text, action: "Undo")
+            // open the email that moved into its place; if it was last, the one above; if none, the empty pane
+            let after = listMails
+            if !wasOpen { return }
+            if after.isEmpty { openMail = nil; selectedID = nil }
+            else if let n = ArchiveNext.index(mode: settings.afterArchive, unread: after.map { $0.unread }, archivedAt: idx ?? 0) { await open(after[n]) }
+            else { openMail = nil; selectedID = nil }
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+
+    func setAside(_ m: Mail) async {
+        do {
+            let id: String
+            if let known = asideLabelID { id = known } else { id = try await labelID(named: MailStore.asideLabelName) }
+            asideLabelID = id
+            await leaveInbox(m, add: [id], text: "Set aside. It is in Set Aside in the sidebar.", aside: true)
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+
+    /// The Gmail label with this name; created the first time it is needed.
+    func labelID(named name: String) async throws -> String {
+        if let l = try await gmail.labels().first(where: { $0.name == name }) { return l.id }
+        return try await gmail.createLabel(name: name).id
+    }
+
+    func loadAside() async {
+        guard let l = asideLabelID else { aside = []; return }
+        guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
+        let have = Dictionary(aside.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let fresh = await gmail.messages(ids: ids.filter { have[$0] == nil })
+        aside = ids.compactMap { have[$0] } + fresh
+    }
+
+    /// Back to Inbox: the email returns to where it was by date.
+    func backToInbox(_ ms: [Mail]) async {
+        guard let l = asideLabelID, !ms.isEmpty else { return }
+        do {
+            try await gmail.modify(ids: ms.map(\.id), add: ["INBOX"], remove: [l])
+            let ids = Set(ms.map(\.id))
+            aside.removeAll { ids.contains($0.id) }
+            for var x in ms { x.labels.removeAll { $0 == l }; if !x.labels.contains("INBOX") { x.labels.append("INBOX") }; inbox.append(x); asides.forget(x.id) }
+            inbox.sort { $0.date > $1.date }
+            if let o = openMail, ids.contains(o.id) { openMail = nil; selectedID = nil }
+            saveCache()
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+
+    /// Undo brings the archived (or set-aside) email back to the inbox and reopens it.
+    func undoLast() async {
+        var failed: String?
+        func note(_ e: Error) { failed = (e as? LocalizedError)?.errorDescription ?? "Undo did not go through. Check your connection and try again." }
+        if !undoArchive.isEmpty, let u = undoFolder {
+            let ids = undoArchive; undoArchive = []; undoFolder = nil
+            do {
+                if undoUntrash { for id in ids { try await gmail.untrash(id: id) }; undoUntrash = false }
+                if !u.add.isEmpty || !u.remove.isEmpty { try await gmail.modify(ids: ids, add: u.add, remove: u.remove) }
+                if !undoSibs.isEmpty { try await gmail.modify(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
+            } catch { note(error) }
+            toast = nil
+            await refresh()
+        } else if !undoArchive.isEmpty {
+            let ids = undoArchive; undoArchive = []
+            let fromAside = undoAside; undoAside = false
+            do { try await gmail.modify(ids: ids, add: ["INBOX"], remove: fromAside ? (asideLabelID.map { [$0] } ?? []) : []) } catch { note(error) }
+            if failed == nil && fromAside { ids.forEach { asides.forget($0) } }
+            toast = nil
+            await refresh()
+            if failed == nil, let back = (inbox + other).first(where: { $0.id == ids[0] }) { await open(back) }
+        }
+        if let failed { error = failed }
+    }
+
+    func showToast(_ text: String, action: String? = nil, seconds: Double = 8, link: URL? = nil) {
+        let t = ToastInfo(text: text, action: action, link: link)
+        toast = t
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if self.toast?.id == t.id { self.toast = nil; self.undoArchive = []; self.undoAside = false; self.undoFolder = nil }
+        }
+    }
+
+    // MARK: - Attachments
+
+    func openAttachment(_ a: Attachment, of m: Mail) async {
+        guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID) else { return }
+        let dir = Self.attachmentTemp.appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent(a.name.replacingOccurrences(of: "/", with: "-"))
+        try? data.write(to: url)
+        Self.quarantine(url)
+        NSWorkspace.shared.open(url)
+    }
+
+    static var attachmentTemp: URL { FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-Attachments") }
+    static func clearAttachmentTemp() { try? FileManager.default.removeItem(at: attachmentTemp) }
+
+    /// Marks a downloaded file like a browser download, so Gatekeeper checks it before it opens.
+    static func quarantine(_ url: URL) {
+        let v = "0083;\(String(Int(Date().timeIntervalSince1970), radix: 16));AudreyMail;"
+        _ = v.withCString { setxattr(url.path, "com.apple.quarantine", $0, strlen($0), 0, 0) }
+    }
+}
+
+// MARK: - Pins
+
+extension MailStore {
+    func isPinned(_ m: Mail) -> Bool { pinLabelID.map { m.labels.contains($0) } ?? false }
+    var pinnedMails: [Mail] { inboxMails.filter(isPinned).sorted { $0.date > $1.date } }
+    var unpinnedInbox: [Mail] { inboxMails.filter { !isPinned($0) } }
+
+    func togglePin(_ given: Mail) async {
+        let m = (inbox + other).first { $0.id == given.id } ?? given   // always the current labels
+        do {
+            let unpin = isPinned(m)
+            var id = pinLabelID
+            if id == nil {
+                if unpin { return }
+                id = try await gmail.labels().first { $0.name == MailStore.pinLabelName }?.id
+                if id == nil { id = try await gmail.createLabel(name: MailStore.pinLabelName).id }
+                pinLabelID = id
+            }
+            guard let label = id else { return }
+            try await gmail.modify(ids: [m.id], add: unpin ? [] : [label], remove: unpin ? [label] : [])
+            func apply(_ x: inout Mail) { if unpin { x.labels.removeAll { $0 == label } } else if !x.labels.contains(label) { x.labels.append(label) } }
+            for i in inbox.indices where inbox[i].id == m.id { apply(&inbox[i]) }
+            for i in other.indices where other[i].id == m.id { apply(&other[i]) }
+            if openMail?.id == m.id { apply(&openMail!) }
+            saveCache()
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+}
+
+/// When each email was set aside, kept on this Mac (not secret). Emails set aside elsewhere fall back to their own date.
+final class AsideBook {
+    private var map: [String: Date]
+    private let url: URL?
+    init(url: URL? = AsideBook.defaultURL) {
+        self.url = url
+        map = JSONStore.load([String: Date].self, from: url) ?? [:]
+    }
+    static var defaultURL: URL { JSONStore.url("set-aside.json") }
+    func date(_ m: Mail) -> Date { map[m.id] ?? m.date }
+    func record(_ id: String, at d: Date = Date()) { map[id] = d; save() }
+    func forget(_ id: String) { if map.removeValue(forKey: id) != nil { save() } }
+    private func save() { JSONStore.save(map, to: url) }
+
+    /// "Set aside today", "Set aside Tue", "Set aside last week" ...
+    static func label(_ d: Date, now: Date = Date()) -> String {
+        let c = Calendar.current
+        if c.isDate(d, inSameDayAs: now) { return "Set aside today" }
+        if c.isDateInYesterday(d) { return "Set aside yesterday" }
+        let days = c.dateComponents([.day], from: c.startOfDay(for: d), to: c.startOfDay(for: now)).day ?? 99
+        if days < 7 { return "Set aside " + d.formatted(.dateTime.weekday(.abbreviated)) }
+        if days < 14 { return "Set aside last week" }
+        return "Set aside " + d.formatted(.dateTime.month(.abbreviated).day())
+    }
+}
