@@ -686,6 +686,17 @@ enum SelfTest {
               cu == URL(string: "https://app.clickup.com/t/9") && seen.last?.2 == "pk_123" && seen.last?.1 == "https://api.clickup.com/api/v2/list/L5/task")
         let ls = try? await snd.clickupLists(token: "pk_123")
         check("ClickUp list finder: Workspace / Space / List and Workspace / Space / Folder / List", ls?.map { $0.label } == ["Work / Ops / Inbox", "Work / Ops / Clients / Pura"] && ls?.map { $0.id } == ["L5", "L6"])
+        // web-address pieces are percent-encoded
+        seen = []
+        StubProtocol.handler = { r in
+            seen.append((r.httpMethod ?? "", r.url!.absoluteString, nil, ""))
+            let u = r.url!.absoluteString
+            if u.contains("todoist.com/api/v1/projects") { return u.contains("cursor=a%26b%3Dc%2Bd") ? (200, "{\"results\":[{\"id\":\"P7\",\"name\":\"pura life private car rental\"}]}") : (200, "{\"results\":[],\"next_cursor\":\"a&b=c+d\"}") }
+            return (200, "{\"id\":\"1\",\"url\":\"https://app.clickup.com/t/1\"}")
+        }
+        _ = try? await snd.todoist(tk, token: "t")
+        _ = try? await snd.clickup(tk, token: "pk", list: "L 5/x?y")
+        check("to-do web addresses: the Todoist page cursor and the ClickUp list number are percent-encoded", seen.contains { $0.1.hasSuffix("cursor=a%26b%3Dc%2Bd") } && seen.contains { $0.1.hasSuffix("/list/L%205%2Fx%3Fy/task") })
         StubProtocol.handler = { _ in (401, "{}") }
         var bad: TodoSendError?, none: TodoSendError?
         do { _ = try await snd.todoist(tk, token: "x") } catch { bad = error as? TodoSendError }
@@ -699,6 +710,15 @@ enum SelfTest {
         try? TodoTokenFile.save(TodoTokens(todoist: "t", clickup: "c", clickupList: "L"), to: kfile)
         let perms = (try? FileManager.default.attributesOfItem(atPath: kfile.path)[.posixPermissions]) as? Int
         check("Todoist and ClickUp keys are kept in a private file (0600), not the Keychain, and read back", perms == 0o600 && TodoTokenFile.load(kfile) == TodoTokens(todoist: "t", clickup: "c", clickupList: "L"))
+        try? FileManager.default.removeItem(at: kfile)
+        let cachedKeys = TodoTokenFile.load(kfile)
+        check("to-do keys are read from disk once, not on every use", cachedKeys == TodoTokens(todoist: "t", clickup: "c", clickupList: "L"))
+        let marks = AppSettings.cappedMarks((0..<700).map(String.init))
+        check("to-do check marks keep only the latest 500", marks.count == 500 && marks.first == "200" && marks.last == "699")
+        let jurl = FileManager.default.temporaryDirectory.appendingPathComponent("js-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: jurl) }
+        JSONStore.save(["a": 1, "b": 2], to: jurl)
+        check("shared JSON store: saves and reads back, and a missing file reads as nothing", JSONStore.load([String: Int].self, from: jurl) == ["a": 1, "b": 2] && JSONStore.load([String: Int].self, from: nil) == nil)
 
         // Command Center ranking and menu bar count
         let cmds = ["Snooze this email", "Go to Snoozed", "Set Aside", "New email", "Print"].map { n in AppCommand(id: n, title: n, run: {}) }
@@ -835,6 +855,9 @@ enum SelfTest {
         let k3 = await MainActor.run { (cs.knownCache["friend@x.example"], cs.book.isApproved("friend@x.example")) }
         await MainActor.run { cs.settings.screenNewSenders = false }
         check("new senders: a failed lookup is not cached as unknown; a clean 'no mail before' is new; one with history is approved", k1 == nil && k2 == false && k3.0 == true && k3.1)
+        check("Gmail searches quote the address: odd characters cannot add search words; a whole company stays bare",
+              GmailQuery.term("a@x.example") == "\"a@x.example\"" && GmailQuery.term("@x.example") == "@x.example" && !GmailQuery.term("x@y.example OR in:anywhere").contains(" ")
+              && r2calls.contains { ($0.removingPercentEncoding ?? $0).contains("from:\"newbie@x.example\" before:") })
         // Snoozed list pages; the saved time of an email on page 2 survives
         let ss2 = await MainActor.run { let st = r2store(); st.snoozeLabelID = "Label_S"; st.timing.change { $0.snoozes["s3"] = Date().addingTimeInterval(3600); $0.snoozes["gone"] = Date().addingTimeInterval(3600) }; return st }
         await ss2.loadSnoozed()
@@ -849,6 +872,31 @@ enum SelfTest {
         // print page
         let doc = PrintHTML.document([ppl], loadImages: false, blockTrackers: true)
         check("print page: subject, sender and text; remote pictures stay blocked unless showing", doc.contains("Venue") && doc.contains("p@x.example") && !doc.contains("https: http:"))
+        // reply goes to Reply-To; reply all adds the others once, never John; inline pictures are filled in
+        do {
+            let html = Base64URL.encode(Data("<p>Hi</p><img src=\"cid:logo123\">".utf8))
+            let gj = #"{"id":"mm1","threadId":"tt1","labelIds":["INBOX"],"internalDate":"1700000000000","payload":{"mimeType":"multipart/related","headers":[{"name":"From","value":"Alice <alice@x.example>"},{"name":"To","value":"me@x.example, Bob <bob@x.example>"},{"name":"Cc","value":"Cara <cara@x.example>, ME@x.example, bob@x.example"},{"name":"Reply-To","value":"Team <team@x.example>"},{"name":"Subject","value":"Plan"}],"parts":[{"mimeType":"text/html","body":{"data":"\#(html)"}},{"mimeType":"image/png","filename":"","headers":[{"name":"Content-ID","value":"<logo123>"}],"body":{"attachmentId":"A1","size":5}}]}}"#
+            let gm = try JSONDecoder().decode(GMessage.self, from: Data(gj.utf8))
+            let mm = Mail(gm)
+            StubProtocol.handler = { req in
+                let us = req.url!.absoluteString
+                if us.contains("oauth2") || us.contains("token") && !us.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+                if us.hasSuffix("/messages/mm1/attachments/A1") { return (200, "{\"data\":\"\(Base64URL.encode(Data("hello".utf8)))\"}") }
+                return (200, "{}")
+            }
+            let rst = await MainActor.run { r2store() }
+            let rr = await MainActor.run { () -> (String, String, String) in
+                rst.accountEmail = "me@x.example"
+                rst.reply(mm); let one = rst.compose?.to ?? ""
+                rst.reply(mm, all: true); let all = rst.compose?.to ?? ""
+                return (one, all, mm.replyTo ?? "")
+            }
+            check("Reply goes to Reply-To when there is one; Reply all adds Bob and Cara once and leaves out John's own address",
+                  Address.parseList(rr.0).map(\.email) == ["team@x.example"] && Address.parseList(rr.1).map(\.email) == ["team@x.example", "bob@x.example", "cara@x.example"])
+            let filled = await rst.withInlineImages(mm)
+            check("inline pictures: cid: names in the email are replaced by the email's own picture parts", mm.cidParts?["logo123"]?.attachmentID == "A1" && filled.html?.contains("data:image/png;base64,aGVsbG8=") == true && filled.html?.contains("cid:logo123") == false)
+            StubProtocol.handler = nil
+        } catch { check("reply and inline picture tests (\(error))", false) }
         // round 3: quit-flush race, crash recovery, shared token refresh, wrong-state loopback
         do {
             let fm = FileManager.default

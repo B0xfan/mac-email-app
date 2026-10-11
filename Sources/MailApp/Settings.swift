@@ -55,6 +55,8 @@ final class AppSettings: ObservableObject {
     @Published var vaultPath: String { didSet { d.set(vaultPath, forKey: "vaultPath") } }
     /// Conversations already sent to the to-do list (the small check mark on the email).
     @Published var todoMarks: [String] { didSet { d.set(todoMarks, forKey: "todoMarks") } }
+    /// Only the latest 500 conversations keep their to-do check mark.
+    static func cappedMarks(_ marks: [String]) -> [String] { Array(marks.suffix(500)) }
     static let defaultQuickReplies = ["Sounds good, see you then.", "Thanks!", "Got it, I will reply properly soon.", "Can we do another time?"]
     static let checkChoices = [1, 2, 5, 15, 30]
     /// Seconds between checks for a stored value; anything unknown falls back to 1 minute.
@@ -88,7 +90,7 @@ final class AppSettings: ObservableObject {
         menuBarAll = d.object(forKey: "menuBarAll") as? Bool ?? false
         todoList = TodoList(rawValue: d.string(forKey: "todoList") ?? "") ?? .obsidian
         vaultPath = d.string(forKey: "vaultPath") ?? ObsidianTask.defaultVault().path
-        todoMarks = Array((d.stringArray(forKey: "todoMarks") ?? []).suffix(500))
+        todoMarks = Self.cappedMarks(d.stringArray(forKey: "todoMarks") ?? [])
         let cm = d.object(forKey: "checkMinutes") as? Int ?? 1
         checkMinutes = AppSettings.checkChoices.contains(cm) ? cm : 1
     }
