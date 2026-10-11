@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.johnhesch.mailapp</string>
+  <key>CFBundleName</key><string>Audrey Mail</string>
+  <key>CFBundleDisplayName</key><string>Audrey Mail</string>
+  <key>CFBundleExecutable</key><string>MailApp</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSContactsUsageDescription</key><string>Audrey Mail suggests people from your Contacts when you type in the To field. It only reads names and email addresses.</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
+  <key>NSRemindersUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>Email link</string>
+    <key>CFBundleURLSchemes</key><array><string>mailto</string></array>
+  </dict><dict>
+    <key>CFBundleURLName</key><string>Share to Audrey Mail</string>
+    <key>CFBundleURLSchemes</key><array><string>audreymail</string></array>
+  </dict></array>
+</dict>
+</plist>

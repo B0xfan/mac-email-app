@@ -1,0 +1,41 @@
+#!/bin/zsh
+# Builds "Audrey Mail.app" from the Swift package, signs it ad hoc (no Xcode needed),
+# and replaces the installed copy in /Applications so there is never a stale one.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+swift build -c release
+NAME="Audrey Mail"
+APP="build/$NAME.app"
+DEST="/Applications/$NAME.app"
+rm -rf "$APP" build/Mail.app
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
+cp scripts/Info.plist "$APP/Contents/Info.plist"
+# The "Mail" item in other apps' Share menu: a small sandboxed extension that hands what was shared to this app.
+EXT="$APP/Contents/PlugIns/MailShare.appex"
+mkdir -p "$EXT/Contents/MacOS"
+swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
+cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
+# Stable signing: a local self-signed identity in its own keychain, so the app keeps the same
+# identity across rebuilds and the Keychain "Always Allow" grant for the refresh token sticks.
+SUPPORT="$HOME/Library/Application Support/Audrey Mail"
+SIGNKC="$SUPPORT/signing.keychain-db"
+if [ ! -f "$SIGNKC" ]; then echo "Signing keychain missing: $SIGNKC - run scripts/setup-signing.sh"; exit 1; fi
+security unlock-keychain -p "$(cat "$SUPPORT/signing.pw")" "$SIGNKC"
+codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.share --entitlements ShareExtension/MailShare.entitlements "$EXT"
+codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp "$APP"
+codesign --verify --verbose=2 "$APP"
+echo "Built $APP"
+if [ -n "${NO_INSTALL:-}" ]; then echo "NO_INSTALL set: not installed"; exit 0; fi
+# Install: quit a running copy, replace, re-register with Launch Services.
+if pgrep -x MailApp >/dev/null; then osascript -e 'tell application id "com.johnhesch.mailapp" to quit' >/dev/null 2>&1 || true; fi   # never starts a closed app
+sleep 1
+pkill -x MailApp 2>/dev/null || true
+rm -rf "$DEST"
+ditto "$APP" "$DEST"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST"
+# The Share menu item: register it and switch it on (the same switch as System Settings, Extensions, Sharing).
+pluginkit -a "$DEST/Contents/PlugIns/MailShare.appex" 2>/dev/null || true
+pluginkit -e use -i com.johnhesch.mailapp.share 2>/dev/null || true
+rm -rf "$APP"   # keep only one copy of the app on the Mac
+echo "Installed $DEST"

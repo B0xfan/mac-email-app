@@ -1,0 +1,21 @@
+.build/
+build/
+DerivedData/
+*.app
+*.xcodeproj
+.swiftpm/
+.DS_Store
+# secrets
+scripts/signing.pw
+*.pw
+.env*
+*.keychain
+*.keychain-db
+*.p12
+*.pem
+*.key
+client_secret*.json
+*token*
+*credential*
+*secret*.json
+Application Support/
