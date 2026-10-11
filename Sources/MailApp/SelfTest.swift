@@ -777,10 +777,10 @@ enum SelfTest {
             if path.hasSuffix("/settings/filters") && req.httpMethod == "POST" { return (200, "{\"id\":\"F1\"}") }
             return (200, "{}")
         }
-        @MainActor func r2store(screen: Bool = false) -> MailStore {
+        @MainActor func r2store(screen: Bool = false, pending: URL? = nil) -> MailStore {
             let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("b2")),
                                seen: SeenBook(url: cbURL.appendingPathExtension("s")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil),
-                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("q2-\(UUID().uuidString).json")))
+                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("q2-\(UUID().uuidString).json")), pendingDir: pending)
             st.settings.screenNewSenders = screen; st.settings.inboxView = .classic
             return st
         }
@@ -801,17 +801,26 @@ enum SelfTest {
         await rs.refresh()
         let q3 = await MainActor.run { rs.inbox.first { $0.threadID == "T1" }?.unread }
         check("stale state: a conversation changed on the phone is refetched (now read); unchanged ones are reused", q3 == false && tGets.contains("T1") && !tGets.contains("T2"))
+        let depthKept = await MainActor.run { rs.inbox.map(\.threadID).sorted() }
+        check("refresh keeps the older rows already loaded (T3 from page 2 is still there)", depthKept == ["T1", "T2", "T3"])
         // partial failure: T1 cannot be fetched this time; its old row stays and an error bar is set
         tGets = []; hist["T1"] = "12"; t1Unread = true; failT1 = true
         await rs.refresh()
         let q4 = await MainActor.run { (rs.inbox.first { $0.threadID == "T1" }?.unread, rs.inbox.count, rs.error) }
-        check("partial failure: the old row is kept for a conversation that failed to load, and the error bar says so", q4.0 == false && q4.1 == 2 && q4.2?.contains("1 conversation") == true)
+        check("partial failure: the old row is kept for a conversation that failed to load, and the error bar says so", q4.0 == false && q4.1 == 3 && q4.2?.contains("1 conversation") == true)
         failT1 = false
         // archiving a conversation row takes its other emails out of the inbox too
         r2calls = []
         let t2row = await MainActor.run { rs.inbox.first { $0.threadID == "T2" }! }
         await rs.archive(t2row)
         check("archive: a conversation row archives every inbox email of it", r2calls.contains { $0.contains("batchModify") && $0.contains("\"T2b\"") } && r2calls.contains { $0.contains("batchModify") && $0.contains("\"T2a\"") })
+        // trashing a conversation row: Undo brings back every email that was trashed, not only the newest
+        r2calls = []
+        let t3row = await MainActor.run { rs.inbox.first { $0.threadID == "T3" }! }
+        await rs.leaveInbox(t3row, add: [], text: "Moved to Trash.", aside: false, exactUndo: true, trashIt: true)
+        await rs.undoLast()
+        check("undo after trashing a conversation restores every email (T3a and T3b)", r2calls.contains { $0.contains("/messages/T3b/trash") } && r2calls.contains { $0.contains("/messages/T3a/trash") }
+              && r2calls.contains { $0.contains("/messages/T3b/untrash") } && r2calls.contains { $0.contains("/messages/T3a/untrash") })
         // new-sender lookup that fails is skipped and not remembered; a good one is
         let cs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("c1", "newbie@x.example", h: 1)]; return st }
         failCount = true; countHits = 0
@@ -840,6 +849,101 @@ enum SelfTest {
         // print page
         let doc = PrintHTML.document([ppl], loadImages: false, blockTrackers: true)
         check("print page: subject, sender and text; remote pictures stay blocked unless showing", doc.contains("Venue") && doc.contains("p@x.example") && !doc.contains("https: http:"))
+        // round 3: quit-flush race, crash recovery, shared token refresh, wrong-state loopback
+        do {
+            let fm = FileManager.default
+            let pdir = fm.temporaryDirectory.appendingPathComponent("pending-\(UUID().uuidString)")
+            defer { try? fm.removeItem(at: pdir) }
+            nonisolated(unsafe) var sendN = 0, draftSendIDs: [String] = [], draftSaves = 0, draftFail = false, slowSend = false
+            StubProtocol.handler = { req in
+                let u = req.url!, us = u.absoluteString, path = u.path, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""
+                if us.contains("oauth2") || us.contains("token") && !us.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+                if path.hasSuffix("/messages/send") { sendN += 1; if slowSend { Thread.sleep(forTimeInterval: 1.5) }; return (200, #"{"id":"m1","threadId":"t1"}"#) }
+                if path.hasSuffix("/drafts/send") { draftSendIDs.append(b); return (200, #"{"id":"m2","threadId":"t2"}"#) }
+                if path.hasSuffix("/drafts") && req.httpMethod == "POST" { draftSaves += 1; return draftFail ? (500, "{}") : (200, #"{"id":"DR1"}"#) }
+                return (200, "{}")
+            }
+            let delay0 = await MainActor.run { AppSettings.shared.undoDelay }
+            defer { Task { @MainActor in AppSettings.shared.undoDelay = delay0 } }
+            let draft = ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new)
+            // a send already going out when the app quits is waited for, never sent twice
+            slowSend = true
+            let qa = await MainActor.run { r2store(pending: pdir) }
+            await MainActor.run { AppSettings.shared.undoDelay = 1; qa.send(draft, bodyHTML: "<p>hello</p>") }
+            let fileMade = ((try? fm.contentsOfDirectory(atPath: pdir.path)) ?? []).count == 1
+            try? await Task.sleep(nanoseconds: 1_300_000_000)   // the countdown is over and the send is on its way
+            await MainActor.run { qa.flushPendingSendsOnQuit() }
+            let filesAfter = ((try? fm.contentsOfDirectory(atPath: pdir.path)) ?? []).count
+            check("quit while a send is already going out: sent exactly once (no double send), pending file written and then cleared", fileMade && sendN == 1 && filesAfter == 0)
+            // still counting down at quit: sent once now, and the countdown cannot send it again
+            slowSend = false; sendN = 0
+            await MainActor.run { AppSettings.shared.undoDelay = 3; qa.send(draft, bodyHTML: "<p>again</p>") }
+            await MainActor.run { qa.flushPendingSendsOnQuit() }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            check("quit during the countdown sends the email now, once", sendN == 1 && ((try? fm.contentsOfDirectory(atPath: pdir.path)) ?? []).isEmpty)
+            // scheduled emails that are due go out at quit; later ones stay
+            let qs = await MainActor.run { r2store() }
+            await MainActor.run { qs.timing.change { $0.scheduled = [ScheduledSend(draftID: "dq", at: Date().addingTimeInterval(-60), to: "a@x.example", subject: "Due"), ScheduledSend(draftID: "dl", at: Date().addingTimeInterval(3600), to: "a@x.example", subject: "Later")] } }
+            await MainActor.run { qs.flushPendingSendsOnQuit() }
+            let left = await MainActor.run { qs.timing.data.scheduled.map(\.draftID) }
+            check("quit sends a scheduled email that is due, and only that one", draftSendIDs.count == 1 && draftSendIDs[0].contains("dq") && left == ["dl"])
+            // crash during the countdown: next launch shows it as a draft to check, never sends it
+            sendN = 0
+            let crashDir = fm.temporaryDirectory.appendingPathComponent("crash-\(UUID().uuidString)")
+            defer { try? fm.removeItem(at: crashDir) }
+            let qc = await MainActor.run { r2store(pending: crashDir) }
+            await MainActor.run { AppSettings.shared.undoDelay = 30; qc.send(draft, bodyHTML: "<p>precious words</p>") }
+            let saved = (try? fm.contentsOfDirectory(at: crashDir, includingPropertiesForKeys: nil))?.first.flatMap { f in (try? Data(contentsOf: f)).map { (f.lastPathComponent, $0) } }
+            await MainActor.run { qc.undoPendingSend() }   // stops this copy's timer; the file is put back below as a crash would have left it
+            if let (n, d) = saved { try? d.write(to: crashDir.appendingPathComponent(n)) }
+            let qn = await MainActor.run { r2store(pending: crashDir) }
+            draftFail = true
+            await qn.recoverPendingSends()
+            let keptOnFail = ((try? fm.contentsOfDirectory(atPath: crashDir.path)) ?? []).count == 1
+            await MainActor.run { qn.compose = nil }
+            draftFail = false
+            await qn.recoverPendingSends()
+            let rc = await MainActor.run { (qn.compose?.restoredBodyHTML, qn.compose?.to, qn.compose?.draftID) }
+            check("crash recovery: the unsent email comes back as a draft with its text, nothing is sent, the file is kept if the draft cannot be saved and removed once saved",
+                  sendN == 0 && keptOnFail && rc.0 == "<p>precious words</p>" && rc.1 == "dana@x.example" && rc.2 == "DR1" && ((try? fm.contentsOfDirectory(atPath: crashDir.path)) ?? []).isEmpty)
+            StubProtocol.handler = nil
+        }
+        do {
+            // concurrent callers share one token refresh
+            nonisolated(unsafe) var refreshHits = 0
+            StubProtocol.handler = { _ in refreshHits += 1; Thread.sleep(forTimeInterval: 0.3); return (200, #"{"access_token":"SHARED","expires_in":3600}"#) }
+            let sa = GoogleAuth(session: session, credentials: creds, file: signedFile("share.json", "RT"), legacy: noKeychain)
+            let toks = await withTaskGroup(of: String?.self) { g -> [String?] in
+                for _ in 0..<6 { g.addTask { try? await sa.validAccessToken() } }
+                var out: [String?] = []; for await t in g { out.append(t) }; return out
+            }
+            check("six callers at once share one token refresh (one request to Google)", refreshHits == 1 && toks.allSatisfy { $0 == "SHARED" })
+            // a busy or unreachable Google does not sign anyone out; only invalid_grant does
+            let bf = signedFile("busy.json", "RT")
+            let sb = GoogleAuth(session: session, credentials: creds, file: bf, legacy: noKeychain)
+            StubProtocol.handler = { _ in (503, "{}") }
+            var busyErr: AuthError?
+            do { _ = try await sb.validAccessToken() } catch { busyErr = error as? AuthError }
+            var isNet = false; if case .network? = busyErr { isNet = true }
+            let stillThere = await sb.stored() != nil
+            let model = await MainActor.run { SignInModel(auth: sb) }
+            await model.restore()
+            let stateAfter = await MainActor.run { model.state }
+            check("a 503 from Google at launch keeps John signed in (error shown, retried later); the sign-in file stays", isNet && stillThere && FileManager.default.fileExists(atPath: bf.path) && stateAfter != .signedOut && stateAfter != .checking)
+            StubProtocol.handler = nil
+            // wrong or missing state never ends the sign-in
+            let l = try LoopbackListener(expectedState: "good")
+            let port = try await l.start()
+            async let q = l.waitForRedirect(timeout: 10)
+            func status(_ q: String) async -> Int? {
+                guard let r = try? await URLSession.shared.data(from: URL(string: "http://127.0.0.1:\(port)/?\(q)")!) else { return nil }
+                return (r.1 as? HTTPURLResponse)?.statusCode
+            }
+            let bad1 = await status("code=evil&state=bad"), bad2 = await status("code=evil"), bad3 = await status("error=access_denied")
+            let ok1 = await status("code=abc&state=good")
+            let r = try await q
+            check("loopback: requests with a wrong or missing state are refused and ignored; the real redirect still completes the sign-in", bad1 == 400 && bad2 == 400 && bad3 == 400 && ok1 == 200 && r["code"] == "abc")
+        } catch { check("round 3 sign-in tests (\(error))", false) }
         return ok
     }
 }

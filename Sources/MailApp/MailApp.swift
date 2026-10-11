@@ -155,7 +155,8 @@ final class SignInModel: ObservableObject {
     enum State: Equatable { case checking, signedOut, signingIn, signedIn(String?) }
     @Published var state: State = .checking
     @Published var message: String?
-    let auth = GoogleAuth()
+    let auth: GoogleAuth
+    init(auth: GoogleAuth = GoogleAuth()) { self.auth = auth }
 
     func restore() async {
         guard state == .checking || state == .signedOut else { return }
@@ -166,7 +167,8 @@ final class SignInModel: ObservableObject {
         } catch {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { state = .signedIn(s.email); return }
             message = (error as? LocalizedError)?.errorDescription
-            state = (error as? AuthError).map { if case .network = $0 { return State.signedIn(s.email) } else { return State.signedOut } } ?? .signedOut
+            // only a dead sign-in (or a missing client file) signs out; a busy or unreachable Google keeps John signed in, and the next refresh tries again
+            switch error as? AuthError { case .signInAgain?, .missingClientFile?: state = .signedOut; default: state = .signedIn(s.email) }
         }
     }
 

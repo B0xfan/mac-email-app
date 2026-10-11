@@ -72,8 +72,11 @@ final class LoopbackListener: @unchecked Sendable {
     private var cont: CheckedContinuation<[String: String], Error>?
     private var readyCont: CheckedContinuation<UInt16, Error>?
     private let lock = NSLock()
+    /// When set, a request without this exact state is answered with an error and ignored: it cannot end the sign-in.
+    private let expectedState: String?
 
-    init() throws {
+    init(expectedState: String? = nil) throws {
+        self.expectedState = expectedState
         let p = NWParameters.tcp
         p.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: p)
@@ -128,6 +131,11 @@ final class LoopbackListener: @unchecked Sendable {
             }
             var q: [String: String] = [:]
             for item in comps.queryItems ?? [] { q[item.name] = item.value ?? "" }
+            if let want = self.expectedState, q["state"] != want {
+                let r = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                conn.send(content: r.data(using: .utf8), completion: .contentProcessed { _ in conn.cancel() })
+                return
+            }
             let ok = q["code"] != nil
             let body = "<html><body style=\"font-family:-apple-system;text-align:center;margin-top:20vh\"><h2>\(ok ? "You are signed in." : "Sign-in was not completed.")</h2><p>You can close this tab and return to Audrey Mail.</p></body></html>"
             let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
@@ -205,7 +213,7 @@ actor GoogleAuth {
         let creds = try credentials()
         let verifier = PKCE.randomURLSafe(bytes: 64)
         let state = PKCE.randomURLSafe(bytes: 24)
-        let listener = try LoopbackListener()
+        let listener = try LoopbackListener(expectedState: state)
         let port = try await listener.start()
         let redirect = "http://127.0.0.1:\(port)"
         openURL(Self.authURL(clientID: creds.clientID, redirect: redirect, state: state,
@@ -228,9 +236,20 @@ actor GoogleAuth {
         return s
     }
 
-    /// A valid access token, refreshing silently from the saved refresh token.
+    private var refreshTask: Task<String, Error>?
+
+    /// A valid access token, refreshing silently from the saved refresh token. Callers that arrive while a refresh
+    /// is running share it: one request to Google, one answer for all.
     func validAccessToken() async throws -> String {
         if let t = accessToken, accessExpiry > Date() { return t }
+        if let r = refreshTask { return try await r.value }
+        let task = Task { try await self.refresh() }
+        refreshTask = task
+        defer { refreshTask = nil }
+        return try await task.value
+    }
+
+    private func refresh() async throws -> String {
         guard let s = stored() else { throw AuthError.signInAgain }
         let creds = try credentials()
         do {
@@ -241,7 +260,7 @@ actor GoogleAuth {
             accessToken = tok.access_token
             accessExpiry = Date().addingTimeInterval(TimeInterval(tok.expires_in ?? 3600) - 60)
             return tok.access_token
-        } catch AuthError.signInAgain {
+        } catch AuthError.signInAgain {   // only Google's invalid_grant ends the sign-in; a busy or unreachable Google never does
             signOut()
             throw AuthError.signInAgain
         }
@@ -263,6 +282,7 @@ actor GoogleAuth {
         if code == 200 { return try JSONDecoder().decode(TokenResponse.self, from: data) }
         let err = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String ?? "http \(code)"
         if err == "invalid_grant" { throw AuthError.signInAgain }
+        if code >= 500 || code == 429 { throw AuthError.network("Google is busy, http \(code)") }
         throw AuthError.denied(err)
     }
 
