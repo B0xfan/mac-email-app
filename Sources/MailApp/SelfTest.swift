@@ -779,7 +779,7 @@ enum SelfTest {
         @MainActor func r2store(screen: Bool = false) -> MailStore {
             let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("b2")),
                                seen: SeenBook(url: cbURL.appendingPathExtension("s")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil),
-                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("r2-\(UUID().uuidString).json")))
+                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("q2-\(UUID().uuidString).json")))
             st.settings.screenNewSenders = screen; st.settings.inboxView = .classic
             return st
         }
@@ -789,22 +789,22 @@ enum SelfTest {
         check("paging: listIDs follows the page tokens (3 ids over 2 pages) and stops at the limit asked for", pg == ["s1", "s2", "s3"] && pgCap == ["s1", "s2"])
         let rs = await MainActor.run { r2store() }
         await rs.refresh()
-        let r1 = await MainActor.run { (rs.inbox.map(\.id), rs.inbox.first { $0.threadID == "T1" }, rs.inboxNext) }
+        let q1 = await MainActor.run { (rs.inbox.map(\.id), rs.inbox.first { $0.threadID == "T1" }, rs.inboxNext) }
         check("inbox by conversation: one row per conversation (newest inbox email), unread if any is, its other emails kept for Archive",
-              r1.0.sorted() == ["T1b", "T2b"] && r1.1?.unread == true && r1.1?.siblings == ["T1a"] && r1.2 == "P2")
+              q1.0.sorted() == ["T1b", "T2b"] && q1.1?.unread == true && q1.1?.siblings == ["T1a"] && q1.2 == "P2")
         await rs.loadMoreInbox()
-        let r2 = await MainActor.run { (rs.inbox.map(\.threadID).sorted(), rs.inboxNext) }
-        check("inbox paging: Show older emails adds the next page and ends when Gmail has no more", r2.0 == ["T1", "T2", "T3"] && r2.1 == nil)
+        let q2 = await MainActor.run { (rs.inbox.map(\.threadID).sorted(), rs.inboxNext) }
+        check("inbox paging: Show older emails adds the next page and ends when Gmail has no more", q2.0 == ["T1", "T2", "T3"] && q2.1 == nil)
         // stale labels: the phone read T1 (its version tag changed); T2 is untouched and is not fetched again
         tGets = []; hist["T1"] = "11"; t1Unread = false
         await rs.refresh()
-        let r3 = await MainActor.run { rs.inbox.first { $0.threadID == "T1" }?.unread }
-        check("stale state: a conversation changed on the phone is refetched (now read); unchanged ones are reused", r3 == false && tGets.contains("T1") && !tGets.contains("T2"))
+        let q3 = await MainActor.run { rs.inbox.first { $0.threadID == "T1" }?.unread }
+        check("stale state: a conversation changed on the phone is refetched (now read); unchanged ones are reused", q3 == false && tGets.contains("T1") && !tGets.contains("T2"))
         // partial failure: T1 cannot be fetched this time; its old row stays and an error bar is set
         tGets = []; hist["T1"] = "12"; t1Unread = true; failT1 = true
         await rs.refresh()
-        let r4 = await MainActor.run { (rs.inbox.first { $0.threadID == "T1" }?.unread, rs.inbox.count, rs.error) }
-        check("partial failure: the old row is kept for a conversation that failed to load, and the error bar says so", r4.0 == false && r4.1 == 2 && r4.2?.contains("1 conversation") == true)
+        let q4 = await MainActor.run { (rs.inbox.first { $0.threadID == "T1" }?.unread, rs.inbox.count, rs.error) }
+        check("partial failure: the old row is kept for a conversation that failed to load, and the error bar says so", q4.0 == false && q4.1 == 2 && q4.2?.contains("1 conversation") == true)
         failT1 = false
         // archiving a conversation row takes its other emails out of the inbox too
         r2calls = []
