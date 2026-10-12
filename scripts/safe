@@ -53,9 +53,9 @@ def run(cmd, limit):
         print("safe: TIMEOUT after %ds, killing the whole process group" % limit, file=sys.stderr)
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try: os.killpg(p.pid, sig)
-            except ProcessLookupError: break
+            except (ProcessLookupError, PermissionError): break   # group already gone (macOS says EPERM for a zombie leader)
             time.sleep(2)
-        return 124
+        p.wait(); return 124
     except KeyboardInterrupt:
         os.killpg(p.pid, signal.SIGKILL); return 130
 
