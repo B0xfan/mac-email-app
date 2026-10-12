@@ -107,6 +107,7 @@ struct MailApp: App {
                 Button("Print...") { if let m = app.store.openMail { app.store.startPrint(m) } }.keyboardShortcut("p")
             }
             CommandGroup(after: .toolbar) {
+                Button(app.store.settings.compactSidebar ? "Show Sidebar" : "Hide Sidebar") { app.store.toggleSidebar() }.keyboardShortcut("s", modifiers: [.control, .command])
                 Button("Command Center") { app.store.commandCenterOpen.toggle() }.keyboardShortcut("k")
             }
         }

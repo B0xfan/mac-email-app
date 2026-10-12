@@ -457,7 +457,6 @@ extension SettingsView {
             }
         } }
         switchCard("Sender pictures", "Round initials beside each email.", $settings.senderPictures)
-        switchCard("Compact sidebar", "Icons only, more room for mail.", $settings.compactSidebar)
     }
 
     @ViewBuilder var menuBarPanel: some View {

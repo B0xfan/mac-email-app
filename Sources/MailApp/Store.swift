@@ -52,6 +52,7 @@ final class MailStore: ObservableObject {
     var undoAside = false
     static let pinLabelName = "Pinned"
     @Published var focusSearchTick = 0
+    @Published var searchPeek = false   // strip temporarily opened for search; never saved
     // Phase 4
     @Published var commandCenterOpen = false
     @Published var todoMail: Mail?          // the to-do box is open for this email

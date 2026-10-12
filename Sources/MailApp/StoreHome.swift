@@ -15,6 +15,11 @@ extension MailStore {
     func openFromHome(_ m: Mail) async { await select(.inbox); await open(m) }
     func openedAt(_ id: String) -> Date? { seen.entries.last(where: { $0.id == id })?.at }
     func focusSearchSoon() { focusSearchTick += 1 }
+    /// The sidebar button flips the remembered choice; a search peek never touches it.
+    var sidebarCompact: Bool { settings.compactSidebar && !searchPeek }
+    func toggleSidebar() { searchPeek = false; settings.compactSidebar.toggle() }
+    func startSearchPeek() { searchPeek = settings.compactSidebar; focusSearchSoon() }
+    func endSearchPeek() { searchPeek = false }
 
     /// Called every few seconds. Never fires at launch because the Mac has just seen input.
     func checkIdle() {

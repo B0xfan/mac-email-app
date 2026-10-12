@@ -1001,6 +1001,19 @@ enum SelfTest {
             let r = try await q
             check("loopback: requests with a wrong or missing state are refused and ignored; the real redirect still completes the sign-in", bad1 == 400 && bad2 == 400 && bad3 == 400 && ok1 == 200 && r["code"] == "abc")
         } catch { check("round 3 sign-in tests (\(error))", false) }
+        await MainActor.run {
+            let st = Snapshots.sampleStore(), s = AppSettings.shared, was = s.compactSidebar
+            defer { s.compactSidebar = was }
+            let key = { UserDefaults.standard.bool(forKey: "compactSidebar") }
+            s.compactSidebar = false; st.toggleSidebar()
+            check("sidebar button flips to strip and the choice persists", s.compactSidebar && key() && st.sidebarCompact)
+            st.startSearchPeek()
+            check("search in the strip opens the panel without changing the saved choice", !st.sidebarCompact && s.compactSidebar && key())
+            st.endSearchPeek()
+            check("the strip folds back after search", st.sidebarCompact && s.compactSidebar && key())
+            st.toggleSidebar()
+            check("sidebar button flips back to the panel and persists", !s.compactSidebar && !key() && !st.sidebarCompact)
+        }
         return ok
     }
 }

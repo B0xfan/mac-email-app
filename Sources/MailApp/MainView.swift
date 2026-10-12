@@ -9,7 +9,7 @@ struct MailRoot: View {
             if store.homeShown { HomeScreenView(store: store, fixedNow: store.homeNowOverride) }
             else { HStack(spacing: 0) {
                 SidebarView(store: store)
-                    .frame(width: settings.compactSidebar ? 72 : 244)
+                    .frame(width: store.sidebarCompact ? 72 : 244)
                     .background(Theme.side)
                     .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
                 VStack(spacing: 0) {
@@ -121,14 +121,17 @@ struct SidebarView: View {
     @FocusState private var searchFocus: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if store.settings.compactSidebar {
-                IconButton(symbol: "magnifyingglass", label: "Search mail") { store.settings.compactSidebar = false; store.focusSearchSoon() }.frame(maxWidth: .infinity)
+            if store.sidebarCompact {
+                IconButton(symbol: "magnifyingglass", label: "Search mail") { store.startSearchPeek() }.frame(maxWidth: .infinity)
             } else {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.sub)
                 TextField("Search mail", text: $store.search)
                     .textFieldStyle(.plain).focused($searchFocus).foregroundStyle(Theme.text)
                     .onChange(of: store.focusSearchTick) { _, _ in searchFocus = true }
+                    .onChange(of: searchFocus) { _, f in if !f && !store.isSearching { store.endSearchPeek() } }
+                    .onChange(of: store.isSearching) { _, s in if !s { store.endSearchPeek() } }
+                    .onExitCommand { store.endSearchPeek() }
                     .onSubmit { Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } }
             }
             .padding(.horizontal, 12).frame(minHeight: 44)
@@ -153,12 +156,12 @@ struct SidebarView: View {
             NavRow(symbol: "paperplane", title: "Sent", on: store.mailbox == .sent) { Task { await store.select(.sent) } }
             NavRow(symbol: "doc", title: "Drafts", on: store.mailbox == .drafts) { Task { await store.select(.drafts) } }
             NavRow(symbol: "archivebox", title: "Archive", on: store.mailbox == .archive) { Task { await store.select(.archive) } }
-            if !layout.compactSidebar { OrganizerSidebar(store: store) }   // folders need room; the Command Center still goes to them
+            if !store.sidebarCompact { OrganizerSidebar(store: store) }   // folders need room; the Command Center still goes to them
             } }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 16)
-        .environment(\.compactSide, layout.compactSidebar)
+        .environment(\.compactSide, store.sidebarCompact)
     }
 }
 
@@ -236,6 +239,7 @@ struct ToolbarView: View {
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
         HStack(spacing: 4) {
+            IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
             IconButton(symbol: "square.and.pencil", label: "New email") { store.newCompose() }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply" : "Reply, open an email first", enabled: canAct) {
