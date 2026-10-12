@@ -69,6 +69,18 @@ enum TipTest {
             if d < 12 { print(String(repeating: " ", count: d) + "\(type(of: v)) tip=\(v.toolTip ?? "-") tracking=\(v.trackingAreas.count) frame=\(Int(v.frame.width))x\(Int(v.frame.height))") }
             for c in v.subviews { dump(c, d + 1) }
         }
+        func areas(_ v: NSView, _ label: String) {
+            var all: [NSTrackingArea] = []
+            func walk(_ x: NSView) { all += x.trackingAreas; x.subviews.forEach(walk) }
+            walk(v)
+            let h = v.bounds.height
+            print("\(label): \(all.count) hover areas")
+            for a in all.sorted(by: { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }) where a.rect.width < 400 {
+                print("   area x=\(Int(a.rect.minX)) fromTop=\(Int(h - a.rect.maxY)) \(Int(a.rect.width))x\(Int(a.rect.height)) opts=\(a.options.rawValue)")
+            }
+        }
+        areas(cwin.contentView!, "control")
+        areas(win.contentView!, "main window")
         print("control tree:"); dump(cwin.contentView!, 0)
         print("windows after hovering the control: \(NSApp.windows.map { String(describing: type(of: $0)) })")
         let want = ["New email", "Reply", "Reply all", "Forward", "Archive", "Add to to-do (T)", "Check for new email now"]
