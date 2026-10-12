@@ -41,6 +41,36 @@ enum TipTest {
         print("native views with a tip: \(native.count); accessibility help texts: \(h.count)")
         for t in h.prefix(40) { print("  help '\(t)'") }
         let found: [(String, NSRect)] = native + h.map { ($0, .zero) }
+        // The real thing: move the pointer over a button and see whether the system tip window appears.
+        func hover(_ x: CGFloat, _ yFromTop: CGFloat) async -> [String] {
+            win.acceptsMouseMovedEvents = true
+            let h = win.contentView!.bounds.height
+            for dx in [CGFloat(0), 1, 2] {
+                let ev = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: x + dx, y: h - yFromTop), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+                win.sendEvent(ev); await LiveTest.pump(0.1)
+            }
+            await LiveTest.pump(3.0)
+            return NSApp.windows.map { String(describing: type(of: $0)) }
+        }
+        let wins = await hover(330, 30)
+        print("windows after hovering New email: \(wins)")
+        // Control: a bare label with a SwiftUI tip, alone in its own window, to prove this method can see a tip window at all.
+        let cwin = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        cwin.contentView = NSHostingView(rootView: Text("control").frame(width: 300, height: 200).help("CONTROL TIP"))
+        cwin.alphaValue = 0; cwin.orderBack(nil); await LiveTest.pump(0.5)
+        cwin.acceptsMouseMovedEvents = true
+        for dx in [CGFloat(0), 1, 2] {
+            let ev = NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: 150 + dx, y: 100), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: cwin.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+            cwin.sendEvent(ev); await LiveTest.pump(0.1)
+        }
+        await LiveTest.pump(3.0)
+        func dump(_ v: NSView, _ d: Int) {
+            if d < 12 { print(String(repeating: " ", count: d) + "\(type(of: v)) tip=\(v.toolTip ?? "-") tracking=\(v.trackingAreas.count) frame=\(Int(v.frame.width))x\(Int(v.frame.height))") }
+            for c in v.subviews { dump(c, d + 1) }
+        }
+        print("control tree:"); dump(cwin.contentView!, 0)
+        print("windows after hovering the control: \(NSApp.windows.map { String(describing: type(of: $0)) })")
         let want = ["New email", "Reply", "Reply all", "Forward", "Archive", "Add to to-do (T)", "Check for new email now"]
         for w in want { check("toolbar tip reported: \(w)", found.contains { $0.0 == w }) }
         check("sidebar button tip reported", found.contains { $0.0.hasPrefix("Hide Sidebar") || $0.0.hasPrefix("Show Sidebar") })
