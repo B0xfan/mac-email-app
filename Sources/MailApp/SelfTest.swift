@@ -885,14 +885,24 @@ enum SelfTest {
                 return (200, "{}")
             }
             let rst = await MainActor.run { r2store() }
+            var allCc = ""
             let rr = await MainActor.run { () -> (String, String, String) in
                 rst.accountEmail = "me@x.example"
                 rst.reply(mm); let one = rst.compose?.to ?? ""
-                rst.reply(mm, all: true); let all = rst.compose?.to ?? ""
+                rst.reply(mm, all: true); let all = rst.compose?.to ?? ""; allCc = rst.compose?.cc ?? ""
                 return (one, all, mm.replyTo ?? "")
             }
             check("Reply goes to Reply-To when there is one; Reply all adds Bob and Cara once and leaves out John's own address",
-                  Address.parseList(rr.0).map(\.email) == ["team@x.example"] && Address.parseList(rr.1).map(\.email) == ["team@x.example", "bob@x.example", "cara@x.example"])
+                  Address.parseList(rr.0).map(\.email) == ["team@x.example"] && Address.parseList(rr.1).map(\.email) == ["team@x.example"] && Address.parseList(allCc).map(\.email) == ["bob@x.example", "cara@x.example"] && !rr.0.contains("bob"))
+            // Bcc: in the message that is sent and in the saved draft, with line breaks removed; a reopened draft shows Cc and Bcc
+            let bd = ComposeDraft(from: "me@x.example", to: "a@x.example", cc: "c@x.example", bcc: "secret@x.example\r\nX-Evil: 1", subject: "S", mode: .new)
+            let bh = String(decoding: MIME.build(await MainActor.run { rst.buildOutgoing(bd, bodyHTML: "hi") }), as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
+            check("Bcc is a header of the built message (send and draft use the same one); a line break in it cannot add a header",
+                  bh.contains("\r\nBcc: secret@x.example X-Evil: 1") && bh.contains("\r\nCc: c@x.example") && !bh.contains("\nX-Evil:"))
+            let dj = #"{"id":"dm1","threadId":"dt1","labelIds":["DRAFT"],"payload":{"mimeType":"text/plain","headers":[{"name":"To","value":"a@x.example"},{"name":"Cc","value":"c@x.example"},{"name":"Bcc","value":"secret@x.example"},{"name":"Subject","value":"S"}],"body":{"data":"aGk"}}}"#
+            let dm = Mail(try JSONDecoder().decode(GMessage.self, from: Data(dj.utf8)))
+            let ro = ComposeDraft(from: "me@x.example", to: dm.to, cc: dm.cc, bcc: dm.bcc ?? "", subject: "S", mode: .new)
+            check("a saved draft with Cc and Bcc reopens with both lines filled (so both show)", ro.cc == "c@x.example" && ro.bcc == "secret@x.example" && ro.to == "a@x.example")
             let filled = await rst.withInlineImages(mm)
             check("inline pictures: cid: names in the email are replaced by the email's own picture parts", mm.cidParts?["logo123"]?.attachmentID == "A1" && filled.html?.contains("data:image/png;base64,aGVsbG8=") == true && filled.html?.contains("cid:logo123") == false)
             StubProtocol.handler = nil

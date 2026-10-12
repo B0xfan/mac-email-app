@@ -10,6 +10,10 @@ struct ComposeView: View {
     @StateObject private var linkURL = Box("https://")
     @StateObject private var problem = Box<String?>(nil)
     @StateObject private var picked = Box(0)
+    @StateObject private var showCc: Box<Bool>
+    @StateObject private var showBcc: Box<Bool>
+    @FocusState private var focus: Line?
+    private enum Line { case cc, bcc }
 
     var suggestions: [Address] {
         let typing = ContactDirectory.split(draft.v.to).typing
@@ -26,7 +30,11 @@ struct ComposeView: View {
 
     init(store: MailStore) {
         self.store = store
-        _draft = StateObject(wrappedValue: Box(store.compose ?? ComposeDraft(from: "", to: "", subject: "", mode: .new)))
+        let d = store.compose ?? ComposeDraft(from: "", to: "", subject: "", mode: .new)
+        _draft = StateObject(wrappedValue: Box(d))
+        // a line that has addresses always shows; an empty one stays hidden until its button is pressed
+        _showCc = StateObject(wrappedValue: Box(!d.cc.isEmpty))
+        _showBcc = StateObject(wrappedValue: Box(!d.bcc.isEmpty))
     }
 
     /// A new email starts with an empty typing line, one blank line, then the signature.
@@ -72,8 +80,12 @@ struct ComposeView: View {
                             .onSubmit { if let a = suggestions.first { accept(suggestions[min(picked.v, suggestions.count - 1)]); _ = a } }
                             .onKeyPress(.downArrow) { if suggestions.isEmpty { return .ignored }; picked.v = min(picked.v + 1, suggestions.count - 1); return .handled }
                             .onKeyPress(.upArrow) { if suggestions.isEmpty { return .ignored }; picked.v = max(picked.v - 1, 0); return .handled }
+                        if !showCc.v { reveal("Cc") { showCc.v = true; focus = .cc } }
+                        if !showBcc.v { reveal("Bcc") { showBcc.v = true; focus = .bcc } }
                     }
                     if !suggestions.isEmpty { SuggestionList(people: suggestions, picked: picked.v) { accept($0) } }
+                    if showCc.v { field("Cc") { TextField("Name or email address", text: $draft.v.cc).textFieldStyle(.plain).focused($focus, equals: .cc) } }
+                    if showBcc.v { field("Bcc") { TextField("Name or email address", text: $draft.v.bcc).textFieldStyle(.plain).focused($focus, equals: .bcc) } }
                     field("Subject") { TextField("What is this about?", text: $draft.v.subject).textFieldStyle(.plain) }
                     HStack(spacing: 4) {
                         fmt("bold", "Bold") { editor.bold() }
@@ -139,11 +151,15 @@ struct ComposeView: View {
     private func ready(_ go: @escaping (ComposeDraft, String) -> Void) {
         let recipients = Address.parseList(draft.v.to)
         guard !recipients.isEmpty else { problem.v = "Add at least one email address in To."; return }
+        let cc = Address.parseList(draft.v.cc), bcc = Address.parseList(draft.v.bcc)
+        if cc.isEmpty && !draft.v.cc.trimmingCharacters(in: .whitespaces).isEmpty { problem.v = "Check the email address in Cc."; return }
+        if bcc.isEmpty && !draft.v.bcc.trimmingCharacters(in: .whitespaces).isEmpty { problem.v = "Check the email address in Bcc."; return }
         problem.v = nil
         Task {
             let html = await editor.html()
             var d = draft.v
-            d.to = recipients.map { $0.name.isEmpty ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ")
+            func line(_ l: [Address]) -> String { l.map { $0.name.isEmpty ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ") }
+            d.to = line(recipients); d.cc = line(cc); d.bcc = line(bcc)
             go(d, html)
         }
     }
@@ -166,6 +182,11 @@ struct ComposeView: View {
         .padding(.horizontal, 12).frame(minHeight: 44)
         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.sub, lineWidth: 1))
+    }
+
+    private func reveal(_ label: String, _ action: @escaping () -> Void) -> some View {
+        Button(label, action: action).buttonStyle(.plain).font(Theme.small.weight(.medium)).foregroundStyle(Theme.acc)
+            .frame(minWidth: 36, minHeight: 32).contentShape(Rectangle()).accessibilityLabel("Add \(label) line")
     }
 
     private func fmt(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> some View {
