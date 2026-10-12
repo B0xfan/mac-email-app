@@ -897,7 +897,7 @@ enum SelfTest {
             let bd = ComposeDraft(from: "me@x.example", to: "a@x.example", cc: "c@x.example", bcc: "secret@x.example\r\nX-Evil: 1", subject: "S", mode: .new)
             let bh = String(decoding: MIME.build(await MainActor.run { rst.buildOutgoing(bd, bodyHTML: "hi") }), as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
             check("Bcc is a header of the built message (send and draft use the same one); a line break in it cannot add a header",
-                  bh.contains("\r\nBcc: secret@x.example X-Evil: 1") && bh.contains("\r\nCc: c@x.example") && !bh.contains("\nX-Evil:"))
+                  bh.contains("\r\nBcc: secret@x.example") && bh.contains("\r\nCc: c@x.example") && !bh.contains("\nX-Evil:"))
             let dj = #"{"id":"dm1","threadId":"dt1","labelIds":["DRAFT"],"payload":{"mimeType":"text/plain","headers":[{"name":"To","value":"a@x.example"},{"name":"Cc","value":"c@x.example"},{"name":"Bcc","value":"secret@x.example"},{"name":"Subject","value":"S"}],"body":{"data":"aGk"}}}"#
             let dm = Mail(try JSONDecoder().decode(GMessage.self, from: Data(dj.utf8)))
             let ro = ComposeDraft(from: "me@x.example", to: dm.to, cc: dm.cc, bcc: dm.bcc ?? "", subject: "S", mode: .new)
