@@ -172,7 +172,7 @@ final class GmailClient: @unchecked Sendable {
         return r["resultSizeEstimate"] as? Int ?? 0
     }
 
-    static let metadataHeaders = ["From", "To", "Cc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"]
+    static let metadataHeaders = ["From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post"]
 
     func message(id: String, full: Bool) async throws -> Mail {
         var q = [URLQueryItem(name: "format", value: full ? "full" : "metadata")]

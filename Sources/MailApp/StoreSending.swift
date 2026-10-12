@@ -31,25 +31,24 @@ extension MailStore {
     private var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
 
     /// Reply goes to Reply-To when the sender set one, else From. Reply all adds everyone else on the email, without
-    /// John's own addresses and without repeats. (Compose has no Cc row, so they all sit in the To line where they can be seen and edited.)
-    func replyRecipients(_ m: Mail, all: Bool) -> String {
+    /// John's own addresses and without repeats. The sender goes in To, everyone else in Cc.
+    func replyRecipients(_ m: Mail, all: Bool) -> (to: String, cc: String) {
         let mine = myAddresses
         var primary = m.replyTo.map(Address.parse).flatMap { $0.email.contains("@") ? $0 : nil } ?? m.from
         if mine.contains(primary.email) { primary = Address.parseList(m.to).first { !mine.contains($0.email) } ?? primary }   // answering one's own sent email
-        var out: [Address] = [primary]
-        if all { out += Address.parseList(m.to) + Address.parseList(m.cc) }
-        var seen = Set<String>(), list: [String] = []
-        for a in out where a.email.contains("@") && seen.insert(a.email).inserted && (!mine.contains(a.email) || a == primary) {
-            list.append(a.email)
+        var seen = Set([primary.email]), others: [String] = []
+        if all {
+            for a in Address.parseList(m.to) + Address.parseList(m.cc) where a.email.contains("@") && !mine.contains(a.email) && seen.insert(a.email).inserted { others.append(a.email) }
         }
-        return list.joined(separator: ", ")
+        return (primary.email, others.joined(separator: ", "))
     }
 
     func reply(_ m: Mail, all: Bool = false) {
         let who = m.from
         let quote = "\(DateFormatter.long.string(from: m.date)), \(who.display) wrote:"
         let subj = m.subject.lowercased().hasPrefix("re:") ? m.subject : "Re: \(m.subject)"
-        var d = ComposeDraft(from: defaultFrom, to: replyRecipients(m, all: all), subject: subj, mode: .reply(m.id))
+        let who2 = replyRecipients(m, all: all)
+        var d = ComposeDraft(from: defaultFrom, to: who2.to, cc: who2.cc, subject: subj, mode: .reply(m.id))
         d.quoteHeader = quote
         d.quoteHTML = m.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
         d.quotePlain = m.text ?? TextTools.htmlToPlain(m.html ?? m.snippet)
@@ -80,7 +79,7 @@ extension MailStore {
             html += "<br><br><div>" + TextTools.plainToHTML(d.quoteHeader) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(d.quoteHTML)</blockquote>"
             plain += "\n\n" + d.quoteHeader + "\n" + d.quotePlain.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
         }
-        return MIME.Outgoing(from: d.from, to: d.to, cc: d.cc, subject: d.subject, html: html, text: plain,
+        return MIME.Outgoing(from: d.from, to: d.to, cc: d.cc, bcc: d.bcc, subject: d.subject, html: html, text: plain,
                              inReplyTo: d.inReplyTo, references: d.references,
                              attachments: d.attachments.map { ($0.name, $0.data, $0.mime) })
     }
@@ -217,6 +216,7 @@ struct ComposeDraft: Equatable, Codable {
     var from: String
     var to: String
     var cc: String = ""
+    var bcc: String = ""
     var subject: String
     var mode: ComposeMode
     var quoteHeader = ""

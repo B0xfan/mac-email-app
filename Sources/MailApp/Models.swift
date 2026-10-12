@@ -73,6 +73,7 @@ struct Mail: Identifiable, Hashable, Codable {
     let from: Address
     let to: String
     let cc: String
+    var bcc: String?            // the Bcc header (only present on John's own drafts)
     let subject: String
     var date: Date   // a snoozed or reminded email shows the time it came back
     let snippet: String
@@ -102,6 +103,7 @@ struct Mail: Identifiable, Hashable, Codable {
         from = Address.parse(h["from"] ?? "")
         to = h["to"] ?? ""
         cc = h["cc"] ?? ""
+        bcc = h["bcc"]
         replyTo = h["reply-to"]
         let subj = MIME.decodeWords(h["subject"] ?? "")
         subject = subj.isEmpty ? "(no subject)" : subj
@@ -241,6 +243,7 @@ enum MIME {
         var from: String
         var to: String
         var cc: String = ""
+        var bcc: String = ""
         var subject: String
         var html: String
         var text: String
@@ -260,6 +263,7 @@ enum MIME {
                  "From: \(o.from)",
                  "To: \(o.to)"]
         if !o.cc.isEmpty { h.append("Cc: \(o.cc)") }
+        if !o.bcc.isEmpty { h.append("Bcc: \(o.bcc)") }   // Gmail delivers to it and strips the header from the copies others get
         h.append("Subject: \(encodeHeader(o.subject))")
         h.append("Date: \(rfc2822(Date()))")
         if !o.inReplyTo.isEmpty { h.append("In-Reply-To: \(o.inReplyTo)") }

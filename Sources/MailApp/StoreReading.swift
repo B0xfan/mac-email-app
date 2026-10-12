@@ -10,7 +10,7 @@ extension MailStore {
         if mailbox == .drafts, let did = draftMap[m.id] {
             selectedID = m.id
             if let full = try? await gmail.message(id: m.id, full: true) {
-                var d = ComposeDraft(from: defaultFrom, to: full.to, subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
+                var d = ComposeDraft(from: defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
                 d.draftID = did
                 d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
                 d.threadID = nil
