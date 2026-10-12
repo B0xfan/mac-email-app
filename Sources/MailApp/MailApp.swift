@@ -60,9 +60,11 @@ struct MailApp: App {
         let args = CommandLine.arguments
         setvbuf(stdout, nil, _IOLBF, 0)
         #if TESTHARNESS
-        if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots"].contains(where: args.contains) { Keychain.testMode = true }
+        if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest"].contains(where: args.contains) { Keychain.testMode = true }
         if args.contains("--selftest") {
             Task { exit(await SelfTest.run() ? 0 : 1) }
+        } else if args.contains("--tiptest") {
+            Task { @MainActor in exit(await TipTest.run() ? 0 : 1) }
         } else if args.contains("--print-auth-url") {
             do { try SelfTest.printAuthURL(); exit(0) } catch { print("no client file"); exit(1) }
         } else if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
