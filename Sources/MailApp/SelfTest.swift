@@ -885,15 +885,14 @@ enum SelfTest {
                 return (200, "{}")
             }
             let rst = await MainActor.run { r2store() }
-            var allCc = ""
             let rr = await MainActor.run { () -> (String, String, String) in
                 rst.accountEmail = "me@x.example"
                 rst.reply(mm); let one = rst.compose?.to ?? ""
-                rst.reply(mm, all: true); let all = rst.compose?.to ?? ""; allCc = rst.compose?.cc ?? ""
-                return (one, all, mm.replyTo ?? "")
+                rst.reply(mm, all: true); let all = rst.compose?.to ?? ""
+                return (one, all, rst.compose?.cc ?? "")
             }
             check("Reply goes to Reply-To when there is one; Reply all adds Bob and Cara once and leaves out John's own address",
-                  Address.parseList(rr.0).map(\.email) == ["team@x.example"] && Address.parseList(rr.1).map(\.email) == ["team@x.example"] && Address.parseList(allCc).map(\.email) == ["bob@x.example", "cara@x.example"] && !rr.0.contains("bob"))
+                  Address.parseList(rr.0).map(\.email) == ["team@x.example"] && Address.parseList(rr.1).map(\.email) == ["team@x.example"] && Address.parseList(rr.2).map(\.email) == ["bob@x.example", "cara@x.example"] && !rr.0.contains("bob"))
             // Bcc: in the message that is sent and in the saved draft, with line breaks removed; a reopened draft shows Cc and Bcc
             let bd = ComposeDraft(from: "me@x.example", to: "a@x.example", cc: "c@x.example", bcc: "secret@x.example\r\nX-Evil: 1", subject: "S", mode: .new)
             let bh = String(decoding: MIME.build(await MainActor.run { rst.buildOutgoing(bd, bodyHTML: "hi") }), as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
