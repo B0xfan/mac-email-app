@@ -13,7 +13,7 @@ import os, signal, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCK = os.environ.get("SAFE_LOCK", os.path.join(ROOT, ".build-safe.lock"))
-LOAD_MAX = float(os.environ.get("SAFE_LOAD_MAX", "4"))        # half of this Mac's 8 cores
+LOAD_MAX = float(os.environ.get("SAFE_LOAD_MAX", "6"))        # 75% of this Mac's 8 cores; its idle baseline with John's apps open is 4 to 7
 BUILD_T = int(os.environ.get("SAFE_BUILD_TIMEOUT", "1200"))
 TEST_T = int(os.environ.get("SAFE_TEST_TIMEOUT", "300"))
 BUSY = ["swift-build", "swift-frontend", "swift-test", "swift-driver", "xcodebuild", "xctest"]
