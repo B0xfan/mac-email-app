@@ -392,23 +392,24 @@ struct TodoBoxView: View {
             Card(padding: 16) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Add to to-do list").font(Theme.heading)
-                    Text("Type one line. Mail picks out the project, priority and due date.").font(Theme.small).foregroundStyle(Theme.sub)
-                    TextField("Task", text: $line.v).textFieldStyle(.roundedBorder).font(.system(size: 15)).focused($focus)
-                        .onSubmit { add() }.accessibilityLabel("Task line")
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Mail understood:").font(Theme.label).foregroundStyle(Theme.sub)
-                        HStack(spacing: 6) {
-                            chip("Project", p.project.map { $0 + (p.projectKnown || settings.todoList != .obsidian ? "" : " (not found, no project)") } ?? "none")
-                            chip("Priority", p.priority?.title ?? "none")
-                            chip("Due", p.due.map { TodoBox.dueLabel($0) } ?? "none")
+                    TextField("Task", text: $line.v, axis: .vertical).textFieldStyle(.plain).font(.system(size: 16)).lineLimit(3, reservesSpace: true)
+                        .focused($focus).onSubmit { add() }.accessibilityLabel("Task line")
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(focus ? Theme.acc : Theme.sub, lineWidth: 2))
+                        .shadow(color: focus ? Theme.acc.opacity(0.28) : .clear, radius: 4)
+                    HStack(spacing: 6) {
+                        if p.project == nil && p.priority == nil && p.due == nil {
+                            Text("Nothing picked out yet").font(Theme.small).foregroundStyle(Theme.sub)
+                        } else {
+                            Text("Mail found").font(Theme.small).foregroundStyle(Theme.sub)
+                            if let pr = p.project { chip(pr + (p.projectKnown || settings.todoList != .obsidian ? "" : " (not found)"), due: false) }
+                            if let pri = p.priority { chip(pri.title, due: false) }
+                            if let d = p.due { chip("Due " + TodoBox.dueLabel(d), due: true) }
                         }
-                    }
-                    Text("Plain words work too: \u{201C}for Pura Life, high priority, due Tuesday 3pm\u{201D}.").font(Theme.small).foregroundStyle(Theme.sub)
+                    }.frame(minHeight: 28, alignment: .leading)
                     HStack(spacing: 8) {
-                        Text("Goes to:").font(Theme.small).foregroundStyle(Theme.sub)
-                        MiniMenu(label: settings.todoList.title) {
-                            ForEach(TodoList.allCases, id: \.self) { l in Button(l.title) { settings.todoList = l } }
-                        }
+                        Text("Goes to \(settings.todoList.title)").font(Theme.small).foregroundStyle(Theme.sub)
                         Spacer()
                         Button("Cancel") { store.todoMail = nil }.buttonStyle(MailButtonStyle(kind: .neutral))
                         Button("Add") { add() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(busy.v)
@@ -417,12 +418,12 @@ struct TodoBoxView: View {
             }
             .frame(width: 520).frame(maxHeight: .infinity, alignment: .top).padding(.top, 90)
         }
-        .onAppear { line.v = mail.subject; focus = true }
+        .onAppear { line.v = mail.subject; focus = true; DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) } }
         .onKeyPress(.escape) { store.todoMail = nil; return .handled }
     }
-    private func chip(_ k: String, _ v: String) -> some View {
-        Text("\(k): \(v)").font(Theme.small).padding(.horizontal, 10).frame(minHeight: 26)
-            .background(Capsule().fill(v == "none" ? Theme.hovBg : Theme.accSoft)).foregroundStyle(v == "none" ? Theme.sub : Theme.accInk)
+    private func chip(_ t: String, due: Bool) -> some View {
+        Text(t).font(Theme.small).padding(.horizontal, 10).frame(minHeight: 26)
+            .background(Capsule().fill(due ? Theme.accSoft : Theme.hovBg)).foregroundStyle(due ? Theme.accInk : Theme.text)
     }
     private func add() { busy.v = true; Task { _ = await store.addTodo(line: line.v, mail: mail); busy.v = false } }
 }

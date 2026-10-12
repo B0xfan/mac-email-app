@@ -13,8 +13,9 @@ final class Box<T>: ObservableObject {
 struct MailButtonStyle: ButtonStyle {
     var kind: BtnKind = .neutral
     var small = false
+    var compact = false // toolbar-button size (28 pt, 13 pt text)
     func makeBody(configuration: Configuration) -> some View {
-        MailButtonBody(configuration: configuration, kind: kind, small: small)
+        MailButtonBody(configuration: configuration, kind: kind, small: small, compact: compact)
     }
 }
 
@@ -22,15 +23,16 @@ struct MailButtonBody: View {
     let configuration: ButtonStyleConfiguration
     let kind: BtnKind
     let small: Bool
+    var compact = false
     @Environment(\.isEnabled) private var enabled
     @StateObject private var hover = Box(false)
     var body: some View {
         let h = hover.v || configuration.isPressed
         configuration.label
-            .font(.system(size: small ? 13 : 14, weight: .semibold))
+            .font(.system(size: small || compact ? 13 : 14, weight: compact ? .medium : .semibold))
             .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, small ? 12 : 16)
-            .frame(minHeight: 44)
+            .padding(.horizontal, compact ? 10 : small ? 12 : 16)
+            .frame(minHeight: compact ? 28 : 44)
             .foregroundStyle(fg)
             .background(RoundedRectangle(cornerRadius: 10).fill(bg(h)))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: 1))
