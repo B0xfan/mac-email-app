@@ -44,6 +44,8 @@ struct GSendAs: Decodable {
     let signature: String?
 }
 
+struct NotInInbox: Error {}
+
 enum GmailError: Error, LocalizedError {
     case http(Int, String)
     case signInAgain
@@ -149,8 +151,8 @@ final class GmailClient: @unchecked Sendable {
         for h in Self.metadataHeaders { q.append(.init(name: "metadataHeaders", value: h)) }
         let d = try await send("/threads/\(id)", query: q)
         guard let t = try? JSONDecoder().decode(GThread.self, from: d), let all = t.messages, !all.isEmpty else { throw GmailError.http(0, "unreadable conversation") }
-        let inInbox = all.filter { ($0.labelIds ?? []).contains("INBOX") }
-        let mine = inInbox.isEmpty ? all : inInbox
+        let mine = all.filter { ($0.labelIds ?? []).contains("INBOX") }
+        if mine.isEmpty { throw NotInInbox() }   // Gmail listed it, but no message is in the Inbox: Spark would not show it either
         let rep = mine.max { (Double($0.internalDate ?? "") ?? 0) < (Double($1.internalDate ?? "") ?? 0) }!
         var m = Mail(rep)
         if mine.contains(where: { ($0.labelIds ?? []).contains("UNREAD") }) && !m.labels.contains("UNREAD") { m.labels.append("UNREAD") }
@@ -160,11 +162,13 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// Conversations fetched a few at a time; `failed` are the ids that could not be read.
-    func threads(_ ids: [String]) async -> (mails: [String: Mail], failed: [String]) {
-        let r = await mapLimited(ids, limit: 6) { id in (id, try? await self.thread(id: id)) }
-        var ok: [String: Mail] = [:], bad: [String] = []
-        for (id, m) in r { if let m { ok[id] = m } else { bad.append(id) } }
-        return (ok, bad)
+    func threads(_ ids: [String]) async -> (mails: [String: Mail], failed: [String], gone: Set<String>) {
+        let r = await mapLimited(ids, limit: 6) { id -> (String, Mail?, Bool) in
+            do { return (id, try await self.thread(id: id), false) } catch is NotInInbox { return (id, nil, true) } catch { return (id, nil, false) }
+        }
+        var ok: [String: Mail] = [:], bad: [String] = [], gone = Set<String>()
+        for (id, m, g) in r { if let m { ok[id] = m } else if g { gone.insert(id) } else { bad.append(id) } }
+        return (ok, bad, gone)
     }
 
     func countEstimate(q: String) async throws -> Int {

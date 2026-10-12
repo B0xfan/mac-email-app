@@ -226,7 +226,7 @@ final class MailStore: ObservableObject {
             let got = await gmail.threads(need)
             await aside; await snz
             // a conversation that failed to load keeps its old row instead of vanishing
-            let all = page.refs.compactMap { got.mails[$0.id] ?? have[$0.id] }
+            let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
             inbox = applySurfaced(all).sorted { $0.date > $1.date }
             inboxNext = page.next
             pruneSurfaced()
