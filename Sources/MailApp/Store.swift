@@ -174,7 +174,7 @@ final class MailStore: ObservableObject {
     func loadCache() {
         guard let url = cacheURL, inbox.isEmpty, let d = try? Data(contentsOf: url),
               let c = try? JSONDecoder().decode(InboxCache.self, from: d), c.account == accountEmail, !c.mails.isEmpty else { return }
-        inbox = applySurfaced(c.mails).sorted { $0.date > $1.date }
+        inbox = applySurfaced(c.mails.filter(\.inInbox)).sorted { $0.date > $1.date }
     }
 
     // Bodies are left out: opening an email fetches it in full anyway.
@@ -219,7 +219,7 @@ final class MailStore: ObservableObject {
                 setLabels(ls)
             }
             // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
-            let have = Dictionary(inbox.map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
+            let have = Dictionary(inbox.filter(\.inInbox).map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
             let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID }.map(\.id)
             async let aside: Void = loadAside()
             async let snz: Void = loadSnoozed()
