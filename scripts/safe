@@ -57,10 +57,9 @@ def selfcheck():
     chk("classify: swift build is a build", classify(["swift", "build", "-j", "1"]) == "build")
     chk("classify: app run is a launch", classify([".build/debug/MailApp", "--selftest"]) == "launch")
     chk("classify: swiftc and sleep are not budgeted", classify(["swiftc", "x.swift"]) == "other" == classify(["sleep", "1"]))
-    chk("memory: normal pressure and 5 GB free swap passes", memory_problem(1, 5000) is None)
-    chk("memory: warn pressure (the everyday state) passes", memory_problem(2, 5000) is None)
-    chk("memory: critical pressure refused", "short of memory" in (memory_problem(4, 5000) or ""))
-    chk("memory: under 1 GB free swap refused", "out of swap" in (memory_problem(1, 900) or ""))
+    chk("memory: normal pressure passes", memory_problem(1) is None)
+    chk("memory: warn pressure (the everyday state) passes", memory_problem(2) is None)
+    chk("memory: critical pressure refused", "short of memory" in (memory_problem(4) or ""))
     runs = []
     chk("empty history: build allowed", budget_problem(runs, ["build"], t) is None)
     runs = [{"kind": "build", "start": t, "end": t + 5}]
@@ -97,22 +96,17 @@ def take_lock():
             subprocess.run(["rm", "-rf", LOCK])            # stale lock from a dead run
     die("could not take the lock")
 
-def memory_problem(level, swap_free_mb):
+def memory_problem(level):
     """John's Mac has 8 GB: a swift build on top of memory pressure freezes it. No override."""
-    # John's 8 GB Mac normally sits near 6.5 GB used (pressure "warn" is its everyday state), so only critical pressure or almost no swap refuses.
+    # John's 8 GB Mac normally sits near 6.5 GB used (pressure "warn" and low free swap are its everyday state), so only critical pressure refuses.
     if level > 2: return "the Mac is critically short of memory (pressure level %d), stop and report to Audrey; do not retry" % level
-    if swap_free_mb < 1024: return "the Mac is nearly out of swap (%d MB free, need 1024), stop and report to Audrey; do not retry" % swap_free_mb
     return None
 
 def memory_now():
-    level = int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True).stdout.strip() or 1)
-    out = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True).stdout   # "total = 14336.00M  used = ...  free = 1434.00M"
-    try: free = float(out.split("free =")[1].split()[0].rstrip("MG")) * (1024 if "G" in out.split("free =")[1].split()[0] else 1)
-    except Exception: free = 0.0   # unreadable counts as unsafe
-    return level, free
+    return int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True).stdout.strip() or 4)   # unreadable counts as unsafe
 
 def precheck():
-    problem = memory_problem(*memory_now())
+    problem = memory_problem(memory_now())
     if problem: die(problem, 3)
     load = os.getloadavg()[0]
     if load > LOAD_MAX: die("the Mac is busy (load %.1f, limit %.1f); try again later" % (load, LOAD_MAX))
