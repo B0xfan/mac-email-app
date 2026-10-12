@@ -4,12 +4,13 @@
   scripts/safe build [swift build args]   debug build by default, 2 jobs, 20 min limit
   scripts/safe selftest                   build (above), then .build/debug/MailApp --selftest, 5 min limit
   scripts/safe exec <seconds> -- <cmd>    any command under the same caps (build.sh uses it)
+  Run budget per rolling hour: 3 builds, 2 app/test launches, 3 minutes cooldown after each run (see BUDGET_FILE).
 
 Caps: background priority (taskpolicy -b + nice 19), one run at a time (lock), refuses to start when the
 Mac is busy or a swift build is already alive, and a timeout kills the whole process group.
 Overrides for checking the wrapper itself: SAFE_LOAD_MAX, SAFE_LOCK, SAFE_BUILD_TIMEOUT, SAFE_TEST_TIMEOUT.
 """
-import os, signal, subprocess, sys, time
+import json, os, signal, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCK = os.environ.get("SAFE_LOCK", os.path.join(ROOT, ".build-safe.lock"))
@@ -17,6 +18,61 @@ LOAD_MAX = float(os.environ.get("SAFE_LOAD_MAX", "6"))        # 75% of this Mac'
 BUILD_T = int(os.environ.get("SAFE_BUILD_TIMEOUT", "1200"))
 TEST_T = int(os.environ.get("SAFE_TEST_TIMEOUT", "300"))
 BUSY = ["swift-build", "swift-frontend", "swift-test", "swift-driver", "xcodebuild", "xctest"]
+
+# Run budget. Fixed numbers and a fixed file on purpose: no flag or env var changes them. The only way around it is
+# deleting the state file by hand, which the Noor AGENT.md rule forbids. Over budget: stop and report, do not retry.
+BUDGET_FILE = os.path.join(ROOT, ".safe-budget.json")
+WINDOW, COOLDOWN = 3600, 180
+LIMITS = {"build": 3, "launch": 2}
+
+def classify(cmd):
+    """build = a swift/xcode build; launch = any run of the app or its test harness; other = small helpers (not budgeted)."""
+    if os.path.basename(cmd[0]) in ("swift", "swift-build", "swift-test", "xcodebuild"): return "build"
+    if "MailApp" in " ".join(cmd): return "launch"
+    return "other"
+
+def load_runs(path):
+    try: return json.load(open(path))
+    except Exception: return []
+
+def budget_problem(runs, kinds, now):
+    """None if the runs in `kinds` may start now, else the refusal text."""
+    runs = [r for r in runs if now - r["start"] < WINDOW]
+    for k, lim in LIMITS.items():
+        need = kinds.count(k)
+        if need and sum(r["kind"] == k for r in runs) + need > lim:
+            return "run budget spent (%d %s runs per hour already used), stop and report to Audrey; do not retry" % (lim, k)
+    ends = [r.get("end") or r["start"] + 10**6 for r in runs]   # a run with no end yet counts as still cooling
+    if any(k in LIMITS for k in kinds) and ends and now < max(ends) + COOLDOWN:
+        return "cooling down after the last run (%d more seconds), stop and report to Audrey; do not retry" % (max(ends) + COOLDOWN - now)
+    return None
+
+def save_runs(path, runs):
+    tmp = path + ".tmp"; json.dump(runs, open(tmp, "w")); os.replace(tmp, path)
+
+def selfcheck():
+    d = tempfile.mkdtemp(); f = os.path.join(d, "b.json"); t = 10_000.0; ok = True
+    def chk(name, cond):
+        nonlocal ok; print(("PASS " if cond else "FAIL ") + name); ok = ok and cond
+    chk("classify: swift build is a build", classify(["swift", "build", "-j", "2"]) == "build")
+    chk("classify: app run is a launch", classify([".build/debug/MailApp", "--selftest"]) == "launch")
+    chk("classify: swiftc and sleep are not budgeted", classify(["swiftc", "x.swift"]) == "other" == classify(["sleep", "1"]))
+    runs = []
+    chk("empty history: build allowed", budget_problem(runs, ["build"], t) is None)
+    runs = [{"kind": "build", "start": t, "end": t + 5}]
+    chk("cooldown: next run refused 2 minutes after the last ended", "cooling" in (budget_problem(runs, ["build"], t + 125) or ""))
+    chk("cooldown over after 3 minutes", budget_problem(runs, ["build"], t + 186) is None)
+    chk("other commands skip the cooldown", budget_problem(runs, ["other"], t + 6) is None)
+    runs = [{"kind": "build", "start": t + i * 300, "end": t + i * 300 + 5} for i in range(3)]
+    chk("3 builds in the hour: the 4th is refused", "budget spent" in (budget_problem(runs, ["build"], t + 1000) or ""))
+    chk("a launch is still allowed when only the build budget is spent", budget_problem(runs, ["launch"], t + 1000) is None)
+    chk("after the hour rolls over the oldest build, a build is allowed again", budget_problem(runs, ["build"], t + WINDOW + 10) is None)
+    runs = [{"kind": "launch", "start": t + i * 300, "end": t + i * 300 + 5} for i in range(2)]
+    chk("2 launches in the hour: the 3rd is refused", "budget spent" in (budget_problem(runs, ["launch"], t + 1000) or ""))
+    chk("selftest needs a build AND a launch: refused if either is spent", "budget spent" in (budget_problem(runs, ["build", "launch"], t + 1000) or ""))
+    chk("a run that never recorded an end keeps cooling", "cooling" in (budget_problem([{"kind": "build", "start": t}], ["build"], t + 1000) or ""))
+    save_runs(f, runs); chk("state file round trips", load_runs(f) == runs)
+    return ok
 
 def die(msg, code=2):
     print("safe: " + msg, file=sys.stderr); sys.exit(code)
@@ -57,7 +113,9 @@ def run(cmd, limit):
             time.sleep(2)
         p.wait(); return 124
     except KeyboardInterrupt:
-        os.killpg(p.pid, signal.SIGKILL); return 130
+        try: os.killpg(p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError): pass
+        return 130
 
 def main():
     for sg in (signal.SIGTERM, signal.SIGHUP): signal.signal(sg, signal.default_int_handler)   # closing the terminal kills the build too
@@ -66,6 +124,8 @@ def main():
     if a[0] == "exec":
         if len(a) < 4 or a[2] != "--": die("usage: safe exec <seconds> -- <cmd>")
         steps = [(a[3:], int(a[1]))]
+    elif a[0] == "selfcheck":
+        sys.exit(0 if selfcheck() else 1)
     elif a[0] in ("build", "selftest"):
         build = ["swift", "build", "-j", "2"] + (a[1:] if a[0] == "build" else [])
         steps = [(build, BUILD_T)]
@@ -73,8 +133,16 @@ def main():
     else: die(__doc__)
     precheck(); take_lock()
     try:
-        for cmd, limit in steps:
-            rc = run(cmd, limit)
+        kinds = [classify(c) for c, _ in steps]
+        runs = load_runs(BUDGET_FILE)
+        problem = budget_problem(runs, kinds, time.time())
+        if problem: die(problem, 3)
+        for (cmd, limit), kind in zip(steps, kinds):
+            rec = {"kind": kind, "start": time.time(), "end": None}
+            if kind in LIMITS: runs.append(rec); save_runs(BUDGET_FILE, runs)   # counted before it runs, so a crash still counts
+            try: rc = run(cmd, limit)
+            finally:
+                if kind in LIMITS: rec["end"] = time.time(); save_runs(BUDGET_FILE, runs)
             if rc: sys.exit(rc)
     finally:
         subprocess.run(["rm", "-rf", LOCK])
