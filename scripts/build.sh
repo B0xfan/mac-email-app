@@ -1,9 +1,10 @@
 #!/bin/zsh
+# LOCAL build, only with John's say-so: normal builds run on GitHub (scripts/cloud-build.sh, then scripts/install-cloud-build.sh).
 # Builds "Audrey Mail.app" from the Swift package, signs it ad hoc (no Xcode needed),
 # and replaces the installed copy in /Applications so there is never a stale one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-scripts/safe build -c release   # capped: background priority, 2 jobs, lock, timeout. Never a bare swift build.
+scripts/safe build -c release   # capped: background priority, 1 job, lock (taken once, also when this script runs under safe exec), timeout. Never a bare swift build.
 NAME="Audrey Mail"
 APP="build/$NAME.app"
 DEST="/Applications/$NAME.app"
@@ -16,14 +17,7 @@ EXT="$APP/Contents/PlugIns/MailShare.appex"
 mkdir -p "$EXT/Contents/MacOS"
 scripts/safe exec 300 -- swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
 cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
-# Stable signing: a local self-signed identity in its own keychain, so the app keeps the same
-# identity across rebuilds and the Keychain "Always Allow" grant for the refresh token sticks.
-SUPPORT="$HOME/Library/Application Support/Audrey Mail"
-SIGNKC="$SUPPORT/signing.keychain-db"
-if [ ! -f "$SIGNKC" ]; then echo "Signing keychain missing: $SIGNKC - run scripts/setup-signing.sh"; exit 1; fi
-security unlock-keychain -p "$(cat "$SUPPORT/signing.pw")" "$SIGNKC"
-codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.share --entitlements ShareExtension/MailShare.entitlements "$EXT"
-codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp "$APP"
+scripts/sign.sh "$APP"   # stable local signing, shared with install-cloud-build.sh
 codesign --verify --verbose=2 "$APP"
 echo "Built $APP"
 if [ -n "${NO_INSTALL:-}" ]; then echo "NO_INSTALL set: not installed"; exit 0; fi

@@ -1,0 +1,36 @@
+# Manual trigger only, on purpose: scripts/auto-commit.sh pushes to main every ~10 minutes, and a push
+# trigger would burn the free GitHub minutes. Start a run with scripts/cloud-build.sh.
+name: build
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release build
+        run: swift build -c release
+      - name: Assemble the app (same layout as scripts/build.sh; signed later on John's Mac)
+        run: |
+          set -euo pipefail
+          APP="build/Audrey Mail.app"
+          EXT="$APP/Contents/PlugIns/MailShare.appex"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$EXT/Contents/MacOS"
+          cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
+          cp scripts/Info.plist "$APP/Contents/Info.plist"
+          swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
+          cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
+          ditto -c -k --keepParent "$APP" AudreyMail.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AudreyMail-app
+          path: AudreyMail.zip
+          retention-days: 3
+          compression-level: 0
+      # The self-test lives in the debug build only. A GUI-less runner may fail it; that must not fail the build.
+      - name: Self-test (result is in this log)
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          swift build
+          .build/debug/MailApp --selftest

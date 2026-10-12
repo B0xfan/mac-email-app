@@ -116,7 +116,7 @@ def precheck():
 
 def run(cmd, limit):
     full = ["taskpolicy", "-b", "nice", "-n", "19"] + cmd
-    p = subprocess.Popen(full, cwd=ROOT, start_new_session=True)
+    p = subprocess.Popen(full, cwd=ROOT, start_new_session=True, env={**os.environ, "SAFE_LOCK_HELD": "1"})
     try:
         return p.wait(timeout=limit)
     except subprocess.TimeoutExpired:
@@ -145,7 +145,9 @@ def main():
         steps = [(build, BUILD_T)]
         if a[0] == "selftest": steps.append(([os.path.join(ROOT, ".build/debug/MailApp"), "--selftest"], TEST_T))
     else: die(__doc__)
-    precheck(); take_lock()
+    held = bool(os.environ.get("SAFE_LOCK_HELD"))   # called from inside another safe run (build.sh under safe exec): its lock already covers us
+    precheck()
+    if not held: take_lock()
     try:
         kinds = [classify(c) for c, _ in steps]
         runs = load_runs(BUDGET_FILE)
@@ -159,5 +161,5 @@ def main():
                 if kind in LIMITS: rec["end"] = time.time(); save_runs(BUDGET_FILE, runs)
             if rc: sys.exit(rc)
     finally:
-        subprocess.run(["rm", "-rf", LOCK])
+        if not held: subprocess.run(["rm", "-rf", LOCK])
 main()
