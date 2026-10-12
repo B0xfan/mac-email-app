@@ -355,7 +355,7 @@ struct HomeRound: View {
             Image(systemName: symbol).font(.system(size: 17)).frame(width: 44, height: 44)
                 .background(Circle().fill(Color(nsColor: NSColor(srgbRed: 15/255, green: 35/255, blue: 38/255, alpha: hover.v ? 0.8 : 0.55))))
                 .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 1.5))
-        }.buttonStyle(.plain).onHover { hover.v = $0 }.help(label).accessibilityLabel(label)
+        }.buttonStyle(.plain).onHover { hover.v = $0 }.tip(label).accessibilityLabel(label)
     }
 }
 

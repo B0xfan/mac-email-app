@@ -8,13 +8,13 @@
 
 Caps: background priority (taskpolicy -b + nice 19), one run at a time (lock), refuses to start when the
 Mac is busy or a swift build is already alive, and a timeout kills the whole process group.
-Overrides for checking the wrapper itself: SAFE_LOAD_MAX, SAFE_LOCK, SAFE_BUILD_TIMEOUT, SAFE_TEST_TIMEOUT.
+Overrides for checking the wrapper itself: SAFE_LOCK, SAFE_BUILD_TIMEOUT, SAFE_TEST_TIMEOUT.
 """
 import json, os, signal, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCK = os.environ.get("SAFE_LOCK", os.path.join(ROOT, ".build-safe.lock"))
-LOAD_MAX = float(os.environ.get("SAFE_LOAD_MAX", "6"))        # 75% of this Mac's 8 cores; its idle baseline with John's apps open is 4 to 7
+LOAD_MAX = 6.0        # 75% of this Mac's 8 cores; its idle baseline with John's apps open is 4 to 7
 BUILD_T = int(os.environ.get("SAFE_BUILD_TIMEOUT", "1200"))
 TEST_T = int(os.environ.get("SAFE_TEST_TIMEOUT", "300"))
 BUSY = ["swift-build", "swift-frontend", "swift-test", "swift-driver", "xcodebuild", "xctest"]
@@ -57,6 +57,10 @@ def selfcheck():
     chk("classify: swift build is a build", classify(["swift", "build", "-j", "2"]) == "build")
     chk("classify: app run is a launch", classify([".build/debug/MailApp", "--selftest"]) == "launch")
     chk("classify: swiftc and sleep are not budgeted", classify(["swiftc", "x.swift"]) == "other" == classify(["sleep", "1"]))
+    chk("memory: normal pressure and 5 GB free swap passes", memory_problem(1, 5000) is None)
+    chk("memory: warn pressure refused", "short of memory" in (memory_problem(2, 5000) or ""))
+    chk("memory: critical pressure refused", "short of memory" in (memory_problem(4, 5000) or ""))
+    chk("memory: under 3 GB free swap refused", "out of swap" in (memory_problem(1, 1434) or ""))
     runs = []
     chk("empty history: build allowed", budget_problem(runs, ["build"], t) is None)
     runs = [{"kind": "build", "start": t, "end": t + 5}]
@@ -93,7 +97,22 @@ def take_lock():
             subprocess.run(["rm", "-rf", LOCK])            # stale lock from a dead run
     die("could not take the lock")
 
+def memory_problem(level, swap_free_mb):
+    """John's Mac has 8 GB: a swift build on top of memory pressure freezes it. No override."""
+    if level > 1: return "the Mac is short of memory (pressure level %d), stop and report to Audrey; do not retry" % level
+    if swap_free_mb < 3072: return "the Mac is nearly out of swap (%d MB free, need 3072), stop and report to Audrey; do not retry" % swap_free_mb
+    return None
+
+def memory_now():
+    level = int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"], capture_output=True, text=True).stdout.strip() or 1)
+    out = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True).stdout   # "total = 14336.00M  used = ...  free = 1434.00M"
+    try: free = float(out.split("free =")[1].split()[0].rstrip("MG")) * (1024 if "G" in out.split("free =")[1].split()[0] else 1)
+    except Exception: free = 0.0   # unreadable counts as unsafe
+    return level, free
+
 def precheck():
+    problem = memory_problem(*memory_now())
+    if problem: die(problem, 3)
     load = os.getloadavg()[0]
     if load > LOAD_MAX: die("the Mac is busy (load %.1f, limit %.1f); try again later" % (load, LOAD_MAX))
     for name in BUSY:

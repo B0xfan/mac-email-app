@@ -87,9 +87,18 @@ struct IconButton: View {
         }
         .buttonStyle(.plain).disabled(!enabled)
         .onHover { hover.v = $0 }
-        .help(label).accessibilityLabel(label)
+        .tip(label).accessibilityLabel(label)
     }
 }
+
+/// Hover tip through the Mac's own tooltip layer (an AppKit view behind the control): SwiftUI's `.help` did not show on the main toolbar.
+struct TipView: NSViewRepresentable {
+    let text: String
+    final class V: NSView { override func hitTest(_ p: NSPoint) -> NSView? { nil } }   // never steals clicks
+    func makeNSView(context: Context) -> V { let v = V(); v.toolTip = text; return v }
+    func updateNSView(_ v: V, context: Context) { if v.toolTip != text { v.toolTip = text } }
+}
+extension View { func tip(_ text: String) -> some View { background(TipView(text: text)) } }
 
 struct Avatar: View {
     let text: String

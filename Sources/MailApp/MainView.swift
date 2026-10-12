@@ -206,7 +206,7 @@ struct NavRow: View {
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(on || hot ? Theme.acc : .clear, lineWidth: 2))
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain).onHover { hover.v = $0 }.help(title).accessibilityLabel(title)
+            .buttonStyle(.plain).onHover { hover.v = $0 }.tip(title).accessibilityLabel(title)
             .accessibilityAddTraits(on ? .isSelected : [])
         }
     }
@@ -297,7 +297,7 @@ struct CheckNowButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hover.v = $0 }
-        .help("Check for new email now").accessibilityLabel("Check for new email now")
+        .tip("Check for new email now").accessibilityLabel("Check for new email now")
         .onChange(of: store.loading) { _, on in
             if on && !reduceMotion { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { angle.v = 360 } }
             else { withAnimation(.linear(duration: 0)) { angle.v = 0 } }
@@ -510,7 +510,7 @@ struct HoverIcon: View {
                 .background(RoundedRectangle(cornerRadius: 7).fill(on || hover.v ? Theme.selStrong : .clear))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).onHover { hover.v = $0 }.help(label).accessibilityLabel(label)
+        .buttonStyle(.plain).onHover { hover.v = $0 }.tip(label).accessibilityLabel(label)
     }
 }
 
