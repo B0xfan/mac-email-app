@@ -10,6 +10,14 @@ enum TipTest {
         if let t = v.toolTip, !t.isEmpty { out.append((t, v.convert(v.bounds, to: root))) }
         for s in v.subviews { tips(in: s, &out, root: root) }
     }
+    /// SwiftUI draws no native view per button, so read the tip the way assistive tools and the tooltip layer do: from the accessibility tree.
+    static func helps(_ e: Any, _ out: inout [String], depth: Int = 0) {
+        guard depth < 40 else { return }
+        if let o = e as? NSAccessibilityProtocol {
+            if let h = o.accessibilityHelp(), !h.isEmpty { out.append(h) }
+            for c in o.accessibilityChildren() ?? [] { helps(c, &out, depth: depth + 1) }
+        }
+    }
     static func run() async -> Bool {
         var ok = true
         func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
@@ -26,10 +34,13 @@ enum TipTest {
         await LiveTest.pump(1.0)
         await store.open(store.inbox.first { $0.id == "priya" }!)
         await LiveTest.pump(0.5)
-        var found: [(String, NSRect)] = []
-        tips(in: win.contentView!, &found, root: win.contentView!)
-        print("views reporting a tip: \(found.count)")
-        for (t, r) in found.prefix(40) { print("  tip '\(t)' at \(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))x\(Int(r.height))") }
+        var native: [(String, NSRect)] = []
+        tips(in: win.contentView!, &native, root: win.contentView!)
+        var h: [String] = []
+        helps(win.contentView!, &h)
+        print("native views with a tip: \(native.count); accessibility help texts: \(h.count)")
+        for t in h.prefix(40) { print("  help '\(t)'") }
+        let found: [(String, NSRect)] = native + h.map { ($0, .zero) }
         let want = ["New email", "Reply", "Reply all", "Forward", "Archive", "Add to to-do (T)", "Check for new email now"]
         for w in want { check("toolbar tip reported: \(w)", found.contains { $0.0 == w }) }
         check("sidebar button tip reported", found.contains { $0.0.hasPrefix("Hide Sidebar") || $0.0.hasPrefix("Show Sidebar") })
