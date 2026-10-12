@@ -3,7 +3,7 @@
 # and replaces the installed copy in /Applications so there is never a stale one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build -c release
+scripts/safe build -c release   # capped: background priority, 2 jobs, lock, timeout. Never a bare swift build.
 NAME="Audrey Mail"
 APP="build/$NAME.app"
 DEST="/Applications/$NAME.app"
@@ -14,7 +14,7 @@ cp scripts/Info.plist "$APP/Contents/Info.plist"
 # The "Mail" item in other apps' Share menu: a small sandboxed extension that hands what was shared to this app.
 EXT="$APP/Contents/PlugIns/MailShare.appex"
 mkdir -p "$EXT/Contents/MacOS"
-swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
+scripts/safe exec 300 -- swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
 cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
 # Stable signing: a local self-signed identity in its own keychain, so the app keeps the same
 # identity across rebuilds and the Keychain "Always Allow" grant for the refresh token sticks.

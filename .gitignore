@@ -19,3 +19,4 @@ client_secret*.json
 *credential*
 *secret*.json
 Application Support/
+.build-safe.lock/
