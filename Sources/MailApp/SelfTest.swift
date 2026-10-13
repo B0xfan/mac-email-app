@@ -314,7 +314,7 @@ enum SelfTest {
             let e1 = await st.saveRule(edit!).error
             let order = seen.filter { $0.hasPrefix("POST") || $0.hasPrefix("DELETE") }
             check("rules: Edit makes the new filter first, then deletes the old one", e1 == nil && order.count == 2 && order[0].hasPrefix("POST /gmail/v1/users/me/settings/filters") && order[0].contains("STARRED") && order[1].hasPrefix("DELETE /gmail/v1/users/me/settings/filters/f1"))
-            seen = []; failCreate = true
+            created = nil; seen = []; failCreate = true
             let e2 = await st.saveRule(edit!).error
             check("rules: when the new filter cannot be made the old one is left alone", e2 != nil && !seen.contains { $0.hasPrefix("DELETE") })
             // a lost reply must not make a second filter: creating a filter is not retried
