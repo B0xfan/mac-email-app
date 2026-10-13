@@ -192,6 +192,7 @@ enum SelfTest {
         if !(await partStore()) { ok = false }
         if !(await partTiming()) { ok = false }
         if !(await partPhase4()) { ok = false }
+        if !partSaveNote() { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
@@ -878,6 +879,85 @@ enum SelfTest {
         let qr = await MainActor.run { (ts2.compose?.restoredBodyHTML, ts2.compose?.to) }
         check("quick reply: the reply opens with the answer typed, nothing sent", qr.0 == "<div>Thanks!</div>" && qr.1 == "a@x.example" && !calls.contains { $0.contains("/send") })
 
+        return ok
+    }
+
+    /// Save as note: note text, clean-up and file naming. Writes only into a temporary folder.
+    static func partSaveNote() -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let tz = TimeZone(identifier: "America/Costa_Rica")!
+        var c = Calendar(identifier: .gregorian); c.timeZone = tz
+        func dt(_ d: Int, _ h: Int, _ mi: Int) -> Date { c.date(from: DateComponents(year: 2026, month: 10, day: d, hour: h, minute: mi))! }
+        let link = GmailLink.url(thread: "m1", account: "me@x.example")
+        let marta = Mail(id: "m1", from: Address(name: "Marta Lane", email: "marta@harborlane.example"), subject: "Venue walkthrough on Thursday", snippet: "", date: dt(13, 6, 2),
+                         text: "Hi John,\r\n\r\nThe venue can walk us through the space on Thursday at 3:00 PM. The side gate will be open, so come in that way.\r\n\r\n\r\n\r\nPlease tell me who is coming so I can let them know.\r\n\r\nThanks,\r\nMarta\r\n\r\nOn Sun, Oct 12, 2026 at 9:00 PM John Hesch <j@x.example>\r\nwrote:\r\n> Can we see the venue?\r\n> Thanks")
+        check("save as note: one email gives the approved note (From, Date, cleaned text, link back), capture fields",
+              EmailNote.content([marta], link: link, now: dt(13, 6, 10), tz: tz) == """
+              ---
+              type: capture
+              created: 2026-10-13
+              captured: 2026-10-13T06:10
+              source_url: "https://mail.google.com/mail/u/me@x.example/#all/m1"
+              ---
+
+              **From:** Marta Lane \\<marta@harborlane.example\\>
+              **Date:** October 13, 2026, 6:02 AM
+
+              ---
+
+              Hi John,
+
+              The venue can walk us through the space on Thursday at 3:00 PM. The side gate will be open, so come in that way.
+
+              Please tell me who is coming so I can let them know.
+
+              Thanks,
+              Marta
+
+              ---
+
+              [Open the original email](https://mail.google.com/mail/u/me@x.example/#all/m1)
+
+              """)
+
+        var h = Mail(id: "m2", from: Address(name: "", email: "ann@x.example"), subject: "Plan", snippet: "", date: dt(13, 8, 0))
+        h.text = nil
+        h.html = "<html><head><style>p{color:red}</style></head><body><!-- x --><p>Hello&nbsp;there &amp; welcome&#8217;s</p>\n<div class=\"gmail_quote\"><div>On Mon, Oct 12, 2026 at 9:00 PM Ann &lt;a@x.example&gt; wrote:<br></div><blockquote class=\"gmail_quote\"><p>old text</p><blockquote>older</blockquote> still old</blockquote></div><p>See <a href=\"https://x.example/a?b=1&amp;c=2\">the <b>plan</b></a>, <a href=\"https://x.example/z\">https://x.example/z</a>, <a href=\"mailto:ann@x.example\">Ann</a><a href=\"https://x.example/logo\"><img src=\"l.png\"></a>.</p><p>\u{200B}</p><p></p><p></p><p>--<br>Ann<br>Planner</p></body></html>"
+        let hb = EmailNote.body(h)
+        check("save as note: HTML email cleaned (no style, quotes gone, entities and stray symbols fixed, links readable, signature kept)",
+              hb == "Hello there & welcome\u{2019}s\n\nSee [the plan](https://x.example/a?b=1&c=2), https://x.example/z, Ann.\n\n\\--\nAnn\nPlanner")
+        if !ok { print("  got: \(hb.debugDescription)") }
+
+        var junk = Mail(id: "m3", from: Address(name: "Bo", email: "bo@x.example"), subject: "S", snippet: "", date: dt(13, 9, 0))
+        junk.text = "    # Order 5 shipped\n<b>Thanks</b> <https://x.example/t>\n[image: logo]\n=====\nEl lun, 12 oct 2026 a las 9:00, Ana (<a@x.example>) escribió:\n> hola\nBo\n-----Original Message-----\nFrom: Ana\nold copy"
+        let jb = EmailNote.body(junk)
+        check("save as note: plain text, headings/rules stay text, stray tags and picture stand-ins go, Spanish and Outlook quotes go, <links> stay",
+              jb == "\\# Order 5 shipped\nThanks <https://x.example/t>\n\\=====\n\nBo")
+        if jb != "\\# Order 5 shipped\nThanks <https://x.example/t>\n\\=====\n\nBo" { print("  got: \(jb.debugDescription)") }
+
+        // a conversation, handed over out of order: each message once, oldest first, under a small From · date line
+        let reply = Mail(id: "m4", from: Address(name: "John Hesch", email: "j@x.example"), subject: "Re: Venue walkthrough on Thursday", snippet: "", date: dt(13, 7, 15),
+                         text: "Dana and I will come.\n\nOn Mon, Oct 13, 2026 at 6:02 AM Marta Lane <marta@harborlane.example> wrote:\n> Hi John,\n> The venue can walk us")
+        let th = EmailNote.content([reply, marta], link: link, now: dt(13, 7, 20), tz: tz)
+        let a = th.range(of: "<small>Marta Lane \u{00B7} October 13, 2026, 6:02 AM</small>\n\nHi John,"), b = th.range(of: "<small>John Hesch \u{00B7} October 13, 2026, 7:15 AM</small>\n\nDana and I will come.\n\n---\n\n[Open the original email]")
+        check("save as note: a conversation lists each message once, in order, quoted copies removed",
+              a != nil && b != nil && a!.lowerBound < b!.lowerBound && !th.contains("**From:**") && th.components(separatedBy: "The venue can walk us").count == 2 && !th.contains("title:"))
+
+        // file naming and writing, in a temporary vault only
+        check("save as note: file name from the subject, unsafe characters dropped, very long subjects cut, subject kept as title",
+              EmailNote.fileName("Re: Q&A #5 [draft]") == "Re Q&A 5 draft" && EmailNote.fileName(String(repeating: "a", count: 300)).count == 120 && EmailNote.fileName("...") == "untitled"
+              && EmailNote.content([Mail(id: "q", from: Address(name: "", email: "q@x.example"), subject: "Re: Q&A #5", snippet: "", date: dt(13, 9, 0))], link: link, now: dt(13, 9, 0), tz: tz).contains("type: capture\ntitle: \"Re: Q&A #5\"\ncreated:"))
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("note-vault-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let noFolder = (try? EmailNote.write([marta], link: link, vault: vault)) == nil
+        try? FileManager.default.createDirectory(at: vault.appendingPathComponent(EmailNote.folder), withIntermediateDirectories: true)
+        let w1 = try? EmailNote.write([reply, marta], link: link, vault: vault), w2 = try? EmailNote.write([marta], link: link, vault: vault)
+        check("save as note: refuses a missing Inbox folder, lands in 01 Inbox named after the first subject, a second one gets -2",
+              noFolder && w1?.path == vault.appendingPathComponent("01 Inbox/Venue walkthrough on Thursday.md").path && w2?.lastPathComponent == "Venue walkthrough on Thursday-2.md"
+              && (try? String(contentsOf: w1!, encoding: .utf8)).map { $0.hasPrefix("---\ntype: capture\n") } == true)
+        let ou = ObsidianTask.openURL(URL(fileURLWithPath: "/v/01 Inbox/Q&A #5?.md"))?.absoluteString ?? ""
+        check("Obsidian Open link encodes & # ? so the right note opens", ou == "obsidian://open?path=/v/01%20Inbox/Q%26A%20%235%3F.md")
         return ok
     }
 

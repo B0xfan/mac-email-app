@@ -62,6 +62,7 @@ final class MailStore: ObservableObject {
     // Phase 4
     @Published var commandCenterOpen = false
     @Published var todoMail: Mail?          // the to-do box is open for this email
+    @Published var savingNote = false       // "Save as note" is running (no double notes from a double click)
     @Published var printAsk: Mail?          // "this email or the whole conversation?"
     var todoSender = TodoSender()
     var todoVault: URL { URL(fileURLWithPath: settings.vaultPath) }

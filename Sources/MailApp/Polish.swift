@@ -381,7 +381,7 @@ extension MailStore {
             switch settings.todoList {
             case .obsidian:
                 let f = try ObsidianTask.write(task, vault: todoVault)
-                open = URL(string: "obsidian://open?path=" + (f.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""))
+                open = ObsidianTask.openURL(f)
             case .reminders: open = try await RemindersSender.add(task)
             case .todoist: open = try await todoSender.todoist(task, token: todoTokens.todoist)
             case .clickup: open = try await todoSender.clickup(task, token: todoTokens.clickup, list: todoTokens.clickupList)

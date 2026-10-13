@@ -251,7 +251,7 @@ enum ObsidianTask {
         return f.string(from: due.date)
     }
 
-    private static func q(_ s: String) -> String {
+    static func q(_ s: String) -> String {
         "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
@@ -285,11 +285,22 @@ enum ObsidianTask {
         let dir = vault.appendingPathComponent(tasksFolder)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else { throw WriteError.noFolder }
-        let base = fileTitle(t.title)
-        var url = dir.appendingPathComponent(base + ".md"), n = 2
-        while FileManager.default.fileExists(atPath: url.path) { url = dir.appendingPathComponent("\(base)-\(n).md"); n += 1 }
+        let url = freeURL(dir, fileTitle(t.title))
         try content(t, now: now).write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    /// The first free file name in a folder: "name.md", then "name-2.md", "name-3.md", like the task engine.
+    static func freeURL(_ dir: URL, _ base: String) -> URL {
+        var url = dir.appendingPathComponent(base + ".md"), n = 2
+        while FileManager.default.fileExists(atPath: url.path) { url = dir.appendingPathComponent("\(base)-\(n).md"); n += 1 }
+        return url
+    }
+
+    /// Opens a vault file in Obsidian. "&", "+", "=", "#" and "?" are encoded too, so a name like "Q&A" still opens the right note.
+    static func openURL(_ f: URL) -> URL? {
+        var ok = CharacterSet.urlQueryAllowed; ok.remove(charactersIn: "&+=#?")
+        return URL(string: "obsidian://open?path=" + (f.path.addingPercentEncoding(withAllowedCharacters: ok) ?? ""))
     }
 }
 
