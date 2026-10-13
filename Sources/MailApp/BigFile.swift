@@ -12,7 +12,7 @@ enum BigFileExpiry: Int, CaseIterable, Identifiable {
     func end(from now: Date) -> Date? { self == .never ? nil : now.addingTimeInterval(Double(rawValue) * 86400) }
 }
 
-struct BigFilePick: Equatable, Identifiable { let id = UUID(); let url: URL; let size: Int }
+struct BigFilePick: Equatable, Identifiable { let id = UUID(); let url: URL; let size: Int; var expiry = BigFileExpiry.days7 }
 struct DriveFile: Codable, Equatable { var id: String; var name: String; var deleteAt: Date }
 
 enum BigFileError: Error, LocalizedError {
@@ -53,7 +53,9 @@ enum BigFile {
     /// The status line under a Sent email that carries big-file links (only John sees it).
     struct Strip: Identifiable, Equatable { let id: String; let name: String; let text: String }
     static func ids(in html: String?) -> [String] {
-        guard let html, let re = try? NSRegularExpression(pattern: "drive\\.google\\.com/file/d/([A-Za-z0-9_-]+)/view") else { return [] }
+        // a reply quotes the sender's earlier card inside a blockquote: only links before the first quote count
+        guard var html, let re = try? NSRegularExpression(pattern: "drive\\.google\\.com/file/d/([A-Za-z0-9_-]+)/view") else { return [] }
+        if let q = html.range(of: "<blockquote", options: .caseInsensitive) { html = String(html[..<q.lowerBound]) }
         var out: [String] = []
         for m in re.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
             if let r = Range(m.range(at: 1), in: html), !out.contains(String(html[r])) { out.append(String(html[r])) }
@@ -121,15 +123,15 @@ enum BigFileLater {
 extension MailStore {
     /// Uploads each big file and returns the block to add to the email. Deletion times are saved as soon as a file is up.
     /// If any file fails, the ones already uploaded are deleted again and the error is thrown (nothing gets sent).
-    func uploadBigFiles(_ picks: [BigFilePick], expiry: BigFileExpiry) async throws -> String {
-        var done: [(name: String, size: Int, id: String)] = []
-        let end = expiry.end(from: Date()) ?? BigFile.neverAt
+    func uploadBigFiles(_ picks: [BigFilePick]) async throws -> String {
+        var done: [(name: String, size: Int, id: String, expiry: BigFileExpiry)] = []
         var cur = ""
         do {
             for p in picks {
                 cur = p.url.lastPathComponent
                 let id = try await gmail.driveUpload(p.url)
-                done.append((p.url.lastPathComponent, p.size, id))
+                done.append((p.url.lastPathComponent, p.size, id, p.expiry))
+                let end = p.expiry.end(from: Date()) ?? BigFile.neverAt
                 timing.change { $0.bigFiles = ($0.bigFiles ?? []) + [DriveFile(id: id, name: p.url.lastPathComponent, deleteAt: end)] }
             }
         } catch {
@@ -140,7 +142,7 @@ extension MailStore {
             timing.change { t in t.bigFiles = (t.bigFiles ?? []).filter { f in !done.contains { $0.id == f.id } } + stuck }
             throw error
         }
-        return BigFile.html(done, expiry: expiry)
+        return done.map { BigFile.html([($0.name, $0.size, $0.id)], expiry: $0.expiry) }.joined()   // each file keeps its own expiry
     }
 
     /// Runs with the other timers: files past their time are removed from Drive. A failed delete is tried again next time.

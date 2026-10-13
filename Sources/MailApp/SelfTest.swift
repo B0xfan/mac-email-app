@@ -313,16 +313,21 @@ enum SelfTest {
             permCode = 200; permBody = "{}"; seen = []
             let tf = FileManager.default.temporaryDirectory.appendingPathComponent("bigfile-t-\(UUID().uuidString).json"); defer { try? FileManager.default.removeItem(at: tf) }
             let st = await MainActor.run { MailStore(auth: SignInModel(), gmail: gc, book: SenderBook(url: cbURL.appendingPathExtension("bf")), seen: SeenBook(url: cbURL.appendingPathExtension("bfs")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: tf)) }
-            let pick = BigFilePick(url: bf, size: 10)
-            let blockHTML = try? await st.uploadBigFiles([pick], expiry: .days7)
+            let pick = BigFilePick(url: bf, size: 10), pickN = BigFilePick(url: bf, size: 10, expiry: .never)
+            let blockHTML = try? await st.uploadBigFiles([pick])
             let kept = await MainActor.run { st.timing.data.bigFiles ?? [] }
             upID = "FID2"   // a different id, so the timed record and the Never record stay apart
-            _ = try? await st.uploadBigFiles([pick], expiry: .never)
+            _ = try? await st.uploadBigFiles([pickN])
             upID = "FID1"
             let keptNever = await MainActor.run { st.timing.data.bigFiles ?? [] }
             let htmlHasID: Bool = blockHTML?.contains("FID1") ?? false
             let secondsOut: Double = (kept.first?.deleteAt.timeIntervalSinceNow ?? 0) - 7 * day
             check("big file: a timed link is remembered for deletion 7 days out; Never is remembered with no end time", htmlHasID && kept.count == 1 && kept.first?.id == "FID1" && abs(secondsOut) < 60 && keptNever.count == 2 && keptNever.last?.id == "FID2" && keptNever.last?.deleteAt == BigFile.neverAt)
+            let before = await MainActor.run { st.timing.data.bigFiles ?? [] }
+            let mixed = try? await st.uploadBigFiles([BigFilePick(url: bf, size: 10, expiry: .days3), BigFilePick(url: bf, size: 10, expiry: .never)])
+            let mixedOK: Bool = (mixed?.contains("available for 3 days") ?? false) && (mixed?.contains("no expiry") ?? false)
+            check("big file: each file keeps its own expiry in the email", mixedOK)
+            await MainActor.run { st.timing.change { $0.bigFiles = before } }   // the stub gives repeated ids, so put the records back
             seen = []
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(6 * 86400))
             let early = await MainActor.run { st.timing.data.bigFiles?.count }
@@ -336,14 +341,15 @@ enum SelfTest {
             let sNever: [BigFile.Strip] = BigFile.strips(html: sentHTML, records: late, now: Date())
             let sTimed: [BigFile.Strip] = BigFile.strips(html: sentHTML, records: [DriveFile(id: "FID2", name: "a", deleteAt: Date().addingTimeInterval(3 * day - 60))], now: Date())
             let sNone: [BigFile.Strip] = BigFile.strips(html: "<p>no link</p>", records: late, now: Date())
-            check("big file: the Sent strip says Stays in your Drive, or Deletes in N days, and only shows for an email that carries the link", sNever.first?.text == "Stays in your Drive" && sTimed.first?.text == "Deletes from your Drive in 3 days" && sNone.isEmpty)
+            let sQuoted: [BigFile.Strip] = BigFile.strips(html: "<p>thanks</p><blockquote class=\"gmail_quote\">" + BigFile.html([("n", 1, "FID2")], expiry: .never) + "</blockquote>", records: late, now: Date())
+            check("big file: the Sent strip says Stays in your Drive, or Deletes in N days, and only shows on the email that carries the link, not on a reply that quotes it", sNever.first?.text == "Stays in your Drive" && sTimed.first?.text == "Deletes from your Drive in 3 days" && sNone.isEmpty && sQuoted.isEmpty)
             seen = []
             let nowOK = await st.deleteBigFileNow("FID2")
             let afterNow = await MainActor.run { st.timing.data.bigFiles ?? [] }
             let nowCall: String = seen.first ?? ""
             check("big file: Delete now removes the file from Drive and forgets the record", nowOK && nowCall.hasPrefix("DELETE /drive/v3/files/FID2") && afterNow.isEmpty)
             permN = 0; permFailFrom = 99
-            _ = try? await st.uploadBigFiles([pick], expiry: .never)
+            _ = try? await st.uploadBigFiles([pickN])
             delCode = 500
             let nowFail = await st.deleteBigFileNow("FID1")
             let afterFail = await MainActor.run { st.timing.data.bigFiles ?? [] }
@@ -352,7 +358,7 @@ enum SelfTest {
             await MainActor.run { st.timing.change { $0.bigFiles = [] } }
             // second file fails to upload and the clean-up delete of the first also fails: the record stays, due now, so the sweep retries
             permN = 0; permFailFrom = 2; delCode = 500
-            _ = try? await st.uploadBigFiles([pick, pick], expiry: .days7)
+            _ = try? await st.uploadBigFiles([pick, pick])
             let stuck = await MainActor.run { st.timing.data.bigFiles ?? [] }
             delCode = 200; seen = []
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(5))
@@ -362,7 +368,7 @@ enum SelfTest {
             permN = 0; permFailFrom = 1; delCode = 500
             let stErr = await MainActor.run { st.timing.change { $0.bigFiles = [] } }; _ = stErr
             var gotStuck = false
-            do { _ = try await st.uploadBigFiles([pick], expiry: .never) } catch BigFileError.stuck { gotStuck = true } catch {}
+            do { _ = try await st.uploadBigFiles([pickN]) } catch BigFileError.stuck { gotStuck = true } catch {}
             let kept2 = await MainActor.run { st.timing.data.bigFiles ?? [] }
             delCode = 200
             check("big file: if sharing fails and the clean-up delete fails too, the file is still recorded (due now)", gotStuck && kept2.count == 1 && kept2.first?.id == "FID1" && abs(kept2.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60)

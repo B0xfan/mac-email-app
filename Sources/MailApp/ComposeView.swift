@@ -112,7 +112,7 @@ struct ComposeView: View {
                     if !bigFiles.v.isEmpty {
                         HStack { ForEach(bigFiles.v) { b in
                             Button { bigFiles.v.removeAll { $0.id == b.id } } label: { Label("\(b.url.lastPathComponent)  \u{2715}", systemImage: "link") }
-                                .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Too big to attach, so it is sent as a link (\(bigExpiry.v == .never ? "no expiry" : "deleted from Drive after \(bigExpiry.v.label)")). Click to remove.")
+                                .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Too big to attach, so it is sent as a link (\(b.expiry == .never ? "no expiry" : "deleted from Drive after \(b.expiry.label)")). Click to remove.")
                         }
                     }
                     }
@@ -166,7 +166,7 @@ struct ComposeView: View {
                     .frame(width: 44, height: 44).background(RoundedRectangle(cornerRadius: 10).fill(Theme.side))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Too big to attach").font(Theme.heading).accessibilityAddTraits(.isHeader)
-                    ForEach(bigAsk.v) { b in Text("\(b.url.lastPathComponent) is \(BigFile.size(b.size)). Gmail allows 25 MB.").font(Theme.small).foregroundStyle(Theme.sub) }
+                    ForEach(bigAsk.v) { b in Text("\(b.url.lastPathComponent) is \(BigFile.size(b.size)). Gmail allows \(BigFile.threshold / 1_000_000) MB.").font(Theme.small).foregroundStyle(Theme.sub) }
                 }
             }
             Text("Send it as a download link instead? The file goes to your Google Drive and the email gets a link anyone can open.").font(Theme.body)
@@ -186,7 +186,7 @@ struct ComposeView: View {
             HStack(spacing: 8) {
                 Spacer()
                 Button("Cancel") { bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .neutral)).keyboardShortcut(.cancelAction)
-                Button("Send as link") { bigFiles.v += bigAsk.v; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                Button("Send as link") { bigFiles.v += bigAsk.v.map { var b = $0; b.expiry = bigExpiry.v; return b }; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
             }
         }
         .padding(22).frame(width: 460).background(Theme.card)
@@ -210,7 +210,7 @@ struct ComposeView: View {
             var html = await editor.html()
             if !bigFiles.v.isEmpty {
                 problem.v = "Putting the big file on your Google Drive..."
-                do { html += try await store.uploadBigFiles(bigFiles.v, expiry: bigExpiry.v); problem.v = nil }
+                do { html += try await store.uploadBigFiles(bigFiles.v); problem.v = nil }
                 catch { problem.v = (error as? LocalizedError)?.errorDescription ?? "The big file could not be uploaded."; return }
             }
             var d = draft.v
@@ -224,6 +224,7 @@ struct ComposeView: View {
         let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.canChooseDirectories = false
         guard p.runModal() == .OK else { return }
         for u in p.urls {
+            if (bigFiles.v + bigAsk.v).contains(where: { $0.url == u }) { continue }   // already queued: one public copy only
             if let n = (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, n > BigFile.threshold { bigAsk.v.append(BigFilePick(url: u, size: n)); continue }
             guard let data = try? Data(contentsOf: u) else { problem.v = "\(u.lastPathComponent) could not be read."; continue }
             let mime = UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
