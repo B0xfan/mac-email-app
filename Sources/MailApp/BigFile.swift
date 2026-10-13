@@ -66,7 +66,7 @@ extension GmailClient {
         let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         var start = try await driveRequest(URL(string: "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id")!, "POST", json: ["name": url.lastPathComponent])
         start.setValue(mime, forHTTPHeaderField: "X-Upload-Content-Type")
-        guard let loc = try await driveRun(start).1.value(forHTTPHeaderField: "Location").flatMap(URL.init(string:)) else { throw BigFileError.failed("no upload address") }
+        guard let loc = try await driveRun(start).1.value(forHTTPHeaderField: "Location").flatMap({ URL(string: $0) }) else { throw BigFileError.failed("no upload address") }
         var put = try await driveRequest(loc, "PUT"); put.timeoutInterval = 600; put.setValue(mime, forHTTPHeaderField: "Content-Type")
         let d = try await driveRun(put, file: url).0
         guard let id = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["id"] as? String else { throw BigFileError.failed("no file id") }
