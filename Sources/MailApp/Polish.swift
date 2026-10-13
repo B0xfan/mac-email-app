@@ -143,12 +143,34 @@ enum MenuBarLogic {
     }
 }
 
+/// The "Hidden A" envelope on a 24 grid, 1.8 round stroke, drawn as a template image so macOS tints it for light, dark and a busy menu bar.
+enum MenuBarIcon {
+    static let image: NSImage = {
+        let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { r in
+            let k = r.width / 24
+            func line(_ pts: [(CGFloat, CGFloat)]) -> NSBezierPath {
+                let p = NSBezierPath(); p.move(to: NSPoint(x: pts[0].0 * k, y: pts[0].1 * k))
+                for q in pts.dropFirst() { p.line(to: NSPoint(x: q.0 * k, y: q.1 * k)) }
+                return p
+            }
+            let box = NSBezierPath(roundedRect: NSRect(x: 2.5 * k, y: 5.5 * k, width: 19 * k, height: 13 * k), xRadius: 2.5 * k, yRadius: 2.5 * k)
+            for p in [box, line([(4.5, 17), (12, 10), (19.5, 17)]), line([(8.5, 14), (15.5, 14)])] {
+                p.lineWidth = 1.8 * k; p.lineCapStyle = .round; p.lineJoinStyle = .round
+                NSColor.black.setStroke(); p.stroke()
+            }
+            return true
+        }
+        img.isTemplate = true
+        return img
+    }()
+}
+
 struct MenuBarLabel: View {
     @ObservedObject var store: MailStore
     @ObservedObject var settings: AppSettings
     var body: some View {
         let n = MenuBarLogic.unread(store.inboxMails, all: settings.menuBarAll, category: store.category(of:)).count
-        HStack(spacing: 3) { Image(systemName: "envelope"); if n > 0 { Text("\(n)") } }
+        HStack(spacing: 3) { Image(nsImage: MenuBarIcon.image); if n > 0 { Text("\(n)") } }
     }
 }
 

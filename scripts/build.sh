@@ -12,6 +12,7 @@ rm -rf "$APP" build/Mail.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
+cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # The "Mail" item in other apps' Share menu: a small sandboxed extension that hands what was shared to this app.
 EXT="$APP/Contents/PlugIns/MailShare.appex"
 mkdir -p "$EXT/Contents/MacOS"

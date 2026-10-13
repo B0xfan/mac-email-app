@@ -18,6 +18,7 @@ jobs:
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$EXT/Contents/MacOS"
           cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
           cp scripts/Info.plist "$APP/Contents/Info.plist"
+          cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
           swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
           cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
           ditto -c -k --keepParent "$APP" AudreyMail.zip
