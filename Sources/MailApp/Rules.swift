@@ -79,12 +79,6 @@ struct RuleRow: Identifiable {
     let fromBlock: Bool
 }
 
-extension GmailClient {
-    func createFilter(_ json: [String: Any]) async throws {
-        _ = try await send("/settings/filters", method: "POST", body: try JSONSerialization.data(withJSONObject: json))
-    }
-}
-
 extension GFilter {
     /// What a filter Mail cannot express says, in the little we can: its search words.
     var plain: String {
@@ -108,21 +102,32 @@ extension MailStore {
         } catch { rulesError = "Could not read your rules from Gmail: \(error.localizedDescription)" }
     }
 
-    /// Returns the error text to show, or nil. The new filter is made first, so a failure never leaves John with neither.
-    func saveRule(_ r: MailRule) async -> String? {
-        if let p = r.problem { return p }
-        if let old = rules.first(where: { $0.id == r.id })?.rule, old == r { return nil }
-        do { try await gmail.createFilter(r.json()) } catch { return error.localizedDescription }
+    /// Returns the error text to show (or nil) and, when the new filter exists, its id. The new filter is made first, so a failure never leaves John with neither.
+    func saveRule(_ r: MailRule) async -> (error: String?, newID: String?) {
+        if let p = r.problem { return (p, nil) }
+        let old = rules.first { $0.id == r.id }
+        if let o = old?.rule, o == r { return (nil, nil) }
+        var same = r; same.id = ""
+        if rules.contains(where: { if var x = $0.rule { x.id = ""; return x == same } else { return false } }) { return ("You already have this rule.", nil) }
+        let made: GFilter
+        do { made = try await gmail.createFilter(r.json()) } catch { return (error.localizedDescription, nil) }
+        let blockish = old?.fromBlock == true || r.folder.flatMap { ruleNames[$0] } == blockLabelName
+        var problem: String?
         if !r.id.isEmpty {
-            do { try await gmail.deleteFilter(id: r.id) }
-            catch { await loadRules(); return "Saved, but the old version could not be removed. Delete it from the list." }
+            do { try await gmail.deleteFilter(id: r.id) } catch { problem = "Saved, but the old copy could not be removed. Delete it from the list." }
         }
-        await loadRules(); return nil
+        await loadRules()
+        if blockish { await loadBlocked() }
+        return (problem, problem == nil ? nil : made.id)
     }
 
-    func deleteRule(_ id: String) async {
-        do { try await gmail.deleteFilter(id: id); toast = ToastInfo(text: "Rule deleted.") }
-        catch { toast = ToastInfo(text: "Could not delete that rule: \(error.localizedDescription)") }
+    /// A rule made when blocking a sender is deleted exactly like Unblock: old emails go back to the inbox.
+    func deleteRule(_ row: RuleRow) async {
+        if row.fromBlock, let from = row.rule?.from { await unblock(BlockedEntry(id: row.id, from: from, count: 0)) }
+        else {
+            do { try await gmail.deleteFilter(id: row.id); toast = ToastInfo(text: "Rule deleted.") }
+            catch { toast = ToastInfo(text: "Could not delete that rule: \(error.localizedDescription)") }
+        }
         await loadRules()
     }
 
@@ -138,6 +143,10 @@ struct RulesPanel: View {
     @StateObject private var d = Box(MailRule())
     @StateObject private var open = Box(false)
     @StateObject private var msg = Box("")
+    @StateObject private var orig = Box(MailRule())          // what the editor opened with, to tell unsaved edits
+    @StateObject private var saving = Box(false)
+    @StateObject private var deleting = Box<RuleRow?>(nil)   // asks before Delete
+    @StateObject private var replaceWith = Box<String?>(nil) // "Make a rule from this email" while edits are unsaved
 
     private func b<V>(_ k: WritableKeyPath<MailRule, V>) -> Binding<V> { Binding(get: { d.v[keyPath: k] }, set: { d.v[keyPath: k] = $0 }) }
     private func field(_ title: String, _ k: WritableKeyPath<MailRule, String>) -> some View {
@@ -146,7 +155,7 @@ struct RulesPanel: View {
             TextField(title, text: b(k)).textFieldStyle(.roundedBorder).labelsHidden()
         }
     }
-    private func start(_ r: MailRule) { d.v = r; msg.v = ""; open.v = true }
+    private func start(_ r: MailRule) { d.v = r; orig.v = r; msg.v = ""; open.v = true }
     /// Mail's folders, plus the rule's own folder when it is one Mail hides (like Blocked).
     private var folderChoices: [FolderNode] {
         var f = store.folders
@@ -177,14 +186,26 @@ struct RulesPanel: View {
                         Spacer()
                         if let r = row.rule {
                             Button("Edit") { start(r) }.buttonStyle(LinkButtonStyle()).accessibilityLabel("Edit rule: \(row.text)")
-                            Button("Delete") { Task { await store.deleteRule(row.id) } }.buttonStyle(LinkButtonStyle()).accessibilityLabel("Delete rule: \(row.text)")
+                            Button("Delete") { deleting.v = row }.buttonStyle(LinkButtonStyle()).accessibilityLabel("Delete rule: \(row.text)")
                         }
                     }.padding(16)
                 }
             } }
             if open.v { editor }
         }
-        .onReceive(store.$rulePrefill) { p in if let p { start(MailRule(from: p)); store.rulePrefill = nil } }
+        .onReceive(store.$rulePrefill) { p in
+            guard let p else { return }
+            if open.v && d.v != orig.v { replaceWith.v = p } else { start(MailRule(from: p)) }
+            store.rulePrefill = nil
+        }
+        .alert("Throw away your unsaved changes?", isPresented: Binding(get: { replaceWith.v != nil }, set: { if !$0 { replaceWith.v = nil } })) {
+            Button("Start a new rule") { if let p = replaceWith.v { start(MailRule(from: p)) } }
+            Button("Keep editing", role: .cancel) {}
+        } message: { Text("The rule you are editing has changes that are not saved.") }
+        .alert("Delete this rule?", isPresented: Binding(get: { deleting.v != nil }, set: { if !$0 { deleting.v = nil } }), presenting: deleting.v) { row in
+            Button("Delete", role: .destructive) { Task { await store.deleteRule(row) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { row in Text(row.fromBlock ? "This unblocks \(row.rule?.from ?? "this sender"). Their old emails go back to your inbox." : row.text) }
         .task { await store.loadRules() }
     }
 
@@ -215,11 +236,22 @@ struct RulesPanel: View {
             }
             Text("This rule: " + d.v.summary(store.ruleNames)).font(Theme.small).padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accSoft)).foregroundStyle(Theme.accInk)
+            if let was = store.rules.first(where: { $0.id == d.v.id }), was.fromBlock, d.v.folder != was.rule?.folder || d.v.from.isEmpty {
+                Text("Saving will unblock this sender.").font(Theme.small).foregroundStyle(Theme.sub)
+            }
             HStack {
                 Text(msg.v).font(Theme.small).foregroundStyle(Theme.sub)
                 Spacer()
                 Button("Cancel") { open.v = false; msg.v = "" }.buttonStyle(MailButtonStyle(kind: .neutral))
-                Button("Save") { Task { if let e = await store.saveRule(d.v) { msg.v = e } else { open.v = false; msg.v = "" } } }.buttonStyle(MailButtonStyle(kind: .primary))
+                Button("Save") {
+                    saving.v = true
+                    Task {
+                        let r = await store.saveRule(d.v)
+                        if let id = r.newID { d.v.id = id; orig.v.id = id }   // the old copy stays, so a second Save must not make a third
+                        if let e = r.error { msg.v = e } else { open.v = false; msg.v = "" }
+                        saving.v = false
+                    }
+                }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(saving.v)
             }
         } }
     }

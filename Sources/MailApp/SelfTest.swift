@@ -285,14 +285,24 @@ enum SelfTest {
             check("rules: size, forwarding, categories and a folder that keeps the inbox stay read-only", odd.allSatisfy { MailRule(filter($0), userLabels: user) == nil })
             check("rules: no condition or no action is refused", MailRule().problem != nil && MailRule(from: "a@b.c").problem != nil && r?.problem == nil)
             nonisolated(unsafe) var seen: [String] = []
-            nonisolated(unsafe) var failCreate = false
+            nonisolated(unsafe) var failCreate = false, create500 = false, failDelete = false, blockRule = false
+            nonisolated(unsafe) var created: [String: Any]?   // the last filter the stub accepted, listed back afterwards
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
                 if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
                 seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
                 if req.httpMethod == "POST" && failCreate { return (400, "{}") }
-                if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"}]}"#) }
-                if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" { return (200, #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}]}"#) }
+                if req.httpMethod == "POST" && create500 { return (500, "{}") }
+                if req.httpMethod == "DELETE" && failDelete { return (403, "{}") }
+                if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"},{"id":"Label_2","name":"Blocked","type":"user"}]}"#) }
+                if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" {
+                    let extra = created.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }.map { "," + $0 } ?? ""
+                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}]}"# : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
+                }
+                if u.contains("/messages") && req.httpMethod == "GET" { return (200, #"{"messages":[{"id":"m1"}]}"#) }
+                if req.httpMethod == "POST" && u.hasSuffix("/settings/filters") {
+                    created = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data()) as? [String: Any])?.merging(["id": "new1"]) { a, _ in a }
+                }
                 return (200, #"{"id":"new1"}"#)
             }
             let st: MailStore = await MainActor.run {
@@ -301,12 +311,38 @@ enum SelfTest {
             await st.loadRules()
             var edit = await MainActor.run { st.rules.first?.rule }
             edit?.star = true
-            let e1 = await st.saveRule(edit!)
+            let e1 = await st.saveRule(edit!).error
             let order = seen.filter { $0.hasPrefix("POST") || $0.hasPrefix("DELETE") }
             check("rules: Edit makes the new filter first, then deletes the old one", e1 == nil && order.count == 2 && order[0].hasPrefix("POST /gmail/v1/users/me/settings/filters") && order[0].contains("STARRED") && order[1].hasPrefix("DELETE /gmail/v1/users/me/settings/filters/f1"))
             seen = []; failCreate = true
-            let e2 = await st.saveRule(edit!)
+            let e2 = await st.saveRule(edit!).error
             check("rules: when the new filter cannot be made the old one is left alone", e2 != nil && !seen.contains { $0.hasPrefix("DELETE") })
+            // a lost reply must not make a second filter: creating a filter is not retried
+            seen = []; failCreate = false; create500 = true
+            let e3 = await st.saveRule(edit!).error
+            create500 = false
+            check("rules: a filter create that gets a server error is tried once, not repeated", e3 != nil && seen.filter { $0.hasPrefix("POST") }.count == 1 && !GmailClient.mayRetry(method: "POST", path: "/settings/filters"))
+            // the old copy cannot be removed: the editor gets the new id, so a second Save does not create it again
+            seen = []; failDelete = true
+            let e4 = await st.saveRule(edit!)
+            failDelete = false
+            var again = edit!; again.id = e4.newID ?? ""
+            seen = []
+            let e5 = await st.saveRule(again)
+            check("rules: when the old copy stays, the new id comes back and Save again creates nothing", e4.error != nil && e4.newID == "new1" && seen.filter { $0.hasPrefix("POST") }.isEmpty && e5.error == nil)
+            // an identical rule gets a plain message and nothing is sent
+            seen = []
+            var dup = await MainActor.run { st.rules.first { $0.id == "new1" }!.rule! }; dup.id = ""
+            let e6 = await st.saveRule(dup)
+            check("rules: an identical rule is refused in plain words", e6.error == "You already have this rule." && seen.filter { $0.hasPrefix("POST") }.isEmpty)
+            // deleting the rule a block made is Unblock: the filter goes, old emails return to the inbox
+            blockRule = true; created = nil; seen = []
+            await st.loadRules()
+            let brow = await MainActor.run { st.rules.first! }
+            await st.deleteRule(brow)
+            check("rules: deleting a block's rule behaves like Unblock (filter deleted, old emails moved back)", brow.fromBlock && seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/b1") }
+                  && seen.contains { $0.contains("batchModify") && $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"Label_2\"]") })
+            blockRule = false
             StubProtocol.handler = nil
         }
         nonisolated(unsafe) var calls: [String] = []

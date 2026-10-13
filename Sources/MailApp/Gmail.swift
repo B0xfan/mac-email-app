@@ -68,8 +68,8 @@ final class GmailClient: @unchecked Sendable {
 
     init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }
 
-    /// Sending is never retried: a timeout or 5xx can hide a send that went through, and a retry would send twice.
-    static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send")) }
+    /// Sending and filter creation are never retried: a timeout or 5xx can hide a call that went through, and a retry would send twice / make a second filter.
+    static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
 
     func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
@@ -245,12 +245,13 @@ final class GmailClient: @unchecked Sendable {
         return (try? JSONDecoder().decode(R.self, from: d))?.filter ?? []
     }
 
+    @discardableResult
+    func createFilter(_ filter: [String: Any]) async throws -> GFilter {
+        try JSONDecoder().decode(GFilter.self, from: try await send("/settings/filters", method: "POST", body: body(filter)))
+    }
+
     func createFilter(from: String, addLabel: String, removeInbox: Bool = true) async throws -> GFilter {
-        let d = try await send("/settings/filters", method: "POST", body: body([
-            "criteria": ["from": from],
-            "action": ["addLabelIds": [addLabel], "removeLabelIds": removeInbox ? ["INBOX"] : []],
-        ]))
-        return try JSONDecoder().decode(GFilter.self, from: d)
+        try await createFilter(["criteria": ["from": from], "action": ["addLabelIds": [addLabel], "removeLabelIds": removeInbox ? ["INBOX"] : []]])
     }
 
     func deleteFilter(id: String) async throws { _ = try await send("/settings/filters/\(id)", method: "DELETE") }
