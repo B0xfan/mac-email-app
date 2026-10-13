@@ -207,7 +207,7 @@ final class MailStore: ObservableObject {
 
     func refresh() async {
         loading = true
-        defer { loading = false }
+        defer { loading = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
         do {
             // the list and (every few minutes) the labels are asked for at the same moment
             let labelsDue = labelList.isEmpty || lastLabelsAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true

@@ -284,13 +284,14 @@ enum SelfTest {
             let bf = FileManager.default.temporaryDirectory.appendingPathComponent("bigfile-\(UUID().uuidString).bin"); try? Data("0123456789".utf8).write(to: bf)
             defer { try? FileManager.default.removeItem(at: bf) }
             nonisolated(unsafe) var seen: [String] = []
-            nonisolated(unsafe) var permCode = 200, permBody = "{}"
+            nonisolated(unsafe) var permCode = 200, permBody = "{}", permN = 0, permFailFrom = 99, delCode = 200
             StubProtocol.headers = ["Location": "https://www.googleapis.com/upload/session/xyz"]
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
                 if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
                 seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
-                if u.contains("/permissions") { return (permCode, permBody) }
+                if req.httpMethod == "DELETE" && delCode != 200 { return (delCode, "{}") }
+                if u.contains("/permissions") { permN += 1; return permN >= permFailFrom ? (500, "{}") : (permCode, permBody) }
                 if u.contains("upload/session") { return (200, #"{"id":"FID1"}"#) }
                 return (200, "{}")
             }
@@ -327,6 +328,15 @@ enum SelfTest {
             let late = await MainActor.run { st.timing.data.bigFiles?.count }
             let delCall: String = seen.first ?? ""
             check("big file: at its time the file is deleted from Drive and forgotten", seen.count == 1 && delCall.hasPrefix("DELETE /drive/v3/files/FID1") && late == 0)
+            // second file fails to upload and the clean-up delete of the first also fails: the record stays, due now, so the sweep retries
+            permN = 0; permFailFrom = 2; delCode = 500
+            _ = try? await st.uploadBigFiles([pick, pick], expiry: .days7)
+            let stuck = await MainActor.run { st.timing.data.bigFiles ?? [] }
+            delCode = 200; seen = []
+            await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(5))
+            let swept = await MainActor.run { st.timing.data.bigFiles?.count }
+            check("big file: if the clean-up delete fails the record is kept, due now; the next sweep deletes it", stuck.count == 1 && stuck.first?.id == "FID1" && abs(stuck.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60 && seen.count == 1 && swept == 0)
+            check("big file: send later is refused with a plain message while a big file is attached", BigFileLater.problem(bigFileCount: 1) == "Big files can't be sent later yet. Send now, or remove the file." && BigFileLater.problem(bigFileCount: 0) == nil)
             StubProtocol.handler = nil; StubProtocol.headers = nil
         }
         // rules: Gmail filters in plain words, stubbed (John's real filters are never touched)
@@ -797,9 +807,11 @@ enum SelfTest {
         check("send later: Undo during the countdown stops it, the email stays in Drafts",
               ud.0 && ud.1 == "Not sent. It is in Drafts." && ud.2 && !calls.contains { $0.contains("/drafts/send") })
         // the draft was sent or deleted on the phone: taken off Scheduled, nothing sent
-        await MainActor.run { ts2.timing.change { $0.scheduled = [ScheduledSend(draftID: "gone", at: t0, to: "x", subject: "Quote")] } }
+        await MainActor.run { ts2.timing.change { $0.scheduled = [ScheduledSend(draftID: "gone", at: t0, to: "x", subject: "Quote")]; $0.bigFiles = [DriveFile(id: "DF1", name: "f", deleteAt: t0)] } }
         calls = []
         await ts2.runTimers(now: now0)
+        let iSend = calls.firstIndex { $0.contains("/drafts/gone") }, iDrive = calls.firstIndex { $0.contains("/drive/v3/files/DF1") }
+        check("timers: a scheduled send is handled before the Drive clean-up", iSend != nil && iDrive != nil && iSend! < iDrive!)
         let gn = await MainActor.run { (ts2.timing.data.scheduled.isEmpty, ts2.toast?.text ?? "") }
         check("send later, draft deleted on the phone: dropped from Scheduled, nothing sent, a note says why",
               gn.0 && gn.1.contains("taken off Scheduled") && !calls.contains { $0.contains("/drafts/send") })
@@ -1031,7 +1043,7 @@ enum SelfTest {
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         // round 2: paging, conversations, stale labels, failed lookups (stubbed Gmail, nothing real touched)
         nonisolated(unsafe) var hist = ["T1": "10", "T2": "20", "T3": "30"]
-        nonisolated(unsafe) var t1Unread = true, failT1 = false, failCount = false
+        nonisolated(unsafe) var t1Unread = true, failT1 = false, failCount = false, failPage = false
         nonisolated(unsafe) var tGets: [String] = [], r2calls: [String] = [], listTokens: [String] = []
         nonisolated(unsafe) var countHits = 0, countKnown = false
         func qv(_ u: URL, _ n: String) -> String? { URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == n }?.value }
@@ -1043,6 +1055,7 @@ enum SelfTest {
             if us.contains("oauth2") || us.contains("token") && !us.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
             r2calls.append("\(req.httpMethod ?? "") \(path)?\(u.query ?? "") \(b)")
             if path.hasSuffix("/threads") {
+                if failPage { return (400, "{}") }
                 let th: (String) -> String = { "{\"id\":\"\($0)\",\"historyId\":\"\(hist[$0] ?? "1")\"}" }
                 return qv(u, "pageToken") == "P2" ? (200, "{\"threads\":[\(th("T3"))]}") : (200, "{\"threads\":[\(th("T1")),\(th("T2"))],\"nextPageToken\":\"P2\"}")
             }
@@ -1124,6 +1137,13 @@ enum SelfTest {
         await cs.classifySenders()
         let k3 = await MainActor.run { (cs.knownCache["friend@x.example"], cs.book.isApproved("friend@x.example")) }
         await MainActor.run { cs.settings.screenNewSenders = false }
+        // launch offline / list fails: the first check never ran, yet the mail must not stay hidden
+        let fs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("f1", "stranger@x.example", h: 0)]; return st }
+        failPage = true
+        await fs.refresh()
+        failPage = false
+        let fh = await MainActor.run { (fs.newSenderRows.count, fs.inboxMails.count) }
+        check("new senders: if the first refresh fails the mail is not hidden (shown in the strip, as before the check existed)", fh.0 + fh.1 == 1)
         check("new senders: a failed lookup is not cached as unknown; a clean 'no mail before' is new; one with history is approved", k1 == nil && k2 == false && k3.0 == true && k3.1)
         check("Gmail searches quote the address: odd characters cannot add search words; a whole company stays bare",
               GmailQuery.term("a@x.example") == "\"a@x.example\"" && GmailQuery.term("@x.example") == "@x.example" && !GmailQuery.term("x@y.example OR in:anywhere").contains(" ")

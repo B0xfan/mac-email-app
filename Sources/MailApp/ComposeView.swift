@@ -159,7 +159,9 @@ struct ComposeView: View {
     }
 
     private func sendNow() { ready { d, html in store.send(d, bodyHTML: html) } }
-    private func sendLater(_ at: Date) { ready { d, html in Task { await store.sendLater(d, bodyHTML: html, at: at) } } }
+    private func sendLater(_ at: Date) {
+        if let p = BigFileLater.problem(bigFileCount: bigFiles.v.count) { problem.v = p; return }   // the link would start its clock now, not at send time
+        ready { d, html in Task { await store.sendLater(d, bodyHTML: html, at: at) } } }
     private func ready(_ go: @escaping (ComposeDraft, String) -> Void) {
         let recipients = Address.parseList(draft.v.to)
         guard !recipients.isEmpty else { problem.v = "Add at least one email address in To."; return }
@@ -168,11 +170,12 @@ struct ComposeView: View {
         if bcc.isEmpty && !draft.v.bcc.trimmingCharacters(in: .whitespaces).isEmpty { problem.v = "Check the email address in Bcc."; return }
         guard !uploading.v else { return }
         problem.v = nil
+        uploading.v = true   // set before the Task starts: a second click cannot upload and send twice
         Task {
+            defer { uploading.v = false }
             var html = await editor.html()
             if !bigFiles.v.isEmpty {
-                uploading.v = true; problem.v = "Putting the big file on your Google Drive..."
-                defer { uploading.v = false }
+                problem.v = "Putting the big file on your Google Drive..."
                 do { html += try await store.uploadBigFiles(bigFiles.v, expiry: bigExpiry.v); problem.v = nil }
                 catch { problem.v = (error as? LocalizedError)?.errorDescription ?? "The big file could not be uploaded."; return }
             }

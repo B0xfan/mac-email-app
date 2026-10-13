@@ -199,8 +199,8 @@ extension MailStore {
         let wakeIDs = TimingRules.due(timing.data.snoozes, now: now).filter { id in snoozed.contains { $0.id == id } }
         if !wakeIDs.isEmpty { await wake(wakeIDs, now: now) }
         for f in timing.data.followUps where f.at <= now { await checkFollowUp(f, now: now) }
-        await deleteExpiredBigFiles(now: now)
         if let s = timing.data.scheduled.filter({ $0.at <= now }).sorted(by: { $0.at < $1.at }).first { await sendScheduled(s) }
+        await deleteExpiredBigFiles(now: now)   // after sends: a slow Drive delete must not delay them
         objectWillChange.send()
     }
 

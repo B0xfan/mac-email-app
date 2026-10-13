@@ -81,6 +81,11 @@ extension GmailClient {
     }
 }
 
+enum BigFileLater {
+    static let message = "Big files can't be sent later yet. Send now, or remove the file."
+    static func problem(bigFileCount n: Int) -> String? { n > 0 ? message : nil }
+}
+
 extension MailStore {
     /// Uploads each big file and returns the block to add to the email. Deletion times are saved as soon as a file is up.
     /// If any file fails, the ones already uploaded are deleted again and the error is thrown (nothing gets sent).
@@ -94,8 +99,10 @@ extension MailStore {
                 if let end { timing.change { $0.bigFiles = ($0.bigFiles ?? []) + [DriveFile(id: id, name: p.url.lastPathComponent, deleteAt: end)] } }
             }
         } catch {
-            for d in done { try? await gmail.driveDelete(d.id) }
-            timing.change { t in t.bigFiles = t.bigFiles?.filter { f in !done.contains { $0.id == f.id } } }
+            // a delete that fails keeps its record, due now, so the expiry sweep retries (never left public on Drive)
+            var stuck: [DriveFile] = []
+            for d in done where (try? await gmail.driveDelete(d.id)) == nil { stuck.append(DriveFile(id: d.id, name: d.name, deleteAt: Date())) }
+            timing.change { t in t.bigFiles = (t.bigFiles ?? []).filter { f in !done.contains { $0.id == f.id } } + stuck }
             throw error
         }
         return BigFile.html(done, expiry: expiry)
