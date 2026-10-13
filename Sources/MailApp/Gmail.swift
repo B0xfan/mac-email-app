@@ -31,8 +31,8 @@ struct GThread: Decodable { let id: String; let historyId: String?; let messages
 struct ThreadRef: Sendable { let id: String; let historyID: String }
 struct GLabel: Decodable, Equatable { let id: String; let name: String; let type: String?; var labelListVisibility: String? = nil }
 struct GFilter: Decodable {
-    struct Criteria: Decodable { let from: String?; let query: String? }
-    struct Action: Decodable { let addLabelIds: [String]?; let removeLabelIds: [String]? }
+    struct Criteria: Decodable { let from: String?; let to: String?; let subject: String?; let query: String?; let negatedQuery: String?; let hasAttachment: Bool?; let size: Int?; let sizeComparison: String?; let excludeChats: Bool? }
+    struct Action: Decodable { let addLabelIds: [String]?; let removeLabelIds: [String]?; let forward: String? }
     let id: String
     let criteria: Criteria?
     let action: Action?

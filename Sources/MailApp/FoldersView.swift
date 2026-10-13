@@ -92,6 +92,7 @@ struct FolderRow: View {
 /// "Move to folder" in an email's right-click menu.
 @MainActor @ViewBuilder
 func moveToFolderMenu(_ store: MailStore, _ m: Mail) -> some View {
+    Button("Make a rule from this email\u{2026}") { store.makeRule(from: m) }
     Menu("Move to folder") {
         if store.folders.isEmpty { Text("No folders yet") }
         ForEach(store.folders) { f in

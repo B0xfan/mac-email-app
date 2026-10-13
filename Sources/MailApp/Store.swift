@@ -33,6 +33,10 @@ final class MailStore: ObservableObject {
     @Published var toast: ToastInfo?
     @Published var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
     @Published var awayError: String?
+    @Published var rules: [RuleRow] = []   // Gmail filters, read when the Rules page opens
+    @Published var ruleNames: [String: String] = [:]   // label id -> name
+    @Published var rulesError: String?
+    @Published var rulePrefill: String?   // "Make a rule from this email" hands the From over
     @Published var loading = false
     @Published var error: String?
     @Published var confirmBlockAll = false

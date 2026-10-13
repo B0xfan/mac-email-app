@@ -266,6 +266,49 @@ enum SelfTest {
             check("away: an unreadable answer throws too", readFailed)
             StubProtocol.handler = nil
         }
+        // rules: Gmail filters in plain words, stubbed (John's real filters are never touched)
+        do {
+            func filter(_ j: String) -> GFilter { try! JSONDecoder().decode(GFilter.self, from: Data(j.utf8)) }
+            let names = ["Label_1": "Shopping", "Label_2": "Blocked"], user = Set(names.keys)
+            let mine = filter(#"{"id":"f1","criteria":{"from":"news@shop.com","hasAttachment":true},"action":{"addLabelIds":["Label_1","STARRED"],"removeLabelIds":["INBOX","UNREAD","SPAM"]}}"#)
+            let r = MailRule(mine, userLabels: user)
+            check("rules: a filter reads back as plain words, the folder implying the skip", r?.folder == "Label_1" && r?.skip == false && r?.star == true && r?.read == true && r?.noSpam == true && r?.att == true
+                  && r?.summary(names) == "Emails from news@shop.com and with an attachment \u{2192} Mark as read, star it, move to folder Shopping, never send to Spam")
+            let back = r.map { MailRule(filter(String(data: try! JSONSerialization.data(withJSONObject: ($0.json() as [String: Any]).merging(["id": "f1"]) { a, _ in a }), encoding: .utf8)!), userLabels: user) }
+            check("rules: what is written to Gmail reads back as the same rule", back != nil && back! == r)
+            let block = MailRule(filter(#"{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"#), userLabels: user)
+            check("rules: the filter a block makes reads as Move to folder Blocked", block?.summary(names) == "Emails from spam@x.biz \u{2192} Move to folder Blocked")
+            let odd = [#"{"id":"1","criteria":{"from":"a@b.c","size":5000000,"sizeComparison":"larger"},"action":{"removeLabelIds":["INBOX"]}}"#,
+                       #"{"id":"2","criteria":{"from":"a@b.c"},"action":{"forward":"x@y.z"}}"#,
+                       #"{"id":"3","criteria":{"from":"a@b.c"},"action":{"addLabelIds":["CATEGORY_PROMOTIONS"]}}"#,
+                       #"{"id":"4","criteria":{"from":"a@b.c"},"action":{"addLabelIds":["Label_1"]}}"#]
+            check("rules: size, forwarding, categories and a folder that keeps the inbox stay read-only", odd.allSatisfy { MailRule(filter($0), userLabels: user) == nil })
+            check("rules: no condition or no action is refused", MailRule().problem != nil && MailRule(from: "a@b.c").problem != nil && r?.problem == nil)
+            nonisolated(unsafe) var seen: [String] = []
+            nonisolated(unsafe) var failCreate = false
+            StubProtocol.handler = { req in
+                let u = req.url!.absoluteString
+                if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+                seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
+                if req.httpMethod == "POST" && failCreate { return (400, "{}") }
+                if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"}]}"#) }
+                if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" { return (200, #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}]}"#) }
+                return (200, #"{"id":"new1"}"#)
+            }
+            let st: MailStore = await MainActor.run {
+                MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("rb")), seen: SeenBook(url: cbURL.appendingPathExtension("rs")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+            }
+            await st.loadRules()
+            var edit = await MainActor.run { st.rules.first?.rule }
+            edit?.star = true
+            let e1 = await st.saveRule(edit!)
+            let order = seen.filter { $0.hasPrefix("POST") || $0.hasPrefix("DELETE") }
+            check("rules: Edit makes the new filter first, then deletes the old one", e1 == nil && order.count == 2 && order[0].hasPrefix("POST /gmail/v1/users/me/settings/filters") && order[0].contains("STARRED") && order[1].hasPrefix("DELETE /gmail/v1/users/me/settings/filters/f1"))
+            seen = []; failCreate = true
+            let e2 = await st.saveRule(edit!)
+            check("rules: when the new filter cannot be made the old one is left alone", e2 != nil && !seen.contains { $0.hasPrefix("DELETE") })
+            StubProtocol.handler = nil
+        }
         nonisolated(unsafe) var calls: [String] = []
         StubProtocol.handler = { req in
             let u = req.url!.absoluteString, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""
