@@ -1109,7 +1109,7 @@ enum SelfTest {
         check("undo after trashing a conversation restores every email (T3a and T3b)", r2calls.contains { $0.contains("/messages/T3b/trash") } && r2calls.contains { $0.contains("/messages/T3a/trash") }
               && r2calls.contains { $0.contains("/messages/T3b/untrash") } && r2calls.contains { $0.contains("/messages/T3a/untrash") })
         // new-sender lookup that fails is skipped and not remembered; a good one is
-        let cs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("c1", "newbie@x.example", h: 1)]; return st }
+        let cs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("c1", "newbie@x.example", h: 0)]; return st }   // dated now: a mail older than the sender list's start counts as known, so it would not test the launch gap
         let pre = await MainActor.run { (cs.newSenderRows.count, cs.inboxMails.count) }   // before the first check: shown nowhere, no flash at launch
         failCount = true; countHits = 0
         await cs.classifySenders()
