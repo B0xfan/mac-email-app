@@ -82,18 +82,7 @@ enum SelfTest {
         } catch { check("loopback listener (\(error))", false) }
 
         // Sign-in file + silent refresh with a stubbed Google. Everything lives in a temporary folder; no Keychain.
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.protocolClasses = [StubProtocol.self]
-        let session = URLSession(configuration: cfg)
-        let tdir = FileManager.default.temporaryDirectory.appendingPathComponent("signin-test-\(UUID().uuidString)/Audrey Mail")
         defer { try? FileManager.default.removeItem(at: tdir.deletingLastPathComponent()) }
-        let creds: @Sendable () throws -> ClientCredentials = { ClientCredentials(clientID: "id", clientSecret: "secret") }
-        let noKeychain: @Sendable () -> Data? = { nil }
-        func signedFile(_ name: String, _ token: String) -> URL {
-            let u = tdir.appendingPathComponent(name)
-            try? SignInFile.write(JSONEncoder().encode(StoredSignIn(refreshToken: token, email: "x@example.com")), to: u)
-            return u
-        }
         let acctFile = signedFile("t.json", "RT")
         let auth = GoogleAuth(session: session, credentials: creds, file: acctFile, legacy: noKeychain)
         let rt = await auth.stored()?.refreshToken
@@ -182,11 +171,6 @@ enum SelfTest {
               && AppSettings.checkSeconds(minutes: 15) == 900 && AppSettings.checkSeconds(minutes: 30) == 1800 && AppSettings.checkSeconds(minutes: 7) == 60
               && AppSettings.checkChoices.map(AppSettings.checkLabel) == ["Every minute", "Every 2 minutes", "Every 5 minutes", "Every 15 minutes", "Every 30 minutes"])
         // smart inbox: sorting, learning, views
-        func mk(_ id: String, _ email: String, unread: Bool = false, unsub: Bool = false, h: Double = 1) -> Mail {
-            Mail(id: id, from: Address(name: id, email: email), subject: "s", snippet: "p", date: Date().addingTimeInterval(-h * 3600), labels: unread ? ["INBOX", "UNREAD"] : ["INBOX"],
-                 unsubscribe: unsub ? UnsubscribeInfo(https: URL(string: "https://x.example/u"), mailto: nil, oneClick: true) : nil)
-        }
-        let cbURL = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-cat-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: cbURL) }
         let cb = CategoryBook(url: cbURL)
         let pm = mk("p", "priya@x.example", unread: true, h: 1), nm = mk("n", "noreply@bank.example", unread: true, h: 2), lm = mk("l", "digest@x.example", unsub: true, h: 3)
@@ -204,8 +188,19 @@ enum SelfTest {
               foldedGroup.countText == "3 new" && SmartGroup(id: "p", title: "People", symbol: nil, mails: [mk("z", "z@x.example")]).countText == "" && gs[0].countText == "1 new")
         check("unread first: unread on top, the rest below", uf.map(\.id) == ["unread", "rest"] && uf[0].mails.map(\.id) == ["p", "n"] && uf[1].mails.map(\.id) == ["l"])
         check("inbox view: default is Smart, Newsletters start folded", InboxView(rawValue: "") == nil && (UserDefaults.standard.string(forKey: "inboxView") ?? "smart") == "smart" && InboxView.allCases.map(\.title) == ["Smart", "Classic", "Unread first"])
+        if !(await partPins()) { ok = false }
+        if !(await partStore()) { ok = false }
+        if !(await partTiming()) { ok = false }
+        if !(await partPhase4()) { ok = false }
+        if !(await partRound2()) { ok = false }
+        if !(await sidebarChecks()) { ok = false }
+        return ok
+    }
+
+    static func partPins() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         // pins: a Gmail label, created on first pin, added and removed with one batch call each (stubbed Gmail, nothing real touched)
-        let pauth = GoogleAuth(session: session, credentials: creds, file: signedFile("p.json", "RT"), legacy: noKeychain)
         // away message: Gmail's vacation settings, stubbed (John's real setting is never touched)
         do {
             var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
@@ -440,7 +435,12 @@ enum SelfTest {
             failDelete = false; blockRule = false
             StubProtocol.handler = nil
         }
-        nonisolated(unsafe) var calls: [String] = []
+        return ok
+    }
+
+    static func partStore() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         StubProtocol.handler = { req in
             let u = req.url!.absoluteString, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""
             if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
@@ -678,6 +678,12 @@ enum SelfTest {
         check("swipe: Pin and Set Aside do nothing outside the inbox", offSide.0 == .none && offSide.1 == .none && offSide.2 == .archive)
         await MainActor.run { store.mailbox = .inbox; store.aside = []; store.toast = nil; store.settings.inboxView = .smart }
 
+        return ok
+    }
+
+    static func partTiming() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         // Phase 3, timing: reading typed times (Apple's date reader + Mail's own rules; a day alone means 8:00 AM)
         let cal = Calendar.current, now0 = Date()
         func tp(_ s: String) -> Date? { if case .ok(let d) = TimeParser.parse(s, now: now0) { return d }; return nil }
@@ -814,6 +820,12 @@ enum SelfTest {
         let qr = await MainActor.run { (ts2.compose?.restoredBodyHTML, ts2.compose?.to) }
         check("quick reply: the reply opens with the answer typed, nothing sent", qr.0 == "<div>Thanks!</div>" && qr.1 == "a@x.example" && !calls.contains { $0.contains("/send") })
 
+        return ok
+    }
+
+    static func partPhase4() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         // ---- Phase 4: to-do line reader, Obsidian note, Todoist/ClickUp bodies, Command Center, menu bar, notes ----
         var c4 = Calendar(identifier: .gregorian); c4.timeZone = TimeZone(identifier: "America/Costa_Rica")!
         func dt(_ y: Int, _ m: Int, _ d: Int, _ h: Int? = nil, _ mi: Int = 0) -> Date { c4.date(from: DateComponents(year: y, month: m, day: d, hour: h ?? 0, minute: mi))! }
@@ -1013,6 +1025,12 @@ enum SelfTest {
         let inj = MIME.build(MIME.Outgoing(from: "a@x.example", to: "b@x.example\r\nBcc: evil@x.example", subject: "Hi\r\nBcc: evil@x.example", html: "h", text: "t", inReplyTo: "<1>\nX-Evil: 1"))
         let head = String(decoding: inj, as: UTF8.self).components(separatedBy: "\r\n\r\n")[0]
         check("CR/LF in subject, to or reply id cannot start an extra header line", !head.contains("\nBcc:") && !head.contains("\nX-Evil:") && head.contains("Subject: Hi"))
+        return ok
+    }
+
+    static func partRound2() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         // round 2: paging, conversations, stale labels, failed lookups (stubbed Gmail, nothing real touched)
         nonisolated(unsafe) var hist = ["T1": "10", "T2": "20", "T3": "30"]
         nonisolated(unsafe) var t1Unread = true, failT1 = false, failCount = false
@@ -1255,8 +1273,25 @@ enum SelfTest {
             let r = try await q
             check("loopback: requests with a wrong or missing state are refused and ignored; the real redirect still completes the sign-in", bad1 == 400 && bad2 == 400 && bad3 == 400 && ok1 == 200 && r["code"] == "abc")
         } catch { check("round 3 sign-in tests (\(error))", false) }
-        if !(await sidebarChecks()) { ok = false }
         return ok
     }
+
+    // Shared by the parts below (the self-test is split into several functions so the compiler never holds one huge body)
+    static let session: URLSession = { let c = URLSessionConfiguration.ephemeral; c.protocolClasses = [StubProtocol.self]; return URLSession(configuration: c) }()
+    static let tdir = FileManager.default.temporaryDirectory.appendingPathComponent("signin-test-\(UUID().uuidString)/Audrey Mail")
+    static let creds: @Sendable () throws -> ClientCredentials = { ClientCredentials(clientID: "id", clientSecret: "secret") }
+    static let noKeychain: @Sendable () -> Data? = { nil }
+    static func signedFile(_ name: String, _ token: String) -> URL {
+        let u = tdir.appendingPathComponent(name)
+        try? SignInFile.write(JSONEncoder().encode(StoredSignIn(refreshToken: token, email: "x@example.com")), to: u)
+        return u
+    }
+    static func mk(_ id: String, _ email: String, unread: Bool = false, unsub: Bool = false, h: Double = 1) -> Mail {
+        Mail(id: id, from: Address(name: id, email: email), subject: "s", snippet: "p", date: Date().addingTimeInterval(-h * 3600), labels: unread ? ["INBOX", "UNREAD"] : ["INBOX"],
+             unsubscribe: unsub ? UnsubscribeInfo(https: URL(string: "https://x.example/u"), mailto: nil, oneClick: true) : nil)
+    }
+    static let cbURL = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-cat-\(UUID().uuidString).json")
+    static let pauth = GoogleAuth(session: session, credentials: creds, file: signedFile("p.json", "RT"), legacy: noKeychain)
+    nonisolated(unsafe) static var calls: [String] = []
 }
 #endif
