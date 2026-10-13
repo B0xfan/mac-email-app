@@ -285,7 +285,7 @@ enum SelfTest {
             check("rules: size, forwarding, categories and a folder that keeps the inbox stay read-only", odd.allSatisfy { MailRule(filter($0), userLabels: user) == nil })
             check("rules: no condition or no action is refused", MailRule().problem != nil && MailRule(from: "a@b.c").problem != nil && r?.problem == nil)
             nonisolated(unsafe) var seen: [String] = []
-            nonisolated(unsafe) var failCreate = false, create500 = false, create429 = 0, failDelete = false, blockRule = false
+            nonisolated(unsafe) var failCreate = false, create500 = false, create429 = 0, failDelete = false, blockRule = false, del404 = false, dupBlock = false, failList = false
             nonisolated(unsafe) var created: [String: Any]?   // the last filter the stub accepted, listed back afterwards
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
@@ -295,10 +295,12 @@ enum SelfTest {
                 if req.httpMethod == "POST" && create500 { return (500, "{}") }
                 if req.httpMethod == "POST" && create429 > 0 { create429 -= 1; return (429, "{}") }
                 if req.httpMethod == "DELETE" && failDelete { return (403, "{}") }
+                if req.httpMethod == "DELETE" && del404 { return (404, "{}") }
+                if u.contains("/messages") && req.httpMethod == "GET" && failList { return (403, "{}") }
                 if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"},{"id":"Label_2","name":"Blocked","type":"user"}]}"#) }
                 if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" {
                     let extra = created.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }.map { "," + $0 } ?? ""
-                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}]}"# : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
+                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# + (dupBlock ? #",{"id":"b2","criteria":{"from":"Spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# : "") + "]}" : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
                 }
                 if u.contains("/messages") && req.httpMethod == "GET" { return (200, #"{"messages":[{"id":"m1"}]}"#) }
                 if req.httpMethod == "POST" && u.hasSuffix("/settings/filters") {
@@ -327,7 +329,7 @@ enum SelfTest {
             created = nil; seen = []; create429 = 1
             let e3b = await st.saveRule(edit!).error
             check("rules: a filter create that gets 429 is repeated once and then goes through", e3b == nil && seen.filter { $0.hasPrefix("POST") }.count == 2)
-            created = nil
+            created = nil; await st.loadRules()
             // the old copy cannot be removed: the editor gets the new id, so a second Save does not create it again
             seen = []; failDelete = true
             let e4 = await st.saveRule(edit!)
@@ -348,7 +350,26 @@ enum SelfTest {
             await st.deleteRule(brow)
             check("rules: deleting a block's rule behaves like Unblock (filter deleted, old emails moved back)", brow.fromBlock && seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/b1") }
                   && seen.contains { $0.contains("batchModify") && $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"Label_2\"]") })
-            blockRule = false
+            // the filter is already gone (404): the old emails still go back, unless another filter blocks the same sender
+            await st.loadBlocked()
+            let be = await MainActor.run { st.blocked.first! }
+            del404 = true; seen = []
+            await st.unblock(be)
+            check("blocking: a 404 on delete means already gone, and the old emails still go back", seen.contains { $0.contains("batchModify") })
+            dupBlock = true; await st.loadBlocked(); seen = []
+            await st.unblock(be)
+            check("blocking: a 404 while another filter still blocks the sender moves nothing back", !seen.contains { $0.contains("batchModify") })
+            dupBlock = false; del404 = false
+            // half-failed Unblock refreshes the lists; a failed delete (nothing changed) makes no extra calls
+            failList = true; seen = []
+            await st.unblock(be)
+            let errHalf = await MainActor.run { st.error } ?? ""
+            let di = seen.firstIndex { $0.hasPrefix("DELETE") }
+            check("blocking: a half-failed Unblock re-reads the filters and says so in plain words", di != nil && seen[(di! + 1)...].contains { $0.hasPrefix("GET /gmail/v1/users/me/settings/filters") } && errHalf.contains("couldn't be moved back") && !errHalf.contains("label"))
+            failList = false; failDelete = true; seen = []
+            await st.unblock(be)
+            check("blocking: when the delete itself fails nothing is re-read", !seen.contains { $0.hasPrefix("GET /gmail/v1/users/me/settings/filters") })
+            failDelete = false; blockRule = false
             StubProtocol.handler = nil
         }
         nonisolated(unsafe) var calls: [String] = []

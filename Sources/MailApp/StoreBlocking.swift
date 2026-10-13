@@ -88,24 +88,25 @@ extension MailStore {
     }
 
     func unblock(_ e: BlockedEntry) async {
-        var lifted = false
+        var lifted = false, covered = false
         do {
             do { try await gmail.deleteFilter(id: e.id) }
-            catch GmailError.http(404, _) {}   // already gone (an earlier try): carry on and move the old emails back
+            catch GmailError.http(404, _) {   // already gone (an earlier try): carry on, unless another filter still blocks this sender
+                covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
+            }
             lifted = true
-            if let label = try await ensureLabelIfExists() {
+            if !covered, let label = try await ensureLabelIfExists() {
                 let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
                 try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
             }
-            if !e.isCompany { book.approve(e.from) }
-            status = "Unblocked \(e.title). Their old emails went back to your inbox."
+            if !e.isCompany && !covered { book.approve(e.from) }
+            status = covered ? "That block was already gone, but another block still covers \(e.title), so their emails stay in Blocked." : "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
             await refresh()
         } catch {
             let why = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
-            await loadBlocked()   // the list must match Gmail even after a half-finished Unblock
-            await refresh()
-            self.error = lifted ? "\(e.title) is no longer blocked, but their old emails could not be moved back to your inbox. They are still under the Blocked label in Gmail; move them back there. \(why)" : why
+            if lifted { await loadBlocked(); await refresh() }   // the list must match Gmail after a half-finished Unblock; offline, skip so the error stays
+            self.error = lifted ? "\(e.title) is unblocked, but their old emails couldn't be moved back. They're still in the Blocked folder; move them to the inbox from there. \(why)" : why
         }
     }
 
