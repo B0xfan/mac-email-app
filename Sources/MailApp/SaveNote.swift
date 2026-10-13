@@ -95,18 +95,36 @@ enum EmailNote {
     /// HTML part to text: no head/style, quoted blocks dropped, links as [words](address), block ends as line breaks.
     static func htmlText(_ h: String) -> String {
         var s = re(h, #"\s+"#, " ")   // the source's own line breaks mean nothing in HTML
-        s = re(s, #"<(head|style|script|title)\b.*?</\1\s*>"#, "")
-        s = re(s, #"<!--.*?-->"#, "")
+        for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>")] { s = dropBetween(s, o, c) }
         s = links(dropBlockquotes(s))
         s = re(s, #"</(p|h[1-6]|table|ul|ol)\s*>"#, "\n\n")
         s = re(s, #"<br\s*/?>|</(div|tr|li)\s*>"#, "\n")
-        s = re(s, #"<li\b[^>]*>"#, "\n- ")
-        return re(s, "<[^>]+>", "")   // in HTML a real "<" is always written &lt;, so every <...> here is a tag
+        s = re(s, #"<li\b[^<>]*>"#, "\n- ")
+        return re(s, "<[^<>]*>", "")   // tags; [^<>] keeps every try short, so a hostile email cannot make this slow
+    }
+
+    /// Removes open...close blocks in one pass over one NSString (positions only, nothing copied or rescanned); unclosed means to the end.
+    static func dropBetween(_ s: String, _ open: String, _ close: String) -> String {
+        let ns = NSString(string: s), n = ns.length
+        var out = "", pos = 0
+        while pos < n {
+            let o = ns.range(of: open, options: .caseInsensitive, range: NSRange(location: pos, length: n - pos))
+            if o.location == NSNotFound { break }
+            out += ns.substring(with: NSRange(location: pos, length: o.location - pos))
+            let after = o.location + o.length
+            if open.last!.isLetter, after < n, let u = Unicode.Scalar(ns.character(at: after)), CharacterSet.alphanumerics.contains(u) || u == "-" {   // <header> is not <head
+                out += ns.substring(with: o); pos = after; continue
+            }
+            let c = ns.range(of: close, options: .caseInsensitive, range: NSRange(location: after, length: n - after))
+            if c.location == NSNotFound { return out }
+            pos = c.location + c.length
+        }
+        return out + (pos < n ? ns.substring(from: pos) : "")
     }
 
     /// Removes <blockquote> blocks (the quoted copies Gmail and Apple Mail add), nested ones included.
     static func dropBlockquotes(_ h: String) -> String {
-        guard let rx = try? NSRegularExpression(pattern: #"<(/?)blockquote\b[^>]*>"#, options: .caseInsensitive) else { return h }
+        guard let rx = try? NSRegularExpression(pattern: #"<(/?)blockquote\b[^<>]*>"#, options: .caseInsensitive) else { return h }
         let ns = h as NSString
         var out = "", depth = 0, last = 0
         for m in rx.matches(in: h, range: NSRange(location: 0, length: ns.length)) {
@@ -118,19 +136,40 @@ enum EmailNote {
     }
 
     /// <a href="u">words</a> becomes a link for web addresses, the words alone otherwise; picture-only links go.
+    /// One pass over one NSString: once no "</a" is left, later <a> tags are not searched again (no rescans on a hostile email).
     static func links(_ h: String) -> String {
-        guard let rx = try? NSRegularExpression(pattern: #"<a\b[^>]*?href\s*=\s*["']([^"']*)["'][^>]*>(.*?)</a\s*>"#, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { return h }
-        let ns = h as NSString
-        var out = "", last = 0
-        for m in rx.matches(in: h, range: NSRange(location: 0, length: ns.length)) {
-            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            let url = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces)
-            let words = re(ns.substring(with: m.range(at: 2)), "<[^>]+>", "").trimmingCharacters(in: .whitespaces)
-            if safeURL(url) == nil { out += words }   // mailto:, javascript:, obsidian:, file:: the words only, never a link
-            else if !words.isEmpty { out += "\u{E000}\(words)\u{E001}\(url)\u{E002}" }   // made into a safe link in escLine
-            last = m.range.location + m.range.length
+        let ns = NSString(string: h), n = ns.length
+        func sub(_ a: Int, _ b: Int) -> String { ns.substring(with: NSRange(location: a, length: b - a)) }
+        var out = "", pos = 0, closers = true
+        while pos < n {
+            let o = ns.range(of: "<a", options: .caseInsensitive, range: NSRange(location: pos, length: n - pos))
+            if o.location == NSNotFound { break }
+            out += sub(pos, o.location)
+            let a = o.location + 2
+            pos = a
+            guard closers, a < n, let sp = Unicode.Scalar(ns.character(at: a)), CharacterSet.whitespaces.contains(sp) else { out += "<a"; continue }
+            let gt = ns.rangeOfCharacter(from: CharacterSet(charactersIn: "<>"), options: [], range: NSRange(location: a, length: n - a)).location
+            guard gt != NSNotFound, ns.character(at: gt) == 62 else { out += "<a"; continue }   // 62 is ">"
+            let close = ns.range(of: "</a", options: .caseInsensitive, range: NSRange(location: gt, length: n - gt)).location
+            let end = close == NSNotFound ? NSNotFound : ns.range(of: ">", options: [], range: NSRange(location: close, length: n - close)).location
+            guard end != NSNotFound else { closers = false; out += "<a"; continue }
+            let url = href(sub(a, gt))
+            let words = re(sub(gt + 1, close), "<[^<>]*>", "").trimmingCharacters(in: .whitespaces)
+            if url.flatMap(safeURL) == nil { out += words }   // mailto:, javascript:, obsidian:, file:, no href: the words only, never a link
+            else if !words.isEmpty { out += "\u{E000}\(words)\u{E001}\(url!)\u{E002}" }   // made into a safe link in escLine
+            pos = end + 1
         }
-        return out + ns.substring(from: last)
+        return out + (pos < n ? ns.substring(from: pos) : "")
+    }
+
+    /// The href value of one tag, read in one pass.
+    static func href(_ tag: String) -> String? {
+        guard let h = tag.range(of: "href", options: .caseInsensitive) else { return nil }
+        var t = tag[h.upperBound...].drop(while: { $0 == " " })
+        guard t.first == "=" else { return nil }
+        t = t.dropFirst().drop(while: { $0 == " " })
+        guard let q = t.first, q == "\"" || q == "'", let e = t.dropFirst().firstIndex(of: q) else { return nil }
+        return String(t[t.index(after: t.startIndex)..<e]).trimmingCharacters(in: .whitespaces)
     }
 
     static func unescape(_ s: String) -> String {
@@ -156,14 +195,20 @@ enum EmailNote {
     /// Shared final pass for plain and HTML text.
     static func tidy(_ raw: String) -> String {
         var s = unescape(raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
-        s = s.replacingOccurrences(of: "[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{00AD}\u{034F}]", with: "", options: .regularExpression)
+        s = s.replacingOccurrences(of: "[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{00AD}\u{034F}\u{202A}-\u{202E}\u{2066}-\u{2069}]", with: "", options: .regularExpression)
         s = s.replacingOccurrences(of: "[\u{00A0}\u{2007}\u{202F}\t]", with: " ", options: .regularExpression)
-        // quoted copies: the "On ... wrote:" line (Gmail may wrap it), Spanish "El ... escribió:", Outlook's "Original Message" and all below it
-        s = s.replacingOccurrences(of: #"(?m)^[ ]*(On|El)\s[^\n]*(\n[^\n]*)?\s(wrote|escribió):[ ]*$"#, with: "", options: .regularExpression)
+        // quoted copies: Outlook's "Original Message" and all below it; the "On ... wrote:" line is dropped in the loop below
         s = s.replacingOccurrences(of: #"(?s)(^|\n)[ ]*-{2,}[ ]*(Original [Mm]essage|Mensaje original)[ ]*-{2,}.*$"#, with: "", options: .regularExpression)
         var lines: [String] = []
-        for line in s.components(separatedBy: "\n") {
-            let l = line.trimmingCharacters(in: .whitespaces)   // leading spaces would turn into code blocks in Obsidian
+        let all = s.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }   // leading spaces would turn into code blocks in Obsidian
+        func wrote(_ a: String) -> Bool { a.count <= 400 && (a.hasSuffix(" wrote:") || a.hasSuffix(" escribió:")) }
+        var i = 0
+        while i < all.count {
+            let l = all[i]; i += 1
+            if l.hasPrefix("On ") || l.hasPrefix("El ") {   // "On ... wrote:", which Gmail may wrap onto a second line; Spanish "El ... escribió:"
+                if wrote(l) { continue }
+                if i < all.count, l.count <= 400, wrote(l + " " + all[i]) { i += 1; continue }
+            }
             if l.hasPrefix(">") || l.range(of: #"^\[image: [^\]]*\]$"#, options: .regularExpression) != nil { continue }   // quotes; Gmail's stand-in for pictures
             let rule = l.range(of: #"^(([-_*])( *\2){2,}|=+|-+) *$"#, options: .regularExpression) != nil   // "--" signature line: text, not a heading or a line
             lines.append((rule ? "\\" : "") + escLine(l))
@@ -197,7 +242,7 @@ enum EmailNote {
         f.dateFormat = "yyyy-MM-dd'T'HH:mm"; let at = f.string(from: now)
         // the same capture fields as Menu Bar Capture (GL-002 type capture)
         var y = "---\ntype: capture\n"
-        if fileName(subject) != clean { y += "title: \(ObsidianTask.q(clean))\n" }   // the file name cannot carry the subject as written
+        if fileName(subject) != clean { y += "title: \(ObsidianTask.q(clean).replacingOccurrences(of: "<", with: "\\u003C"))\n" }   // YAML reads \u003C as "<"; no "<%" in the file for Templater   // the file name cannot carry the subject as written
         y += "created: \(day)\ncaptured: \(at)\nsource_url: \(ObsidianTask.q(link.absoluteString))\n---\n\n"
         let b: String
         if ms.count == 1, let m = ms.first {
@@ -234,7 +279,8 @@ extension MailStore {
             got = r.mails
         } catch { self.error = EmailNote.NoteError.load.errorDescription; return }
         do {
-            let f = try EmailNote.write(got, link: GmailLink.url(thread: m.threadID, account: accountEmail), vault: todoVault)
+            let link = GmailLink.url(thread: m.threadID, account: accountEmail), vault = todoVault
+            let f = try await Task.detached(priority: .userInitiated) { try EmailNote.write(got, link: link, vault: vault) }.value   // cleaning a big email never stalls the window
             showToast("Saved to Obsidian.", action: "Open", link: ObsidianTask.openURL(f))
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? "Mail could not save the note in your Obsidian vault."

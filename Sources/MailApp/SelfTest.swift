@@ -933,8 +933,8 @@ enum SelfTest {
         junk.text = "    # Order 5 shipped\n<b>Thanks</b> <https://x.example/t>\n[image: logo]\n=====\nEl lun, 12 oct 2026 a las 9:00, Ana (<a@x.example>) escribió:\n> hola\nBo\n-----Original Message-----\nFrom: Ana\nold copy"
         let jb = EmailNote.body(junk)
         check("save as note: plain text, headings/rules stay text, stray tags and picture stand-ins go, Spanish and Outlook quotes go, <links> stay",
-              jb == "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\n\nBo")
-        if jb != "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\n\nBo" { print("  got: \(jb.debugDescription)") }
+              jb == "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\nBo")
+        if jb != "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\nBo" { print("  got: \(jb.debugDescription)") }
 
         // a conversation, handed over out of order: each message once, oldest first, under a small From · date line
         let reply = Mail(id: "m4", from: Address(name: "John Hesch", email: "j@x.example"), subject: "Re: Venue walkthrough on Thursday", snippet: "", date: dt(13, 7, 15),
@@ -981,6 +981,25 @@ enum SelfTest {
         check("save as note, hostile subject: file name cannot leave 01 Inbox (/, .., leading dots), control and direction characters go, long names fit",
               EmailNote.fileName("../../.ssh/x\u{202E}gpj") == "sshxgpj" && EmailNote.fileName("\u{0000}\n") == "untitled" && cjk.count == 60 && cjk.utf8.count <= 180
               && w3?.deletingLastPathComponent().path == vault.appendingPathComponent(EmailNote.folder).path && w3?.lastPathComponent == "evil.md")
+        // review of 58612e3: Templater in the title, slow-down emails, direction characters in the text
+        let tpl = EmailNote.content([Mail(id: "t", from: Address(name: "", email: "t@x.example"), subject: "<%* tp.system.exec(\"rm -rf ~\") %>", snippet: "", date: dt(13, 9, 0))], link: link, now: dt(13, 9, 0), tz: tz)
+        check("save as note, hostile subject: no Templater tag anywhere in the file, title still reads the subject",
+              !tpl.contains("<%") && tpl.contains("title: \"\\u003C%* tp.system.exec(\\\"rm -rf ~\\\") %>\"\n"))
+        var bidi = Mail(id: "d", from: Address(name: "", email: "d@x.example"), subject: "S", snippet: "", date: dt(13, 9, 0))
+        bidi.text = "invoice\u{202E}fdp.exe and \u{2066}x\u{2069}"
+        check("save as note: direction-override characters removed from the text", EmailNote.body(bidi) == "invoicefdp.exe and x")
+        var slow = Mail(id: "s1", from: Address(name: "", email: "s@x.example"), subject: "S", snippet: "", date: dt(13, 9, 0))
+        slow.text = nil
+        slow.html = String(repeating: "<a href=\"https://x.example/\">w ", count: 10000) + String(repeating: "<blockquote x", count: 10000) + String(repeating: "<<", count: 10000)
+            + "<head>h</head><header>kept</header><p>On " + String(repeating: "a ", count: 50000) + "</p>"
+        var slow2 = slow; slow2.html = nil
+        slow2.text = String(repeating: "On " + String(repeating: "a ", count: 1500) + "\n", count: 200)
+        let t0 = Date()
+        let sb = EmailNote.body(slow), sb2 = EmailNote.body(slow2)
+        let took = Date().timeIntervalSince(t0)
+        print("  save as note: hostile bodies cleaned in \(String(format: "%.2f", took)) s")
+        check("save as note, hostile email: thousands of unclosed links and tags or very long \"On\" lines finish quickly, text kept",
+              took < 5 && sb.contains("kept") && !sb.contains("<header") && sb2.hasPrefix("On a a"))
         let ou = ObsidianTask.openURL(URL(fileURLWithPath: "/v/01 Inbox/Q&A #5?.md"))?.absoluteString ?? ""
         check("Obsidian Open link encodes & # ? so the right note opens", ou == "obsidian://open?path=/v/01%20Inbox/Q%26A%20%235%3F.md")
         return ok
