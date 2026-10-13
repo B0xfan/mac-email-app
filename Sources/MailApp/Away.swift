@@ -139,11 +139,11 @@ struct AwayPanel: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("First day").font(Theme.small).foregroundStyle(Theme.sub)
-                    DatePicker("First day", selection: Binding(get: { d.v.first }, set: { d.v.first = $0 }), displayedComponents: .date).datePickerStyle(.compact).labelsHidden()
+                    DatePicker("First day", selection: Binding(get: { d.v.first }, set: { d.v.first = $0 }), displayedComponents: .date).datePickerStyle(.field).labelsHidden()
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Last day").font(Theme.small).foregroundStyle(Theme.sub)
-                    DatePicker("Last day", selection: Binding(get: { d.v.last ?? d.v.first }, set: { d.v.last = $0 }), displayedComponents: .date).datePickerStyle(.compact).labelsHidden().disabled(d.v.last == nil)
+                    DatePicker("Last day", selection: Binding(get: { d.v.last ?? d.v.first }, set: { d.v.last = $0 }), displayedComponents: .date).datePickerStyle(.field).labelsHidden().disabled(d.v.last == nil)
                     Toggle("Until I turn it off", isOn: Binding(get: { d.v.last == nil }, set: { d.v.last = $0 ? nil : d.v.first })).font(Theme.small)
                 }
             }
