@@ -1016,8 +1016,6 @@ enum SelfTest {
             if req.url!.absoluteString.contains("oauth2") || req.url!.absoluteString.contains("token") && !req.url!.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
             sendHits += 1; return (503, "{}")
         }
-        let rauth = GoogleAuth(session: session, credentials: creds, file: signedFile("r.json", "RT"), legacy: noKeychain)
-        let rg = GmailClient(auth: rauth, session: session)
         _ = try? await rg.sendRaw(Data("x".utf8), threadID: nil)
         _ = try? await rg.sendDraft(id: "d1")
         check("send/draft-send hit a failing server exactly once each (no double send)", sendHits == 2)
@@ -1142,6 +1140,7 @@ enum SelfTest {
         check("block: existing emails are moved from every page of results (b1, b2, b3)", okB && r2calls.contains { $0.contains("batchModify") && $0.contains("\"b1\"") && $0.contains("\"b2\"") && $0.contains("\"b3\"") })
         StubProtocol.handler = nil
         // print page
+        let ppl = Mail(id: "a", from: Address(name: "Priya", email: "p@x.example"), subject: "Venue", snippet: "", date: Date(), labels: ["INBOX", "UNREAD"])
         let doc = PrintHTML.document([ppl], loadImages: false, blockTrackers: true)
         check("print page: subject, sender and text; remote pictures stay blocked unless showing", doc.contains("Venue") && doc.contains("p@x.example") && !doc.contains("https: http:"))
         // reply goes to Reply-To; reply all adds the others once, never John; inline pictures are filled in
@@ -1293,5 +1292,7 @@ enum SelfTest {
     static let cbURL = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-cat-\(UUID().uuidString).json")
     static let pauth = GoogleAuth(session: session, credentials: creds, file: signedFile("p.json", "RT"), legacy: noKeychain)
     nonisolated(unsafe) static var calls: [String] = []
+    static let rauth = GoogleAuth(session: session, credentials: creds, file: signedFile("r.json", "RT"), legacy: noKeychain)
+    static let rg = GmailClient(auth: rauth, session: session)
 }
 #endif
