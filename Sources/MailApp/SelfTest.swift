@@ -205,6 +205,38 @@ enum SelfTest {
         check("inbox view: default is Smart, Newsletters start folded", InboxView(rawValue: "") == nil && (UserDefaults.standard.string(forKey: "inboxView") ?? "smart") == "smart" && InboxView.allCases.map(\.title) == ["Smart", "Classic", "Unread first"])
         // pins: a Gmail label, created on first pin, added and removed with one batch call each (stubbed Gmail, nothing real touched)
         let pauth = GoogleAuth(session: session, credentials: creds, file: signedFile("p.json", "RT"), legacy: noKeychain)
+        // away message: Gmail's vacation settings, stubbed (John's real setting is never touched)
+        do {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+            var a = AwaySettings(); a.on = true; a.first = Date(timeIntervalSince1970: 1_792_000_000 - 1_792_000_000 % 86400); a.last = a.first.addingTimeInterval(6 * 86400)
+            a.subject = "Away"; a.body = "Back soon"; a.contactsOnly = true
+            let j = a.json(cal: cal), back = AwaySettings(json: j, cal: cal)
+            check("away: Gmail fields sent (on, times in ms, subject, text, contacts only); end is the midnight after the last day",
+                  j["enableAutoReply"] as? Bool == true && j["responseSubject"] as? String == "Away" && j["responseBodyPlainText"] as? String == "Back soon" && j["restrictToContacts"] as? Bool == true
+                  && j["startTime"] as? String == String(Int64(a.first.timeIntervalSince1970 * 1000)) && j["endTime"] as? String == String(Int64(a.first.addingTimeInterval(7 * 86400).timeIntervalSince1970 * 1000)))
+            check("away: Gmail's answer reads back into the same settings", back == a)
+            var noEnd = a; noEnd.last = nil
+            check("away: until I turn it off sends no end time", noEnd.json(cal: cal)["endTime"] == nil && AwaySettings(json: noEnd.json(cal: cal), cal: cal).last == nil)
+            var empty = a; empty.subject = " "; empty.body = ""
+            var backwards = a; backwards.last = a.first.addingTimeInterval(-86400)
+            check("away: on with no subject and no text, or a last day before the first, is refused", empty.problem != nil && backwards.problem != nil && a.problem == nil)
+            check("away: strip shows while on and the last day has not passed, never when off or past",
+                  a.showsStrip(now: a.first, cal: cal) && !a.showsStrip(now: a.first.addingTimeInterval(8 * 86400), cal: cal) && noEnd.showsStrip(now: a.first.addingTimeInterval(900 * 86400), cal: cal) && !AwaySettings().showsStrip())
+            check("away: strip text names the last day or just says it is on", noEnd.stripText() == "Away message is on" && a.stripText().hasPrefix("Away message is on until "))
+            nonisolated(unsafe) var seen: [String] = []
+            StubProtocol.handler = { req in
+                let u = req.url!.absoluteString
+                if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+                seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
+                return (200, #"{"enableAutoReply":true,"responseSubject":"Hi","responseBodyPlainText":"x","restrictToContacts":false}"#)
+            }
+            let gc = GmailClient(auth: pauth, session: session)
+            let got = try? await gc.vacation()
+            try? await gc.setVacation(a)
+            check("away: reads from and writes to Gmail's vacation settings (GET then PUT)",
+                  got?.on == true && got?.subject == "Hi" && seen.count == 2 && seen[0].hasPrefix("GET /gmail/v1/users/me/settings/vacation") && seen[1].hasPrefix("PUT /gmail/v1/users/me/settings/vacation") && seen[1].contains("responseSubject"))
+            StubProtocol.handler = nil
+        }
         nonisolated(unsafe) var calls: [String] = []
         StubProtocol.handler = { req in
             let u = req.url!.absoluteString, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""

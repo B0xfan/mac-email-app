@@ -313,6 +313,7 @@ struct ListPane: View {
     var body: some View {
         MaybeScroll {
             VStack(spacing: 8) {
+                if store.mailbox == .inbox { AwayStrip(store: store) }
                 if store.mailbox == .inbox || store.mailbox == .newSenders, store.settings.screenNewSenders, !store.newSenderRows.isEmpty {
                     NewSendersStrip(store: store)
                 }

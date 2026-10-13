@@ -2,12 +2,12 @@ import SwiftUI
 import AppKit
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
+    case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
     case appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy"
     var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .accounts: return "person.crop.circle"; case .signatures: return "signature"; case .quickReplies: return "bolt"; case .sending: return "paperplane"
+        case .accounts: return "person.crop.circle"; case .signatures: return "signature"; case .quickReplies: return "bolt"; case .away: return "paperplane.circle"; case .sending: return "paperplane"
         case .keyboard: return "keyboard"; case .layout: return "rectangle.split.2x1"; case .menuBar: return "menubar.rectangle"; case .todo: return "checklist"; case .swipe: return "hand.draw"; case .inbox: return "tray"; case .home: return "house"; case .recent: return "clock"
         case .appearance: return "circle.lefthalf.filled"; case .defaultApp: return "envelope"
         case .senders: return "person.badge.shield.checkmark"; case .privacy: return "shield"
@@ -74,6 +74,9 @@ struct SettingsView: View {
         case .quickReplies:
             head("Quick Replies", "Short answers shown under each open email. Drag to change the order. These stay on this Mac.")
             QuickRepliesEditor(settings: settings)
+        case .away:
+            head("Away message", "Gmail sends this reply for you, even when your Mac is off.")
+            AwayPanel(store: app.store)
         case .sending:
             head("Sending", "Choose how long you have to change your mind after you press Send.")
             Card { VStack(alignment: .leading, spacing: 8) {

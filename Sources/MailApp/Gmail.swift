@@ -71,7 +71,7 @@ final class GmailClient: @unchecked Sendable {
     /// Sending is never retried: a timeout or 5xx can hide a send that went through, and a retry would send twice.
     static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send")) }
 
-    private func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
+    func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
         var c = URLComponents(string: Self.base + path)!
         if !query.isEmpty { c.queryItems = query }
