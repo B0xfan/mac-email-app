@@ -11,6 +11,7 @@ struct ComposeView: View {
     @StateObject private var problem = Box<String?>(nil)
     @StateObject private var picked = Box(0)
     @StateObject private var bigFiles = Box<[BigFilePick]>([])   // too large to attach: sent as a Drive link at Send
+    @StateObject private var bigAsk = Box<[BigFilePick]>([])     // just attached, waiting for the "Too big to attach" answer
     @StateObject private var bigExpiry = Box(BigFileExpiry.days7)
     @StateObject private var uploading = Box(false)
     @StateObject private var showCc: Box<Bool>
@@ -111,11 +112,9 @@ struct ComposeView: View {
                     if !bigFiles.v.isEmpty {
                         HStack { ForEach(bigFiles.v) { b in
                             Button { bigFiles.v.removeAll { $0.id == b.id } } label: { Label("\(b.url.lastPathComponent)  \u{2715}", systemImage: "link") }
-                                .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Too big to attach, so it is sent as a link. Click to remove.")
+                                .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Too big to attach, so it is sent as a link (\(bigExpiry.v == .never ? "no expiry" : "deleted from Drive after \(bigExpiry.v.label)")). Click to remove.")
                         }
-                        Text("Link works for").font(Theme.small).foregroundStyle(Theme.sub)
-                        Picker("Link works for", selection: $bigExpiry.v) { ForEach(BigFileExpiry.allCases) { Text($0.label).tag($0) } }
-                            .labelsHidden().fixedSize().help("After this time Mail removes the file from your Google Drive") }
+                    }
                     }
                     if !draft.v.quoteHTML.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
@@ -151,11 +150,46 @@ struct ComposeView: View {
             }
         }
         .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { editor.focus() } }
+        .sheet(isPresented: Binding(get: { !bigAsk.v.isEmpty }, set: { if !$0 { bigAsk.v = [] } })) { bigPanel }
         .alert("Insert link", isPresented: $linkPrompt.v) {
             TextField("https://", text: $linkURL.v)
             Button("Add") { editor.link(linkURL.v) }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    /// The "Too big to attach" panel (approved mockup): the choice of how long the Drive copy lives, then Send as link or Cancel.
+    private var bigPanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "icloud.and.arrow.up").font(.system(size: 20)).foregroundStyle(Theme.acc)
+                    .frame(width: 44, height: 44).background(RoundedRectangle(cornerRadius: 10).fill(Theme.side))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Too big to attach").font(Theme.heading).accessibilityAddTraits(.isHeader)
+                    ForEach(bigAsk.v) { b in Text("\(b.url.lastPathComponent) is \(BigFile.size(b.size)). Gmail allows 25 MB.").font(Theme.small).foregroundStyle(Theme.sub) }
+                }
+            }
+            Text("Send it as a download link instead? The file goes to your Google Drive and the email gets a link anyone can open.").font(Theme.body)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Delete from Drive after").font(Theme.small.weight(.semibold))
+                HStack(spacing: 6) {
+                    ForEach(BigFileExpiry.allCases) { e in
+                        let on = bigExpiry.v == e
+                        Button(e.label) { bigExpiry.v = e }.buttonStyle(.plain).font(Theme.small.weight(.semibold))
+                            .foregroundStyle(on ? Theme.accText : Theme.text).padding(.horizontal, 14).frame(height: 34)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.acc : Theme.card))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Theme.acc : Theme.line, lineWidth: 1))
+                            .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+            HStack(spacing: 8) {
+                Spacer()
+                Button("Cancel") { bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .neutral)).keyboardShortcut(.cancelAction)
+                Button("Send as link") { bigFiles.v += bigAsk.v; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22).frame(width: 460).background(Theme.card)
     }
 
     private func sendNow() { ready { d, html in store.send(d, bodyHTML: html) } }
@@ -190,7 +224,7 @@ struct ComposeView: View {
         let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.canChooseDirectories = false
         guard p.runModal() == .OK else { return }
         for u in p.urls {
-            if let n = (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, n > BigFile.threshold { bigFiles.v.append(BigFilePick(url: u, size: n)); continue }
+            if let n = (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, n > BigFile.threshold { bigAsk.v.append(BigFilePick(url: u, size: n)); continue }
             guard let data = try? Data(contentsOf: u) else { problem.v = "\(u.lastPathComponent) could not be read."; continue }
             let mime = UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             draft.v.attachments.append(DraftAttachment(name: u.lastPathComponent, data: data, mime: mime))

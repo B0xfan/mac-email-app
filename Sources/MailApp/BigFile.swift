@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UniformTypeIdentifiers
 
 // Big files by link: a file too large to attach goes to the user's own Google Drive, anyone with the link can open it,
@@ -30,14 +31,44 @@ enum BigFile {
     static func link(_ id: String) -> String { "https://drive.google.com/file/d/\(id)/view" }
     static func due(_ files: [DriveFile], now: Date) -> [DriveFile] { files.filter { $0.deleteAt <= now } }
 
-    /// The block added to the end of the email: name, size, link, and when the link stops working.
-    static func html(_ items: [(name: String, size: Int, id: String)], expiry: BigFileExpiry, now: Date = Date()) -> String {
-        let when = expiry.end(from: now).map { "This link works until \($0.formatted(.dateTime.month(.wide).day().year()))." } ?? "This link does not expire."
-        let rows = items.map { i in
+    static func size(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
+    static let neverAt = Date.distantFuture   // a Never file is still recorded (so "Delete now" can find it), but the sweep never reaches it
+
+    /// The block added to the end of the email: one card per file (name, size and expiry, Download link), as in the approved mockup.
+    /// Email-safe markup: tables and inline styles only. The icon is left out (mail apps drop inline SVG).
+    static func html(_ items: [(name: String, size: Int, id: String)], expiry: BigFileExpiry) -> String {
+        let when = expiry == .never ? "no expiry" : "available for \(expiry.rawValue) days"
+        let font = "font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif"
+        let cards = items.map { i in
             let l = link(i.id)
-            return "\(TextTools.htmlEscape(i.name)) (\(ByteCountFormatter.string(fromByteCount: Int64(i.size), countStyle: .file)))<br><a href=\"\(l)\">\(l)</a>"
-        }.joined(separator: "<br><br>")
-        return "<br><br><div>Sent as a link because it is too big to attach:<br>\(rows)<br>\(when)</div>"
+            return "<table cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #D5DEDF;border-radius:10px;background:#F8FAFA;\(font)\"><tr>"
+                + "<td style=\"padding:12px 14px\"><div style=\"font-size:14px;font-weight:600;color:#13282B\">\(TextTools.htmlEscape(i.name))</div>"
+                + "<div style=\"font-size:12px;color:#4E5F62\">\(size(i.size)) \u{00B7} \(when)</div></td>"
+                + "<td style=\"padding:12px 14px\"><a href=\"\(l)\" style=\"font-size:13px;font-weight:600;color:#0F5F66;text-decoration:none\">Download</a>"
+                + "<span style=\"display:none\"> \(l)</span></td></tr></table>"   // the hidden link text keeps the plain-text copy of the email usable
+        }.joined(separator: "<div style=\"height:8px\"></div>")
+        return "<br><br><div>\(cards)</div>"
+    }
+
+    /// The status line under a Sent email that carries big-file links (only John sees it).
+    struct Strip: Identifiable, Equatable { let id: String; let name: String; let text: String }
+    static func ids(in html: String?) -> [String] {
+        guard let html, let re = try? NSRegularExpression(pattern: "drive\\.google\\.com/file/d/([A-Za-z0-9_-]+)/view") else { return [] }
+        var out: [String] = []
+        for m in re.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            if let r = Range(m.range(at: 1), in: html), !out.contains(String(html[r])) { out.append(String(html[r])) }
+        }
+        return out
+    }
+    static func strips(html: String?, records: [DriveFile], now: Date) -> [Strip] {
+        ids(in: html).compactMap { id in
+            guard let f = records.first(where: { $0.id == id }) else { return nil }
+            let text: String
+            if f.deleteAt == neverAt { text = "Stays in your Drive" }
+            else if f.deleteAt <= now { text = "Deleting from your Drive soon" }
+            else { let d = Int((f.deleteAt.timeIntervalSince(now) / 86400).rounded(.up)); text = "Deletes from your Drive in \(d) \(d == 1 ? "day" : "days")" }
+            return Strip(id: id, name: f.name, text: text)
+        }
     }
 }
 
@@ -92,14 +123,14 @@ extension MailStore {
     /// If any file fails, the ones already uploaded are deleted again and the error is thrown (nothing gets sent).
     func uploadBigFiles(_ picks: [BigFilePick], expiry: BigFileExpiry) async throws -> String {
         var done: [(name: String, size: Int, id: String)] = []
-        let end = expiry.end(from: Date())
+        let end = expiry.end(from: Date()) ?? BigFile.neverAt
         var cur = ""
         do {
             for p in picks {
                 cur = p.url.lastPathComponent
                 let id = try await gmail.driveUpload(p.url)
                 done.append((p.url.lastPathComponent, p.size, id))
-                if let end { timing.change { $0.bigFiles = ($0.bigFiles ?? []) + [DriveFile(id: id, name: p.url.lastPathComponent, deleteAt: end)] } }
+                timing.change { $0.bigFiles = ($0.bigFiles ?? []) + [DriveFile(id: id, name: p.url.lastPathComponent, deleteAt: end)] }
             }
         } catch {
             // a delete that fails keeps its record, due now, so the expiry sweep retries (never left public on Drive)
@@ -116,6 +147,36 @@ extension MailStore {
     func deleteExpiredBigFiles(now: Date = Date()) async {
         for f in BigFile.due(timing.data.bigFiles ?? [], now: now) {
             if (try? await gmail.driveDelete(f.id)) != nil { timing.change { t in t.bigFiles?.removeAll { $0.id == f.id } } }
+        }
+    }
+
+    /// "Delete now" under a Sent email: removes the file from Drive at once. If Google says no, the record stays, due now, so the sweep retries.
+    func deleteBigFileNow(_ id: String) async -> Bool {
+        if (try? await gmail.driveDelete(id)) != nil { timing.change { $0.bigFiles?.removeAll { $0.id == id } }; return true }
+        timing.change { t in if let i = t.bigFiles?.firstIndex(where: { $0.id == id }) { t.bigFiles?[i].deleteAt = Date() } }
+        return false
+    }
+}
+
+struct BigFileStripView: View {
+    @ObservedObject var store: MailStore
+    let mail: Mail
+    @State private var refresh = 0
+    @State private var failed = false
+    var body: some View {
+        let _ = refresh   // changing it redraws the strip after a delete
+        VStack(spacing: 6) {
+            ForEach(BigFile.strips(html: mail.html, records: store.timing.data.bigFiles ?? [], now: Date())) { s in
+                HStack(spacing: 8) {
+                    Image(systemName: "clock").font(Theme.small)
+                    Text(failed ? "Google would not delete it yet. Mail will try again." : s.text).font(Theme.small)
+                    Spacer(minLength: 8)
+                    Button("Delete now") { Task { failed = !(await store.deleteBigFileNow(s.id)); refresh += 1 } }
+                        .buttonStyle(.plain).font(Theme.small).foregroundStyle(Theme.acc).accessibilityLabel("Delete \(s.name) from your Google Drive now")
+                }
+                .foregroundStyle(Theme.accPress).padding(.horizontal, 14).padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.side))
+            }
         }
     }
 }

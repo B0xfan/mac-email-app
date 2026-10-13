@@ -712,6 +712,7 @@ struct ReadingContent: View {
                 Card { Text(t).font(Theme.bodyStrong) }
             case .idle: EmptyView()
             }
+            if mail.labels.contains("SENT") { BigFileStripView(store: store, mail: mail) }
             Rectangle().fill(Theme.line).frame(height: 1)
             if !loadImgs, report.remoteImages > 0 {
                 Card(padding: 12) {
