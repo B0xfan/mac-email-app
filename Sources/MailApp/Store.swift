@@ -31,7 +31,8 @@ final class MailStore: ObservableObject {
     @Published var search = ""
     @Published var status = ""                 // spoken-style status line
     @Published var toast: ToastInfo?
-    @Published var away: AwaySettings?   // Gmail's away message, read at launch
+    @Published var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
+    @Published var awayError: String?
     @Published var loading = false
     @Published var error: String?
     @Published var confirmBlockAll = false
@@ -192,7 +193,7 @@ final class MailStore: ObservableObject {
         await refresh()
         await recoverPendingSends()
         sendAs = (try? await gmail.sendAs()) ?? []
-        await loadAway()
+        Task { await loadAway() }   // in parallel, so it never delays the Send Later timers
         _ = await verifyScheduled()
         await runTimers()   // anything that came due while Mail was closed happens now
         await loadBlocked()   // last: it makes one call per blocked sender

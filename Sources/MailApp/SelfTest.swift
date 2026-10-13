@@ -209,32 +209,61 @@ enum SelfTest {
         do {
             var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
             var a = AwaySettings(); a.on = true; a.first = Date(timeIntervalSince1970: 1_791_936_000); a.last = a.first.addingTimeInterval(6 * 86400)
-            a.subject = "Away"; a.body = "Back soon"; a.contactsOnly = true
+            a.subject = "Away"; a.body = "Back soon"; a.contactsOnly = true; a.plainAtLoad = a.body
             let j = a.json(cal: cal), back = AwaySettings(json: j, cal: cal)
             check("away: Gmail fields sent (on, times in ms, subject, text, contacts only); end is the midnight after the last day",
                   j["enableAutoReply"] as? Bool == true && j["responseSubject"] as? String == "Away" && j["responseBodyPlainText"] as? String == "Back soon" && j["restrictToContacts"] as? Bool == true
                   && j["startTime"] as? String == String(Int64(a.first.timeIntervalSince1970 * 1000)) && j["endTime"] as? String == String(Int64(a.first.addingTimeInterval(7 * 86400).timeIntervalSince1970 * 1000)))
-            check("away: Gmail's answer reads back into the same settings", back == a)
+            var a2 = a; a2.rawStart = j["startTime"] as? String; a2.rawEnd = j["endTime"] as? String
+            check("away: Gmail's answer reads back into the same settings", back == a2)
             var noEnd = a; noEnd.last = nil
             check("away: until I turn it off sends no end time", noEnd.json(cal: cal)["endTime"] == nil && AwaySettings(json: noEnd.json(cal: cal), cal: cal).last == nil)
             var empty = a; empty.subject = " "; empty.body = ""
             var backwards = a; backwards.last = a.first.addingTimeInterval(-86400)
-            check("away: on with no subject and no text, or a last day before the first, is refused", empty.problem != nil && backwards.problem != nil && a.problem == nil)
+            check("away: on with no subject and no text, or a last day before the first, is refused", empty.problem(cal: cal) != nil && backwards.problem(cal: cal) != nil && a.problem(cal: cal) == nil)
             check("away: strip shows while on and the last day has not passed, never when off or past",
-                  a.showsStrip(now: a.first, cal: cal) && !a.showsStrip(now: a.first.addingTimeInterval(8 * 86400), cal: cal) && noEnd.showsStrip(now: a.first.addingTimeInterval(900 * 86400), cal: cal) && !AwaySettings().showsStrip())
-            check("away: strip text names the last day or just says it is on", noEnd.stripText() == "Away message is on" && a.stripText().hasPrefix("Away message is on until "))
+                  a.showsStrip(now: a.first, cal: cal) && !a.showsStrip(now: a.first.addingTimeInterval(8 * 86400), cal: cal) && noEnd.showsStrip(now: a.first.addingTimeInterval(900 * 86400), cal: cal) && !AwaySettings().showsStrip()
+                  && !a.showsStrip(now: a.first.addingTimeInterval(-3600), cal: cal))
+            check("away: strip text names the last day (with the year when not this year) or just says it is on", noEnd.stripText() == "Away message is on" && a.stripText(now: a.first, cal: cal).hasPrefix("Away message is on until ")
+                  && !a.stripText(now: a.first, cal: cal).contains("2026") && a.stripText(now: a.first.addingTimeInterval(400 * 86400), cal: cal).contains("2026"))
+            // what Gmail holds that the form cannot edit survives a save: HTML-only body, domain limit, an end time that is not midnight
+            let odd = #"{"enableAutoReply":true,"responseSubject":"S","responseBodyHtml":"<b>Hi</b>","restrictToDomain":true,"startTime":"1791936000000","endTime":"1792100000000"}"#
+            let held = AwaySettings(json: try! JSONSerialization.jsonObject(with: Data(odd.utf8)) as! [String: Any], cal: cal), hj = held.json(cal: cal)
+            var edited = held; edited.body = "New text"
+            var movedEnd = held; movedEnd.last = held.last!.addingTimeInterval(86400)
+            var off = held; off.on = false
+            check("away: an HTML-only message, the domain limit and a non-midnight end time are sent back unchanged",
+                  held.body.isEmpty && held.problem(cal: cal) == nil && hj["responseBodyHtml"] as? String == "<b>Hi</b>" && hj["restrictToDomain"] as? Bool == true && hj["endTime"] as? String == "1792100000000" && hj["startTime"] as? String == "1791936000000")
+            check("away: typing a new text drops the HTML, moving the last day replaces the end time",
+                  edited.json(cal: cal)["responseBodyHtml"] == nil && edited.json(cal: cal)["responseBodyPlainText"] as? String == "New text" && movedEnd.json(cal: cal)["endTime"] as? String != "1792100000000")
+            var offBad = backwards; offBad.on = false
+            check("away: turning off is never blocked by the dates or an empty text", off.problem(cal: cal) == nil && offBad.problem(cal: cal) == nil && offBad.json(cal: cal)["enableAutoReply"] as? Bool == false)
             nonisolated(unsafe) var seen: [String] = []
+            nonisolated(unsafe) var reply: (Int, String) = (200, #"{"enableAutoReply":true,"responseSubject":"Hi","responseBodyPlainText":"x","restrictToContacts":false}"#)
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
                 if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
                 seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
-                return (200, #"{"enableAutoReply":true,"responseSubject":"Hi","responseBodyPlainText":"x","restrictToContacts":false}"#)
+                return reply
             }
             let gc = GmailClient(auth: pauth, session: session)
-            let got = try? await gc.vacation()
-            try? await gc.setVacation(a)
-            check("away: reads from and writes to Gmail's vacation settings (GET then PUT)",
-                  got?.on == true && got?.subject == "Hi" && seen.count == 2 && seen[0].hasPrefix("GET /gmail/v1/users/me/settings/vacation") && seen[1].hasPrefix("PUT /gmail/v1/users/me/settings/vacation") && seen[1].contains("responseSubject"))
+            var got: AwaySettings?
+            do { got = try await gc.vacation(); try await gc.setVacation(a) } catch { check("away: stubbed read and write ran without an error (\(error))", false) }
+            check("away: reads from and writes to Gmail's vacation settings (GET then PUT), start and end times included",
+                  got?.on == true && got?.subject == "Hi" && seen.count == 2 && seen[0].hasPrefix("GET /gmail/v1/users/me/settings/vacation") && seen[1].hasPrefix("PUT /gmail/v1/users/me/settings/vacation") && seen[1].contains("responseSubject")
+                  && seen[1].contains("startTime") && seen[1].contains("endTime"))
+            // an HTML-only reply from Gmail is kept on the way back out, and a failed read throws instead of giving a blank form
+            seen = []; reply = (200, odd)
+            do { let h = try await gc.vacation(); try await gc.setVacation(h) } catch { check("away: HTML-only round trip ran without an error (\(error))", false) }
+            check("away: an HTML-only message from Gmail is written back with its HTML", seen.count == 2 && seen[1].contains("<b>Hi</b>") && seen[1].contains("restrictToDomain"))
+            reply = (403, "{}")
+            var readFailed = false
+            do { _ = try await gc.vacation() } catch { readFailed = true }
+            check("away: a failed read throws, so the form never shows a blank to save over a running message", readFailed)
+            reply = (200, "not json")
+            readFailed = false
+            do { _ = try await gc.vacation() } catch { readFailed = true }
+            check("away: an unreadable answer throws too", readFailed)
             StubProtocol.handler = nil
         }
         nonisolated(unsafe) var calls: [String] = []
