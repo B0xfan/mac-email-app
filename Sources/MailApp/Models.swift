@@ -13,8 +13,15 @@ struct Address: Hashable, Codable {
 
     /// "Name <a@b.c>", "<a@b.c>" or "a@b.c"
     static func parse(_ raw: String) -> Address {
-        let s = raw.trimmingCharacters(in: .whitespaces)
-        if let lt = s.lastIndex(of: "<"), let gt = s.lastIndex(of: ">"), lt < gt {
+        let s = stripComments(raw).trimmingCharacters(in: .whitespaces)
+        var quote = false, esc = false, lt: String.Index?, gt: String.Index?
+        for i in s.indices {   // the <address> outside any "quoted name": a name may itself contain <, @ or commas
+            let ch = s[i]
+            if esc { esc = false; continue }
+            if ch == "\\" && quote { esc = true; continue }
+            if ch == "\"" { quote.toggle() } else if !quote && ch == "<" { lt = i; gt = nil } else if !quote && ch == ">" && lt != nil { gt = i }
+        }
+        if let lt, let gt, lt < gt {
             let email = String(s[s.index(after: lt)..<gt]).trimmingCharacters(in: .whitespaces).lowercased()
             var name = String(s[s.startIndex..<lt]).trimmingCharacters(in: .whitespaces)
             if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 { name = String(name.dropFirst().dropLast()) }
@@ -23,12 +30,28 @@ struct Address: Hashable, Codable {
         return Address(name: "", email: s.lowercased())
     }
 
-    static func parseList(_ raw: String) -> [Address] {
-        var parts: [String] = [], cur = "", inQuote = false, inAngle = false
+    /// Drops (comments) outside quoted names, nested ones too: in "evil@x (PayPal <a@paypal.com>)" the address is evil@x.
+    static func stripComments(_ raw: String) -> String {
+        var out = "", depth = 0, quote = false, esc = false
         for ch in raw {
+            if esc { esc = false; if depth == 0 { out.append(ch) }; continue }
+            if ch == "\\" && (quote || depth > 0) { esc = true; if depth == 0 { out.append(ch) }; continue }
+            if depth > 0 { if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }; continue }
+            if ch == "\"" { quote.toggle() }
+            if ch == "(" && !quote { depth = 1; out.append(" "); continue }
+            out.append(ch)
+        }
+        return out
+    }
+
+    static func parseList(_ raw: String) -> [Address] {
+        var parts: [String] = [], cur = "", inQuote = false, inAngle = false, esc = false
+        for ch in stripComments(raw) {
+            if esc { esc = false; cur.append(ch); continue }
+            if ch == "\\" && inQuote { esc = true; cur.append(ch); continue }   // \" inside a quoted name does not end it
             if ch == "\"" { inQuote.toggle() }
-            if ch == "<" { inAngle = true }
-            if ch == ">" { inAngle = false }
+            if ch == "<" && !inQuote { inAngle = true }
+            if ch == ">" && !inQuote { inAngle = false }
             if ch == "," && !inQuote && !inAngle { parts.append(cur); cur = "" } else { cur.append(ch) }
         }
         parts.append(cur)
@@ -86,7 +109,7 @@ struct Mail: Identifiable, Hashable, Codable {
     var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
     var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
     var replyTo: String?        // the Reply-To header, when the sender set one
-    var authResults: String?    // the topmost Authentication-Results (Gmail's own verdict); full fetches only
+    var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
     var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
 
     var unread: Bool { labels.contains("UNREAD") }
@@ -106,7 +129,7 @@ struct Mail: Identifiable, Hashable, Codable {
         cc = h["cc"] ?? ""
         bcc = h["bcc"]
         replyTo = h["reply-to"]
-        authResults = h["authentication-results"]   // first one = topmost = Gmail's own
+        authResults = h["authentication-results"] ?? ""   // first one = topmost; both fetches ask for it, so "" means the email has none
         let subj = MIME.decodeWords(h["subject"] ?? "")
         subject = subj.isEmpty ? "(no subject)" : subj
         messageIDHeader = h["message-id"] ?? ""

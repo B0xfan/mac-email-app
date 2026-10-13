@@ -26,23 +26,73 @@ enum SenderWarning: Equatable {
 }
 
 enum SenderCheck {
-    /// Gmail's own verdict: the topmost Authentication-Results, written by mx.google.com. Copies a sender adds lower down are not read,
-    /// and no verdict at all (John's own sent mail) never warns. Not verified: DMARC failed, or nothing (SPF, DKIM, ARC) passed.
-    static func authFailed(_ header: String?) -> Bool {
-        guard let h = header?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), h.hasPrefix("mx.google.com") else { return false }
-        func results(_ k: String) -> [String] {
-            guard let rx = try? NSRegularExpression(pattern: "\\b" + k + "=([a-z]+)") else { return [] }
-            let ns = h as NSString
-            return rx.matches(in: h, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range(at: 1)) }
+    struct AuthResult: Equatable { var method: String; var result: String; var props: [String: String] }
+
+    /// Strict reading of one Authentication-Results value (RFC 8601): folded lines joined, (comments) and "quoted text" never read,
+    /// lower case. Returns the authserv-id and one entry per "method=result" (one per ";" part; only ptype.property=value after it).
+    /// Unbalanced quotes or comments: nil (not trusted).
+    static func parseAuthResults(_ raw: String) -> (id: String, results: [AuthResult])? {
+        var s = "", depth = 0, quote = false, esc = false
+        for ch in raw {
+            if esc { esc = false; continue }
+            if ch == "\\" && (quote || depth > 0) { esc = true; continue }
+            if quote { if ch == "\"" { quote = false; s += "\"\"" }; continue }
+            if depth > 0 { if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }; continue }
+            if ch == "(" { depth = 1; s += " "; continue }
+            if ch == "\"" { quote = true; continue }
+            s.append(ch.isWhitespace ? " " : ch)
         }
-        let arc = results("arc").contains("pass")   // forwarded through a list Gmail trusts
-        if results("dmarc").contains("fail") { return !arc }
-        return !results("spf").contains("pass") && !results("dkim").contains("pass") && !arc
+        guard depth == 0, !quote else { return nil }
+        let parts = s.lowercased().replacingOccurrences(of: #"\s*=\s*"#, with: "=", options: .regularExpression)
+            .split(separator: ";", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let id = parts.first?.split(separator: " ").first.map(String.init) else { return nil }
+        var out: [AuthResult] = []
+        for p in parts.dropFirst() {
+            let toks = p.split(separator: " ").map(String.init)
+            guard let mr = toks.first, let eq = mr.firstIndex(of: "=") else { continue }   // "none" or junk
+            var props: [String: String] = [:]
+            for t in toks.dropFirst() {
+                guard let e = t.firstIndex(of: "="), t[..<e].contains(".") else { continue }   // a bare "dmarc=pass" here is not a result
+                if props[String(t[..<e])] == nil { props[String(t[..<e])] = String(t[t.index(after: e)...]) }
+            }
+            out.append(AuthResult(method: String(mr[..<eq].split(separator: "/").first ?? ""), result: String(mr[mr.index(after: eq)...]), props: props))
+        }
+        return (id, out)
+    }
+
+    /// Lower case, Unicode composed, no trailing dot. A lookalike (Cyrillic "а") stays different from the real domain.
+    static func normDomain(_ d: String) -> String {
+        d.precomposedStringWithCanonicalMapping.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ". <>"))
+    }
+
+    /// One plain address: one @, no spaces, commas or brackets (a From with several addresses is not verified).
+    static func plainAddress(_ e: String) -> Bool {
+        e.filter { $0 == "@" }.count == 1 && !e.contains(where: { $0.isWhitespace || ",;<>()\"".contains($0) })
+    }
+
+    /// Verified only by Gmail's own result: the topmost Authentication-Results (passed in), authserv-id mx.google.com.
+    /// DMARC pass counts only for the same domain as the From (Gmail writes the organization, e.g. medicare.gov for
+    /// subscriptions.medicare.gov); DMARC fail never verifies; without a DMARC verdict, a passing SPF or DKIM for the From's own
+    /// domain does. No result, another server's result, or anything unreadable: not verified.
+    static func verified(_ ar: String, from email: String) -> Bool {
+        guard plainAddress(email), let r = parseAuthResults(ar), r.id == "mx.google.com" else { return false }
+        let from = normDomain(String(email.split(separator: "@").last ?? ""))
+        guard !from.isEmpty else { return false }
+        let dmarc = r.results.filter { $0.method == "dmarc" }
+        if dmarc.contains(where: { $0.result == "fail" }) { return false }
+        func sameOrg(_ hf: String) -> Bool { !hf.isEmpty && (from == hf || from.hasSuffix("." + hf)) }
+        if dmarc.contains(where: { $0.result == "pass" }) { return dmarc.contains { $0.result == "pass" && sameOrg(normDomain($0.props["header.from"] ?? "")) } }
+        func aligned(_ v: String?) -> Bool {
+            let d = normDomain(String(v?.split(separator: "@").last ?? ""))
+            return !d.isEmpty && baseDomain(d) == baseDomain(from)
+        }
+        return r.results.contains { ($0.method == "dkim" && $0.result == "pass" && (aligned($0.props["header.d"]) || aligned($0.props["header.i"])))
+            || ($0.method == "spf" && $0.result == "pass" && aligned($0.props["smtp.mailfrom"])) }
     }
 
     /// shortcut: last two parts of a domain, three for country endings like co.cr or com.au; use a public-suffix list if this misfires.
     static func baseDomain(_ d: String) -> String {
-        let p = d.lowercased().split(separator: ".").map(String.init)
+        let p = normDomain(d).split(separator: ".").map(String.init)
         guard p.count > 2 else { return p.joined(separator: ".") }
         let three = p[p.count - 1].count == 2 && ["co", "com", "net", "org", "gov", "ac", "or", "ne", "go", "edu"].contains(p[p.count - 2])
         return p.suffix(three ? 3 : 2).joined(separator: ".")
@@ -55,12 +105,13 @@ enum SenderCheck {
         name.lowercased().split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
     }
 
-    /// me: John's own addresses. isNew: this address is new to John. known: people and companies John already has (Contacts, let-in senders).
+    /// me: John's own addresses (only so a Reply-To to John himself is not flagged). isNew: this address is new to John. known: people and companies John already has (Contacts, let-in senders).
     static func warnings(_ m: Mail, me: Set<String>, isNew: Bool, known: [Address]) -> [SenderWarning] {
         let from = m.from.email.lowercased(), dom = m.from.domain
-        guard !m.labels.contains("SENT"), !me.contains(from), from.contains("@") else { return [] }   // John's own mail
+        // John's own mail: Gmail's SENT/DRAFT labels, which a sender cannot set (a From address can be forged)
+        guard !m.labels.contains("SENT"), !m.labels.contains("DRAFT") else { return [] }
         var w: [SenderWarning] = []
-        if authFailed(m.authResults) { w.append(.notVerified(domain: dom)) }
+        if let ar = m.authResults, !verified(ar, from: from) { w.append(.notVerified(domain: dom)) }   // nil: not fetched yet (older cache)
         if let rt = m.replyTo.map(Address.parseList)?.first(where: { $0.email.contains("@") && baseDomain($0.domain) != baseDomain(dom) && !me.contains($0.email.lowercased()) }) {
             w.append(.repliesElsewhere(to: rt.email, domain: dom))
         }

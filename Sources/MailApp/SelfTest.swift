@@ -1006,22 +1006,44 @@ enum SelfTest {
         return ok
     }
 
-    /// Sender warnings: Gmail's verdict, Reply-To, name vs address; no warning for normal mail or John's own.
+    /// Sender warnings: only Gmail's own result verifies (strict reading, fails closed), Reply-To, name vs address; none for normal mail or John's own.
     static func partSenderWarnings() -> Bool {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
-        let pass = "mx.google.com; dkim=pass header.i=@paypal.com header.s=pp-dkim1; arc=none; spf=pass (google.com: domain of service@paypal.com designates 1.2.3.4 as permitted sender) smtp.mailfrom=service@paypal.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=paypal.com"
+        func passFor(_ d: String) -> String { "mx.google.com; dkim=pass header.i=@\(d) header.s=s1 header.b=abc; arc=none; spf=pass (google.com: domain of bounce@\(d) designates 1.2.3.4 as permitted sender) smtp.mailfrom=bounce@\(d); dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=\(d)" }
+        let pass = passFor("paypal.com")
         let spoof = "mx.google.com; spf=fail (google.com: domain of service@paypal.com does not designate 5.6.7.8 as permitted sender) smtp.mailfrom=service@paypal.com; dmarc=fail (p=REJECT sp=REJECT dis=QUARANTINE) header.from=paypal.com"
-        check("sender check: Gmail's verdict read right (pass, fail, softfail with DKIM pass, nothing passed, list-forwarded ARC pass, no verdict)",
-              !SenderCheck.authFailed(pass) && SenderCheck.authFailed(spoof) && !SenderCheck.authFailed("mx.google.com; spf=softfail smtp.mailfrom=a@x.example; dkim=pass header.i=@x.example")
-              && SenderCheck.authFailed("mx.google.com; spf=neutral smtp.mailfrom=a@x.example; dkim=none") && !SenderCheck.authFailed("mx.google.com; arc=pass (i=1); spf=fail; dmarc=fail header.from=x.example")
-              && !SenderCheck.authFailed(nil))
-        check("sender check: a verdict the sender wrote (not Gmail's) is ignored", !SenderCheck.authFailed("evil.example; dmarc=fail") && !SenderCheck.authFailed("evil.example; dmarc=pass"))
-        check("sender check: base domains (subdomains and country endings)",
-              SenderCheck.baseDomain("mail.paypal.com") == "paypal.com" && SenderCheck.baseDomain("avisos.baccredomatic.co.cr") == "baccredomatic.co.cr" && SenderCheck.baseDomain("x.example") == "x.example")
+        func v(_ ar: String, _ from: String = "service@paypal.com") -> Bool { SenderCheck.verified(ar, from: from) }
+        check("sender check: Gmail's pass verifies; a subdomain sender matches the organization Gmail names; DKIM for the same company without DMARC verifies",
+              v(pass) && v("mx.google.com; dmarc=pass (p=NONE) header.from=medicare.gov", "medicare@subscriptions.medicare.gov")
+              && v("mx.google.com; spf=softfail smtp.mailfrom=a@other.example; dkim=pass header.i=@mail.paypal.com"))
+        check("sender check: DMARC fail is not verified, list-forwarded or not; SPF pass for another company only is not verified",
+              !v(spoof) && !v("mx.google.com; arc=pass (i=1); spf=pass smtp.mailfrom=x@paypal.com; dmarc=fail header.from=paypal.com")
+              && !v("mx.google.com; spf=pass smtp.mailfrom=bounce@mailer.example; dkim=none"))
+        check("sender check (fails closed): no result, another server's result, a look-alike server name, an unreadable result or 'none' is not verified",
+              !v("") && !v("evil.example; dmarc=pass header.from=paypal.com") && !v("mx.google.com.evil.example; dmarc=pass header.from=paypal.com")
+              && !v("mx.google.com; dmarc=pass (p=REJECT header.from=paypal.com") && !v("mx.google.com; none"))
+        check("sender check: dmarc=pass inside a comment, inside a quoted string, or as a stray word in another result is not read",
+              !v("mx.google.com; spf=fail (dmarc=pass header.from=paypal.com) smtp.mailfrom=x@evil.example")
+              && !v("mx.google.com; spf=none smtp.mailfrom=\"x; dmarc=pass header.from=paypal.com\"@evil.example")
+              && !v("mx.google.com; spf=fail smtp.mailfrom=x@evil.example dmarc=pass header.from=paypal.com"))
+        check("sender check: mixed case, folded lines, spaces around = and several results read right",
+              v("MX.Google.COM;\r\n\tDKIM=Pass header.i=@PayPal.com;\r\n SPF = pass smtp.mailfrom=bounce@paypal.com; DMARC=PASS (p=REJECT) header.from=PayPal.com"))
+        check("sender check: a DMARC pass for another domain than the From is not verified (look-alike and IDN domains, look-alike suffix, several From addresses)",
+              !v("mx.google.com; dmarc=pass header.from=evil.example") && !v(pass, "service@p\u{0430}ypal.com") && !v(pass, "a@notpaypal.com")
+              && !v(pass, "service@paypal.com, x@evil.example"))
+        check("addresses: the real address is found past quoted names holding < @ , and past (comments); encoded names decoded; lists split right",
+              Address.parse("\"PayPal <service@paypal.com>\" <evil@evil.example>").email == "evil@evil.example"
+              && Address.parse("evil@evil.example (PayPal <service@paypal.com>)").email == "evil@evil.example"
+              && Address.parse("<evil@evil.example> \"PayPal <service@paypal.com>\"").email == "evil@evil.example"
+              && Address.parse("=?UTF-8?B?UGF5UGFs?= <service@paypal.com>").name == "PayPal"
+              && Address.parseList("\"Smith, Bob <b@good.example>\" <x@evil.example>, \"a\\\"b, c\" <c@evil2.example>").map(\.email) == ["x@evil.example", "c@evil2.example"])
+        check("sender check: base domains (subdomains, country endings, case, trailing dot)",
+              SenderCheck.baseDomain("mail.paypal.com") == "paypal.com" && SenderCheck.baseDomain("avisos.baccredomatic.co.cr") == "baccredomatic.co.cr"
+              && SenderCheck.baseDomain("x.example") == "x.example" && SenderCheck.baseDomain("Mail.PayPal.COM.") == "paypal.com")
 
         let now = Date()
-        func mail(_ name: String, _ email: String, auth: String? = nil, replyTo: String? = nil, labels: [String] = ["INBOX"]) -> Mail {
+        func mail(_ name: String, _ email: String, auth: String?, replyTo: String? = nil, labels: [String] = ["INBOX"]) -> Mail {
             var m = Mail(id: email, from: Address(name: name, email: email), subject: "S", snippet: "", date: now, labels: labels)
             m.authResults = auth; m.replyTo = replyTo; return m
         }
@@ -1030,35 +1052,48 @@ enum SelfTest {
         func w(_ m: Mail, new: Bool = false) -> [SenderWarning] { SenderCheck.warnings(m, me: me, isNew: new, known: known) }
 
         check("sender warnings: a normal verified sender gets none (Reply-To on its own subdomain, known name and address)",
-              w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "PayPal <noreply@mail.paypal.com>")).isEmpty
-              && w(mail("PayPal", "service@paypal.com", auth: pass), new: true).isEmpty)
-        check("sender warnings: John's own mail gets none (sent, or from his address, even with no or a failing verdict)",
-              w(mail("John", "john@x.example", labels: ["SENT"])).isEmpty && w(mail("John", "John@x.example", auth: spoof, replyTo: "other@y.example")).isEmpty
-              && w(mail("Ann", "ann@y.example", auth: spoof, labels: ["SENT", "INBOX"])).isEmpty)
+              w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "PayPal <noreply@mail.paypal.com>")).isEmpty && w(mail("PayPal", "service@paypal.com", auth: pass), new: true).isEmpty)
+        check("sender warnings: John's own sent mail and drafts get none, even with no result",
+              w(mail("John", "john@x.example", auth: "", labels: ["SENT"])).isEmpty && w(mail("Ann", "ann@y.example", auth: "", labels: ["SENT", "INBOX"])).isEmpty
+              && w(mail("John", "john@x.example", auth: "", labels: ["DRAFT"])).isEmpty)
+        check("sender warnings: an outside email that only claims to be from John is not verified",
+              w(mail("John", "john@x.example", auth: "")) == [.notVerified(domain: "x.example")])
+        check("sender warnings: an email with no result is not verified; one not fetched yet (older saved list) shows nothing until it is",
+              w(mail("PayPal", "service@paypal.com", auth: "")) == [.notVerified(domain: "paypal.com")] && w(mail("PayPal", "service@paypal.com", auth: nil)).isEmpty)
         let n1 = w(mail("PayPal", "service@paypal.com", auth: spoof))
         check("sender warnings: Sender not verified, red, with the approved words",
               n1 == [.notVerified(domain: "paypal.com")] && n1[0].red && n1[0].label == "Sender not verified"
               && n1[0].message == "This says it's from paypal.com, but Gmail could not confirm paypal.com sent it. Don't click links or reply.")
-        let r1 = w(mail("BAC Credomatic", "avisos@baccredomatic.com", auth: pass, replyTo: "Soporte <bac-soporte@outlook.com>"))
+        let r1 = w(mail("BAC Credomatic", "avisos@baccredomatic.com", auth: passFor("baccredomatic.com"), replyTo: "Soporte <bac-soporte@outlook.com>"))
         check("sender warnings: Replies go to someone else, amber, with the approved words",
               r1 == [.repliesElsewhere(to: "bac-soporte@outlook.com", domain: "baccredomatic.com")] && !r1[0].red && r1[0].label == "Replies go to someone else"
               && r1[0].message == "If you reply, it goes to bac-soporte@outlook.com, not baccredomatic.com.")
-        check("sender warnings: Reply-To on the same company (country ending, second address) or to John himself gets none",
-              w(mail("BAC", "avisos@mail.baccredomatic.co.cr", auth: pass, replyTo: "soporte@baccredomatic.co.cr")).isEmpty
-              && w(mail("Ann", "ann@y.example", auth: pass, replyTo: "john@x.example")).isEmpty)
-        let l1 = w(mail("Lili", "lili.rentals2026@gmail.com", auth: pass), new: true)
+        check("sender warnings: Reply-To at the same company (country ending, other case, trailing dot) or to John himself gets none",
+              w(mail("BAC", "avisos@mail.baccredomatic.co.cr", auth: passFor("baccredomatic.co.cr"), replyTo: "soporte@baccredomatic.co.cr")).isEmpty
+              && w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "help@PAYPAL.COM.")).isEmpty
+              && w(mail("Ann", "ann@y.example", auth: passFor("y.example"), replyTo: "john@x.example")).isEmpty)
+        check("sender warnings: a Reply-To at a look-alike domain, a second address, or behind a quoted name is caught",
+              w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "help@p\u{0430}ypal.com")).map(\.label) == ["Replies go to someone else"]
+              && w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "help@paypal.com, x@evil.example")).map(\.label) == ["Replies go to someone else"]
+              && w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "\"help@paypal.com\" <x@evil.example>")).map(\.label) == ["Replies go to someone else"])
+        let l1 = w(mail("Lili", "lili.rentals2026@gmail.com", auth: passFor("gmail.com")), new: true)
         check("sender warnings: Name doesn't match address, amber, with the approved words",
               l1 == [.nameMismatch(name: "Lili")] && !l1[0].red && l1[0].label == "Name doesn't match address" && l1[0].message == "Lili usually writes from a different address. This one is new.")
         check("sender warnings: no name warning for a known address, an address already let in, the same company, a general name, or a name nobody has",
-              w(mail("Lili", "lili@rentals.example", auth: pass), new: true).isEmpty && w(mail("Lili", "lili.rentals2026@gmail.com", auth: pass), new: false).isEmpty
-              && w(mail("PayPal", "promo@paypal.com", auth: pass), new: true).isEmpty && w(mail("Support", "support@other.example", auth: pass), new: true).isEmpty
-              && w(mail("Dana", "dana@new.example", auth: pass), new: true).isEmpty)
+              w(mail("Lili", "lili@rentals.example", auth: passFor("rentals.example")), new: true).isEmpty && w(mail("Lili", "lili.rentals2026@gmail.com", auth: passFor("gmail.com")), new: false).isEmpty
+              && w(mail("PayPal", "promo@paypal.com", auth: pass), new: true).isEmpty && w(mail("Support", "support@other.example", auth: passFor("other.example")), new: true).isEmpty
+              && w(mail("Dana", "dana@new.example", auth: passFor("new.example")), new: true).isEmpty)
         check("sender warnings: every failing check shows, most serious first",
               w(mail("PayPal", "service@paypa1.example", auth: spoof, replyTo: "x@evil.example"), new: true).map(\.label) == ["Sender not verified", "Replies go to someone else", "Name doesn't match address"])
-        let gd = try? JSONSerialization.data(withJSONObject: ["id": "g1", "payload": ["headers": [["name": "From", "value": "PayPal <service@paypal.com>"],
-            ["name": "Authentication-Results", "value": spoof], ["name": "Authentication-Results", "value": "mx.google.com; dmarc=pass"]]]])
-        let gm = gd.flatMap { try? JSONDecoder().decode(GMessage.self, from: $0) }
-        check("sender warnings: the topmost verdict (Gmail's) is kept when an email carries more than one", gm.flatMap { Mail($0).authResults } == spoof)
+        func gmsg(_ hs: [(String, String)]) -> Mail? {
+            let d = try? JSONSerialization.data(withJSONObject: ["id": "g1", "payload": ["headers": hs.map { ["name": $0.0, "value": $0.1] }]])
+            return d.flatMap { try? JSONDecoder().decode(GMessage.self, from: $0) }.map { Mail($0) }
+        }
+        let top = gmsg([("From", "PayPal <service@paypal.com>"), ("Authentication-Results", spoof), ("Authentication-Results", pass)])
+        let arcOnly = gmsg([("From", "PayPal <service@paypal.com>"), ("ARC-Authentication-Results", "i=1; mx.google.com; dmarc=pass header.from=paypal.com")])
+        check("sender warnings: only the topmost result counts (a sender's own lower copy saying pass is ignored); an ARC copy alone is no result",
+              top?.authResults == spoof && top.map { w($0) } == [.notVerified(domain: "paypal.com")]
+              && arcOnly?.authResults == "" && arcOnly.map { w($0) } == [.notVerified(domain: "paypal.com")])
         return ok
     }
 
