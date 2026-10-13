@@ -255,7 +255,7 @@ enum SelfTest {
             // an HTML-only reply from Gmail is kept on the way back out, and a failed read throws instead of giving a blank form
             seen = []; reply = (200, odd)
             do { let h = try await gc.vacation(); try await gc.setVacation(h) } catch { check("away: HTML-only round trip ran without an error (\(error))", false) }
-            check("away: an HTML-only message from Gmail is written back with its HTML", seen.count == 2 && seen[1].contains("<b>Hi</b>") && seen[1].contains("restrictToDomain"))
+            check("away: an HTML-only message from Gmail is written back with its HTML", seen.count == 2 && seen[1].contains("responseBodyHtml") && seen[1].contains("Hi") && seen[1].contains("restrictToDomain"))
             reply = (403, "{}")
             var readFailed = false
             do { _ = try await gc.vacation() } catch { readFailed = true }
