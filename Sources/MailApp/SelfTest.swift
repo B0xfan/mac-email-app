@@ -335,6 +335,7 @@ enum SelfTest {
             delCode = 200; seen = []
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(5))
             let swept = await MainActor.run { st.timing.data.bigFiles?.count }
+            check("big file: if the clean-up delete fails the record is kept, due now; the next sweep deletes it", stuck.count == 1 && stuck.first?.id == "FID1" && abs(stuck.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60 && seen.count == 1 && swept == 0)
             // share step fails and its own clean-up delete fails too: the file is recorded, due now
             permN = 0; permFailFrom = 1; delCode = 500
             let stErr = await MainActor.run { st.timing.change { $0.bigFiles = [] } }; _ = stErr
@@ -343,7 +344,6 @@ enum SelfTest {
             let kept2 = await MainActor.run { st.timing.data.bigFiles ?? [] }
             delCode = 200
             check("big file: if sharing fails and the clean-up delete fails too, the file is still recorded (due now)", gotStuck && kept2.count == 1 && kept2.first?.id == "FID1" && abs(kept2.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60)
-            check("big file: if the clean-up delete fails the record is kept, due now; the next sweep deletes it", stuck.count == 1 && stuck.first?.id == "FID1" && abs(stuck.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60 && seen.count == 1 && swept == 0)
             check("big file: send later is refused with a plain message while a big file is attached", BigFileLater.problem(bigFileCount: 1) == "Big files can't be sent later yet. Send now, or remove the file." && BigFileLater.problem(bigFileCount: 0) == nil)
             StubProtocol.handler = nil; StubProtocol.headers = nil
         }
