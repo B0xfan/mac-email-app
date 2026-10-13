@@ -73,7 +73,7 @@ enum SenderCheck {
     /// Verified only by Gmail's own result: the topmost Authentication-Results (passed in), authserv-id mx.google.com.
     /// DMARC pass counts only for the same domain as the From (Gmail writes the organization, e.g. medicare.gov for
     /// subscriptions.medicare.gov); DMARC fail never verifies; without a DMARC verdict, a passing SPF or DKIM for the From's own
-    /// domain does. No result, another server's result, or anything unreadable: not verified.
+    /// domain does (exactly; no guessing at company domains here). No result, another server's result, or anything unreadable: not verified.
     static func verified(_ ar: String, from email: String) -> Bool {
         guard plainAddress(email), let r = parseAuthResults(ar), r.id == "mx.google.com" else { return false }
         let from = normDomain(String(email.split(separator: "@").last ?? ""))
@@ -82,19 +82,29 @@ enum SenderCheck {
         if dmarc.contains(where: { $0.result == "fail" }) { return false }
         func sameOrg(_ hf: String) -> Bool { !hf.isEmpty && (from == hf || from.hasSuffix("." + hf)) }
         if dmarc.contains(where: { $0.result == "pass" }) { return dmarc.contains { $0.result == "pass" && sameOrg(normDomain($0.props["header.from"] ?? "")) } }
-        func aligned(_ v: String?) -> Bool {
-            let d = normDomain(String(v?.split(separator: "@").last ?? ""))
-            return !d.isEmpty && baseDomain(d) == baseDomain(from)
+        // no DMARC verdict: DKIM must pass for the From's own domain (or a parent it signs for), SPF for exactly the From's domain
+        func domainOf(_ v: String?) -> String { normDomain(String(v?.split(separator: "@").last ?? "")) }
+        return r.results.contains { x in
+            if x.method == "dkim" && x.result == "pass" { let d = domainOf(x.props["header.d"] ?? x.props["header.i"]); return !d.isEmpty && (from == d || from.hasSuffix("." + d)) }
+            if x.method == "spf" && x.result == "pass" { return domainOf(x.props["smtp.mailfrom"]) == from }
+            return false
         }
-        return r.results.contains { ($0.method == "dkim" && $0.result == "pass" && (aligned($0.props["header.d"]) || aligned($0.props["header.i"])))
-            || ($0.method == "spf" && $0.result == "pass" && aligned($0.props["smtp.mailfrom"])) }
     }
 
-    /// shortcut: last two parts of a domain, three for country endings like co.cr or com.au; use a public-suffix list if this misfires.
+    /// Hosts where every customer gets their own name (evil.github.io is not victim.github.io).
+    static let sharedHosts: Set<String> = ["github.io", "gitlab.io", "blogspot.com", "herokuapp.com", "vercel.app", "netlify.app", "pages.dev", "workers.dev",
+        "appspot.com", "web.app", "firebaseapp.com", "azurewebsites.net", "cloudfront.net", "amazonaws.com", "s3.amazonaws.com", "wordpress.com", "wixsite.com",
+        "myshopify.com", "onrender.com", "fly.dev", "glitch.me", "ngrok.io", "ngrok-free.app", "substack.com", "weebly.com", "sharepoint.com", "carrd.co"]
+    /// Second parts of two-part country endings (gob.mx, gov.uk, co.cr, nhs.uk ...).
+    static let secondLevel: Set<String> = ["co", "com", "net", "org", "gov", "gob", "gouv", "govt", "gv", "mil", "nhs", "ltd", "plc", "sch", "police", "nic", "ac", "edu", "or", "ne", "go", "nom", "mod", "int"]
+
+    /// The company part of a domain, for Reply-To and name checks.
+    /// shortcut: built-in lists instead of the full public-suffix list; add an ending here if one is missed.
     static func baseDomain(_ d: String) -> String {
         let p = normDomain(d).split(separator: ".").map(String.init)
         guard p.count > 2 else { return p.joined(separator: ".") }
-        let three = p[p.count - 1].count == 2 && ["co", "com", "net", "org", "gov", "ac", "or", "ne", "go", "edu"].contains(p[p.count - 2])
+        for n in [3, 2] where p.count > n && sharedHosts.contains(p.suffix(n).joined(separator: ".")) { return p.suffix(n + 1).joined(separator: ".") }
+        let three = p[p.count - 1].count == 2 && secondLevel.contains(p[p.count - 2])
         return p.suffix(three ? 3 : 2).joined(separator: ".")
     }
 

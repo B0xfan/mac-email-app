@@ -12,47 +12,57 @@ struct Address: Hashable, Codable {
     }
 
     /// "Name <a@b.c>", "<a@b.c>" or "a@b.c"
-    static func parse(_ raw: String) -> Address {
-        let s = stripComments(raw).trimmingCharacters(in: .whitespaces)
-        var quote = false, esc = false, lt: String.Index?, gt: String.Index?
-        for i in s.indices {   // the <address> outside any "quoted name": a name may itself contain <, @ or commas
-            let ch = s[i]
-            if esc { esc = false; continue }
-            if ch == "\\" && quote { esc = true; continue }
-            if ch == "\"" { quote.toggle() } else if !quote && ch == "<" { lt = i; gt = nil } else if !quote && ch == ">" && lt != nil { gt = i }
+    /// Per character: inside a "quoted name" or a (comment)? A quote or bracket that never closes is plain text,
+    /// so names like  Dell 24" Monitors  or  Sad :(  still give their address.
+    static func marks(_ s: String) -> [(ch: Character, quoted: Bool, comment: Bool)] {
+        func pass(_ quotes: Bool, _ parens: Bool) -> (out: [(ch: Character, quoted: Bool, comment: Bool)], ok: Bool) {
+            var out: [(ch: Character, quoted: Bool, comment: Bool)] = [], q = false, depth = 0, esc = false
+            for ch in s {
+                let wasQ = q, wasC = depth > 0
+                if esc { esc = false }
+                else if ch == "\\" && (q || depth > 0) { esc = true }
+                else if quotes && depth == 0 && ch == "\"" { q.toggle() }
+                else if parens && !q && ch == "(" { depth += 1 }
+                else if parens && !q && ch == ")" && depth > 0 { depth -= 1 }
+                out.append((ch, wasQ || q, wasC || depth > 0))
+            }
+            return (out, !q && depth == 0)
         }
-        if let lt, let gt, lt < gt {
-            let email = String(s[s.index(after: lt)..<gt]).trimmingCharacters(in: .whitespaces).lowercased()
-            var name = String(s[s.startIndex..<lt]).trimmingCharacters(in: .whitespaces)
-            if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 { name = String(name.dropFirst().dropLast()) }
-            return Address(name: MIME.decodeWords(name), email: email)
+        for (q, c) in [(true, true), (true, false), (false, true)] { let r = pass(q, c); if r.ok { return r.out } }
+        return pass(false, false).out
+    }
+
+    static func parse(_ raw: String) -> Address {
+        let s = raw.trimmingCharacters(in: .whitespaces)
+        let m = marks(s), chars = m.map(\.ch)
+        var lt: Int?, gt: Int?
+        for (i, x) in m.enumerated() where !x.quoted && !x.comment {   // the <address> outside any quoted name or comment
+            if x.ch == "<" { lt = i; gt = nil } else if x.ch == ">" && lt != nil { gt = i }
+        }
+        if let lt, let gt, lt < gt { return named(String(chars[..<lt]), String(chars[(lt + 1)..<gt])) }
+        // a bare address with a (comment): "evil@x (PayPal <a@paypal.com>)" is evil@x
+        let bare = String(m.filter { !$0.comment }.map(\.ch)).trimmingCharacters(in: .whitespaces)
+        if bare.contains("@"), !bare.contains("<") { return Address(name: "", email: bare.lowercased()) }
+        if let lt = s.lastIndex(of: "<"), let gt = s.lastIndex(of: ">"), lt < gt {   // the old reading, as the last resort
+            return named(String(s[..<lt]), String(s[s.index(after: lt)..<gt]))
         }
         return Address(name: "", email: s.lowercased())
     }
 
-    /// Drops (comments) outside quoted names, nested ones too: in "evil@x (PayPal <a@paypal.com>)" the address is evil@x.
-    static func stripComments(_ raw: String) -> String {
-        var out = "", depth = 0, quote = false, esc = false
-        for ch in raw {
-            if esc { esc = false; if depth == 0 { out.append(ch) }; continue }
-            if ch == "\\" && (quote || depth > 0) { esc = true; if depth == 0 { out.append(ch) }; continue }
-            if depth > 0 { if ch == "(" { depth += 1 } else if ch == ")" { depth -= 1 }; continue }
-            if ch == "\"" { quote.toggle() }
-            if ch == "(" && !quote { depth = 1; out.append(" "); continue }
-            out.append(ch)
-        }
-        return out
+    private static func named(_ rawName: String, _ rawEmail: String) -> Address {
+        var name = rawName.trimmingCharacters(in: .whitespaces)
+        if name.hasPrefix("\""), name.hasSuffix("\""), name.count >= 2 { name = String(name.dropFirst().dropLast()) }
+        return Address(name: MIME.decodeWords(name), email: rawEmail.trimmingCharacters(in: .whitespaces).lowercased())
     }
 
     static func parseList(_ raw: String) -> [Address] {
-        var parts: [String] = [], cur = "", inQuote = false, inAngle = false, esc = false
-        for ch in stripComments(raw) {
-            if esc { esc = false; cur.append(ch); continue }
-            if ch == "\\" && inQuote { esc = true; cur.append(ch); continue }   // \" inside a quoted name does not end it
-            if ch == "\"" { inQuote.toggle() }
-            if ch == "<" && !inQuote { inAngle = true }
-            if ch == ">" && !inQuote { inAngle = false }
-            if ch == "," && !inQuote && !inAngle { parts.append(cur); cur = "" } else { cur.append(ch) }
+        var parts: [String] = [], cur = "", inAngle = false
+        for x in marks(raw) {
+            if !x.quoted && !x.comment {
+                if x.ch == "<" { inAngle = true } else if x.ch == ">" { inAngle = false }
+                if x.ch == "," && !inAngle { parts.append(cur); cur = ""; continue }
+            }
+            cur.append(x.ch)
         }
         parts.append(cur)
         return parts.map(parse).filter { $0.email.contains("@") }

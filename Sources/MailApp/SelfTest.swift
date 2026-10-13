@@ -193,7 +193,7 @@ enum SelfTest {
         if !(await partTiming()) { ok = false }
         if !(await partPhase4()) { ok = false }
         if !partSaveNote() { ok = false }
-        if !partSenderWarnings() { ok = false }
+        if !(await partSenderWarnings()) { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
@@ -1007,7 +1007,7 @@ enum SelfTest {
     }
 
     /// Sender warnings: only Gmail's own result verifies (strict reading, fails closed), Reply-To, name vs address; none for normal mail or John's own.
-    static func partSenderWarnings() -> Bool {
+    @MainActor static func partSenderWarnings() -> Bool {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         func passFor(_ d: String) -> String { "mx.google.com; dkim=pass header.i=@\(d) header.s=s1 header.b=abc; arc=none; spf=pass (google.com: domain of bounce@\(d) designates 1.2.3.4 as permitted sender) smtp.mailfrom=bounce@\(d); dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=\(d)" }
@@ -1016,7 +1016,8 @@ enum SelfTest {
         func v(_ ar: String, _ from: String = "service@paypal.com") -> Bool { SenderCheck.verified(ar, from: from) }
         check("sender check: Gmail's pass verifies; a subdomain sender matches the organization Gmail names; DKIM for the same company without DMARC verifies",
               v(pass) && v("mx.google.com; dmarc=pass (p=NONE) header.from=medicare.gov", "medicare@subscriptions.medicare.gov")
-              && v("mx.google.com; spf=softfail smtp.mailfrom=a@other.example; dkim=pass header.i=@mail.paypal.com"))
+              && v("mx.google.com; spf=softfail smtp.mailfrom=a@other.example; dkim=pass header.i=@paypal.com", "service@mail.paypal.com")
+              && v("mx.google.com; spf=pass smtp.mailfrom=bounce@paypal.com; dkim=none"))
         check("sender check: DMARC fail is not verified, list-forwarded or not; SPF pass for another company only is not verified",
               !v(spoof) && !v("mx.google.com; arc=pass (i=1); spf=pass smtp.mailfrom=x@paypal.com; dmarc=fail header.from=paypal.com")
               && !v("mx.google.com; spf=pass smtp.mailfrom=bounce@mailer.example; dkim=none"))
@@ -1042,13 +1043,41 @@ enum SelfTest {
               SenderCheck.baseDomain("mail.paypal.com") == "paypal.com" && SenderCheck.baseDomain("avisos.baccredomatic.co.cr") == "baccredomatic.co.cr"
               && SenderCheck.baseDomain("x.example") == "x.example" && SenderCheck.baseDomain("Mail.PayPal.COM.") == "paypal.com")
 
+        // review of 1a77917: look-alikes on shared endings and hosts
+        check("sender check without DMARC: DKIM or SPF for a neighbour on a shared ending or host does not verify (evil.gob.mx, evil.github.io, a parent's SPF)",
+              !v("mx.google.com; dkim=pass header.i=@evil.gob.mx; spf=pass smtp.mailfrom=x@evil.gob.mx", "alerts@bank.gob.mx")
+              && !v("mx.google.com; dkim=pass header.i=@evil.github.io; spf=pass smtp.mailfrom=x@evil.github.io", "y@victim.github.io")
+              && !v("mx.google.com; dkim=pass header.i=@mail.paypal.com", "service@paypal.com") && !v("mx.google.com; spf=pass smtp.mailfrom=bounce@mail.paypal.com", "service@paypal.com"))
+        check("sender check: shared hosts and two-part endings keep the owner's own name",
+              SenderCheck.baseDomain("evil.gob.mx") == "evil.gob.mx" && SenderCheck.baseDomain("evil.github.io") == "evil.github.io"
+              && SenderCheck.baseDomain("a.b.github.io") == "b.github.io" && SenderCheck.baseDomain("bucket.s3.amazonaws.com") == "bucket.s3.amazonaws.com"
+              && SenderCheck.baseDomain("x.nhs.uk") == "x.nhs.uk")
+
+        // the address reader through reply, block and compose: stray quotes or brackets in a name, and a name in brackets
+        let odd = ["Dell 24\" Monitors <deals@dell.example>", "Sad :( <a@b.example>", "Gus Fenn (landlord) <g@f.example>"]
+        check("addresses: a stray quote or bracket in a name still gives the address and name; (landlord) stays in the name",
+              odd.map { Address.parse($0).email } == ["deals@dell.example", "a@b.example", "g@f.example"]
+              && odd.map { Address.parse($0).name } == ["Dell 24\" Monitors", "Sad :(", "Gus Fenn (landlord)"])
+        check("addresses, compose: the To line with all three gives three addresses",
+              Address.parseList(odd.joined(separator: ", ")).map(\.email) == ["deals@dell.example", "a@b.example", "g@f.example"])
+        let rs = Snapshots.sampleStore()
+        var dm = Mail(id: "odd", from: Address.parse(odd[0]), subject: "S", snippet: "", date: Date(), to: odd[1])
+        let rr = rs.replyRecipients(dm, all: true)
+        dm.replyTo = odd[2]
+        check("addresses, reply: Reply goes to the sender's address; Reply all adds the others; a Reply-To with a name in brackets is used",
+              rr.to == "deals@dell.example" && rr.cc == "a@b.example" && rs.replyRecipients(dm, all: false).to == "g@f.example")
+        check("addresses, block and approve: the sender's address and company are right, and a verified sender gets no false red label",
+              dm.from.email == "deals@dell.example" && dm.from.domain == "dell.example"
+              && SenderCheck.warnings({ var x = dm; x.replyTo = nil; x.authResults = passFor("dell.example"); return x }(), me: [], isNew: false, known: []).isEmpty)
+
         let now = Date()
         func mail(_ name: String, _ email: String, auth: String?, replyTo: String? = nil, labels: [String] = ["INBOX"]) -> Mail {
             var m = Mail(id: email, from: Address(name: name, email: email), subject: "S", snippet: "", date: now, labels: labels)
             m.authResults = auth; m.replyTo = replyTo; return m
         }
         let me: Set<String> = ["john@x.example"]
-        let known = [Address(name: "PayPal", email: "service@paypal.com"), Address(name: "Lili", email: "lili@rentals.example"), Address(name: "Support", email: "help@shop.example")]
+        let known = [Address(name: "PayPal", email: "service@paypal.com"), Address(name: "Lili", email: "lili@rentals.example"), Address(name: "Support", email: "help@shop.example"),
+                     Address(name: "Victim Docs", email: "docs@victim.github.io")]
         func w(_ m: Mail, new: Bool = false) -> [SenderWarning] { SenderCheck.warnings(m, me: me, isNew: new, known: known) }
 
         check("sender warnings: a normal verified sender gets none (Reply-To on its own subdomain, known name and address)",
@@ -1083,6 +1112,10 @@ enum SelfTest {
               w(mail("Lili", "lili@rentals.example", auth: passFor("rentals.example")), new: true).isEmpty && w(mail("Lili", "lili.rentals2026@gmail.com", auth: passFor("gmail.com")), new: false).isEmpty
               && w(mail("PayPal", "promo@paypal.com", auth: pass), new: true).isEmpty && w(mail("Support", "support@other.example", auth: passFor("other.example")), new: true).isEmpty
               && w(mail("Dana", "dana@new.example", auth: passFor("new.example")), new: true).isEmpty)
+        check("sender warnings: a Reply-To or a name on a neighbour of a shared ending or host is caught (gob.mx, github.io)",
+              w(mail("Bank", "alerts@bank.gob.mx", auth: passFor("bank.gob.mx"), replyTo: "x@evil.gob.mx")).map(\.label) == ["Replies go to someone else"]
+              && w(mail("Docs", "y@victim.github.io", auth: passFor("victim.github.io"), replyTo: "x@evil.github.io")).map(\.label) == ["Replies go to someone else"]
+              && w(mail("Victim Docs", "docs@evil.github.io", auth: passFor("evil.github.io")), new: true).map(\.label) == ["Name doesn't match address"])
         check("sender warnings: every failing check shows, most serious first",
               w(mail("PayPal", "service@paypa1.example", auth: spoof, replyTo: "x@evil.example"), new: true).map(\.label) == ["Sender not verified", "Replies go to someone else", "Name doesn't match address"])
         func gmsg(_ hs: [(String, String)]) -> Mail? {
