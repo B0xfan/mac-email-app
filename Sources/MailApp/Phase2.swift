@@ -63,11 +63,13 @@ final class ContactDirectory {
     private var asked = false
 
     /// Asks the Mac for permission the first time it is needed, then reads names and addresses (read only).
-    func loadIfNeeded() async {
+    /// ask: false (sender warnings) reads Contacts only if John already allowed it; it never shows the permission box.
+    func loadIfNeeded(ask: Bool = true) async {
         guard !asked else { return }
-        asked = true
         let store = CNContactStore()
         let status = CNContactStore.authorizationStatus(for: .contacts)
+        if status == .notDetermined && !ask { return }   // the To field asks later, as before
+        asked = true
         if status == .notDetermined { _ = try? await store.requestAccess(for: .contacts) }
         guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else { return }
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]

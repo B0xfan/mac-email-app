@@ -86,6 +86,7 @@ struct Mail: Identifiable, Hashable, Codable {
     var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
     var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
     var replyTo: String?        // the Reply-To header, when the sender set one
+    var authResults: String?    // the topmost Authentication-Results (Gmail's own verdict); full fetches only
     var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
 
     var unread: Bool { labels.contains("UNREAD") }
@@ -105,6 +106,7 @@ struct Mail: Identifiable, Hashable, Codable {
         cc = h["cc"] ?? ""
         bcc = h["bcc"]
         replyTo = h["reply-to"]
+        authResults = h["authentication-results"]   // first one = topmost = Gmail's own
         let subj = MIME.decodeWords(h["subject"] ?? "")
         subject = subj.isEmpty ? "(no subject)" : subj
         messageIDHeader = h["message-id"] ?? ""

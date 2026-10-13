@@ -678,7 +678,10 @@ struct ReadingContent: View {
             HStack(spacing: 12) {
                 Avatar(text: mail.from.initials)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(mail.from.display).font(Theme.bodyStrong)
+                    HStack(spacing: 8) {
+                        Text(mail.from.display).font(Theme.bodyStrong)
+                        ForEach(store.senderWarnings(mail), id: \.label) { SenderWarningLabel(warning: $0) }
+                    }.id(mail.id)   // a bubble left open does not carry over to the next email
                     Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).textSelection(.enabled)
                 }
                 Spacer()
@@ -694,6 +697,7 @@ struct ReadingContent: View {
                     Text(Fmt.long(mail.date)).font(Theme.body).foregroundStyle(Theme.sub)
                 }
             }
+            .zIndex(1)   // a warning's bubble draws over the subject below it
             Text(mail.subject).font(Theme.title).tracking(-0.2).textSelection(.enabled)
             HStack(spacing: 12) {
                 PrivateNoteView(mail: mail).id(mail.threadID)

@@ -193,6 +193,7 @@ enum SelfTest {
         if !(await partTiming()) { ok = false }
         if !(await partPhase4()) { ok = false }
         if !partSaveNote() { ok = false }
+        if !partSenderWarnings() { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
@@ -1002,6 +1003,62 @@ enum SelfTest {
               took < 5 && sb.contains("kept") && !sb.contains("<header") && sb2.hasPrefix("On a a"))
         let ou = ObsidianTask.openURL(URL(fileURLWithPath: "/v/01 Inbox/Q&A #5?.md"))?.absoluteString ?? ""
         check("Obsidian Open link encodes & # ? so the right note opens", ou == "obsidian://open?path=/v/01%20Inbox/Q%26A%20%235%3F.md")
+        return ok
+    }
+
+    /// Sender warnings: Gmail's verdict, Reply-To, name vs address; no warning for normal mail or John's own.
+    static func partSenderWarnings() -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let pass = "mx.google.com; dkim=pass header.i=@paypal.com header.s=pp-dkim1; arc=none; spf=pass (google.com: domain of service@paypal.com designates 1.2.3.4 as permitted sender) smtp.mailfrom=service@paypal.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=paypal.com"
+        let spoof = "mx.google.com; spf=fail (google.com: domain of service@paypal.com does not designate 5.6.7.8 as permitted sender) smtp.mailfrom=service@paypal.com; dmarc=fail (p=REJECT sp=REJECT dis=QUARANTINE) header.from=paypal.com"
+        check("sender check: Gmail's verdict read right (pass, fail, softfail with DKIM pass, nothing passed, list-forwarded ARC pass, no verdict)",
+              !SenderCheck.authFailed(pass) && SenderCheck.authFailed(spoof) && !SenderCheck.authFailed("mx.google.com; spf=softfail smtp.mailfrom=a@x.example; dkim=pass header.i=@x.example")
+              && SenderCheck.authFailed("mx.google.com; spf=neutral smtp.mailfrom=a@x.example; dkim=none") && !SenderCheck.authFailed("mx.google.com; arc=pass (i=1); spf=fail; dmarc=fail header.from=x.example")
+              && !SenderCheck.authFailed(nil))
+        check("sender check: a verdict the sender wrote (not Gmail's) is ignored", !SenderCheck.authFailed("evil.example; dmarc=fail") && !SenderCheck.authFailed("evil.example; dmarc=pass"))
+        check("sender check: base domains (subdomains and country endings)",
+              SenderCheck.baseDomain("mail.paypal.com") == "paypal.com" && SenderCheck.baseDomain("avisos.baccredomatic.co.cr") == "baccredomatic.co.cr" && SenderCheck.baseDomain("x.example") == "x.example")
+
+        let now = Date()
+        func mail(_ name: String, _ email: String, auth: String? = nil, replyTo: String? = nil, labels: [String] = ["INBOX"]) -> Mail {
+            var m = Mail(id: email, from: Address(name: name, email: email), subject: "S", snippet: "", date: now, labels: labels)
+            m.authResults = auth; m.replyTo = replyTo; return m
+        }
+        let me: Set<String> = ["john@x.example"]
+        let known = [Address(name: "PayPal", email: "service@paypal.com"), Address(name: "Lili", email: "lili@rentals.example"), Address(name: "Support", email: "help@shop.example")]
+        func w(_ m: Mail, new: Bool = false) -> [SenderWarning] { SenderCheck.warnings(m, me: me, isNew: new, known: known) }
+
+        check("sender warnings: a normal verified sender gets none (Reply-To on its own subdomain, known name and address)",
+              w(mail("PayPal", "service@paypal.com", auth: pass, replyTo: "PayPal <noreply@mail.paypal.com>")).isEmpty
+              && w(mail("PayPal", "service@paypal.com", auth: pass), new: true).isEmpty)
+        check("sender warnings: John's own mail gets none (sent, or from his address, even with no or a failing verdict)",
+              w(mail("John", "john@x.example", labels: ["SENT"])).isEmpty && w(mail("John", "John@x.example", auth: spoof, replyTo: "other@y.example")).isEmpty
+              && w(mail("Ann", "ann@y.example", auth: spoof, labels: ["SENT", "INBOX"])).isEmpty)
+        let n1 = w(mail("PayPal", "service@paypal.com", auth: spoof))
+        check("sender warnings: Sender not verified, red, with the approved words",
+              n1 == [.notVerified(domain: "paypal.com")] && n1[0].red && n1[0].label == "Sender not verified"
+              && n1[0].message == "This says it's from paypal.com, but Gmail could not confirm paypal.com sent it. Don't click links or reply.")
+        let r1 = w(mail("BAC Credomatic", "avisos@baccredomatic.com", auth: pass, replyTo: "Soporte <bac-soporte@outlook.com>"))
+        check("sender warnings: Replies go to someone else, amber, with the approved words",
+              r1 == [.repliesElsewhere(to: "bac-soporte@outlook.com", domain: "baccredomatic.com")] && !r1[0].red && r1[0].label == "Replies go to someone else"
+              && r1[0].message == "If you reply, it goes to bac-soporte@outlook.com, not baccredomatic.com.")
+        check("sender warnings: Reply-To on the same company (country ending, second address) or to John himself gets none",
+              w(mail("BAC", "avisos@mail.baccredomatic.co.cr", auth: pass, replyTo: "soporte@baccredomatic.co.cr")).isEmpty
+              && w(mail("Ann", "ann@y.example", auth: pass, replyTo: "john@x.example")).isEmpty)
+        let l1 = w(mail("Lili", "lili.rentals2026@gmail.com", auth: pass), new: true)
+        check("sender warnings: Name doesn't match address, amber, with the approved words",
+              l1 == [.nameMismatch(name: "Lili")] && !l1[0].red && l1[0].label == "Name doesn't match address" && l1[0].message == "Lili usually writes from a different address. This one is new.")
+        check("sender warnings: no name warning for a known address, an address already let in, the same company, a general name, or a name nobody has",
+              w(mail("Lili", "lili@rentals.example", auth: pass), new: true).isEmpty && w(mail("Lili", "lili.rentals2026@gmail.com", auth: pass), new: false).isEmpty
+              && w(mail("PayPal", "promo@paypal.com", auth: pass), new: true).isEmpty && w(mail("Support", "support@other.example", auth: pass), new: true).isEmpty
+              && w(mail("Dana", "dana@new.example", auth: pass), new: true).isEmpty)
+        check("sender warnings: every failing check shows, most serious first",
+              w(mail("PayPal", "service@paypa1.example", auth: spoof, replyTo: "x@evil.example"), new: true).map(\.label) == ["Sender not verified", "Replies go to someone else", "Name doesn't match address"])
+        let gd = try? JSONSerialization.data(withJSONObject: ["id": "g1", "payload": ["headers": [["name": "From", "value": "PayPal <service@paypal.com>"],
+            ["name": "Authentication-Results", "value": spoof], ["name": "Authentication-Results", "value": "mx.google.com; dmarc=pass"]]]])
+        let gm = gd.flatMap { try? JSONDecoder().decode(GMessage.self, from: $0) }
+        check("sender warnings: the topmost verdict (Gmail's) is kept when an email carries more than one", gm.flatMap { Mail($0).authResults } == spoof)
         return ok
     }
 

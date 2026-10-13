@@ -21,6 +21,7 @@ extension MailStore {
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
         openMail = m
         seen.record(m.id)
+        await contacts.loadIfNeeded(ask: false)   // known names for "Name doesn't match address"
         if let full = try? await gmail.message(id: m.id, full: true), selectedID == m.id {
             openMail = full
             let withPictures = await withInlineImages(full)   // pictures that are part of the email itself
