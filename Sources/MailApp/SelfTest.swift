@@ -926,15 +926,15 @@ enum SelfTest {
         h.html = "<html><head><style>p{color:red}</style></head><body><!-- x --><p>Hello&nbsp;there &amp; welcome&#8217;s</p>\n<div class=\"gmail_quote\"><div>On Mon, Oct 12, 2026 at 9:00 PM Ann &lt;a@x.example&gt; wrote:<br></div><blockquote class=\"gmail_quote\"><p>old text</p><blockquote>older</blockquote> still old</blockquote></div><p>See <a href=\"https://x.example/a?b=1&amp;c=2\">the <b>plan</b></a>, <a href=\"https://x.example/z\">https://x.example/z</a>, <a href=\"mailto:ann@x.example\">Ann</a><a href=\"https://x.example/logo\"><img src=\"l.png\"></a>.</p><p>\u{200B}</p><p></p><p></p><p>--<br>Ann<br>Planner</p></body></html>"
         let hb = EmailNote.body(h)
         check("save as note: HTML email cleaned (no style, quotes gone, entities and stray symbols fixed, links readable, signature kept)",
-              hb == "Hello there & welcome\u{2019}s\n\nSee [the plan](https://x.example/a?b=1&c=2), https://x.example/z, Ann.\n\n\\--\nAnn\nPlanner")
+              hb == "Hello there & welcome\u{2019}s\n\nSee [the plan](https://x.example/a?b=1&c=2), [https://x.example/z](https://x.example/z), Ann.\n\n\\--\nAnn\nPlanner")
         if !ok { print("  got: \(hb.debugDescription)") }
 
         var junk = Mail(id: "m3", from: Address(name: "Bo", email: "bo@x.example"), subject: "S", snippet: "", date: dt(13, 9, 0))
         junk.text = "    # Order 5 shipped\n<b>Thanks</b> <https://x.example/t>\n[image: logo]\n=====\nEl lun, 12 oct 2026 a las 9:00, Ana (<a@x.example>) escribió:\n> hola\nBo\n-----Original Message-----\nFrom: Ana\nold copy"
         let jb = EmailNote.body(junk)
         check("save as note: plain text, headings/rules stay text, stray tags and picture stand-ins go, Spanish and Outlook quotes go, <links> stay",
-              jb == "\\# Order 5 shipped\nThanks <https://x.example/t>\n\\=====\n\nBo")
-        if jb != "\\# Order 5 shipped\nThanks <https://x.example/t>\n\\=====\n\nBo" { print("  got: \(jb.debugDescription)") }
+              jb == "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\n\nBo")
+        if jb != "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\n\nBo" { print("  got: \(jb.debugDescription)") }
 
         // a conversation, handed over out of order: each message once, oldest first, under a small From · date line
         let reply = Mail(id: "m4", from: Address(name: "John Hesch", email: "j@x.example"), subject: "Re: Venue walkthrough on Thursday", snippet: "", date: dt(13, 7, 15),
@@ -956,6 +956,31 @@ enum SelfTest {
         check("save as note: refuses a missing Inbox folder, lands in 01 Inbox named after the first subject, a second one gets -2",
               noFolder && w1?.path == vault.appendingPathComponent("01 Inbox/Venue walkthrough on Thursday.md").path && w2?.lastPathComponent == "Venue walkthrough on Thursday-2.md"
               && (try? String(contentsOf: w1!, encoding: .utf8)).map { $0.hasPrefix("---\ntype: capture\n") } == true)
+        // a hostile email: nothing in it may run, render as HTML, embed, become a task/field/link to a non-web address, or break the properties
+        var evil = Mail(id: "e1", from: Address(name: "**Boss** [x](javascript:alert(1))\n---\nevil: 1", email: "a@x.example"), subject: "Hi\"\n---\ninjected: true\u{0007}", snippet: "", date: dt(13, 10, 0))
+        evil.text = nil
+        evil.html = "<p>```dataviewjs</p><p>app.vault.delete()</p><p>```</p><p>~~~dataview</p><p>`$= dv.pages()` and `= this.file.name`</p><p>&lt;% tp.system.prompt() %&gt;</p>"
+            + "<p>&lt;script&gt;alert(1)&lt;/script&gt; &lt;img src=x onerror=alert(1)&gt; &lt;iframe src=x&gt;</p>"
+            + "<p><a href=\"javascript:alert(1)\">click</a> <a href=\"obsidian://advanced-uri?commandid=x\">run</a> <a href=\"file:///etc/passwd\">file</a> <a href=\"https://ok.example/a b(c)\">ok</a></p>"
+            + "<p>- [ ] task ![[secret]] ![t](https://track.example/p.gif) key:: value %%hidden%% #tag</p>"
+        let en = EmailNote.content([evil], link: link, now: dt(13, 10, 5), tz: tz)
+        func has(_ p: String) -> Bool { en.range(of: p, options: .regularExpression) != nil }
+        check("save as note, hostile email: no code blocks or inline code (Dataview, dataviewjs), no ~~~ blocks",
+              !en.contains("``") && !en.contains("~~") && !has(#"(^|[^\\])`"#) && en.contains("\\`\\`\\`dataviewjs") && en.contains("\\`$= dv.pages()\\`"))
+        check("save as note, hostile email: no Templater tags, no HTML (script, img, iframe), shown as text",
+              !en.contains("<%") && !has(#"(^|[^\\])<[a-zA-Z/%!]"#) && en.contains("\\<\\% tp.system.prompt() \\%\\>") && en.contains("\\<script\\>alert(1)\\</script\\>"))
+        check("save as note, hostile email: only web links are links (javascript, obsidian, file become plain words); no embeds, tasks, fields, comments or tags",
+              !has(#"(^|[^\\])\]\((javascript|obsidian|file)"#) && en.contains("click run file [ok](https://ok.example/a%20b%28c%29)")
+              && en.contains("- \\[ \\] task !\\[\\[secret\\]\\] !\\[t\\]([https://track.example/p.gif](https://track.example/p.gif)) key\\:\\: value \\%\\%hidden\\%\\% \\#tag"))
+        check("save as note, hostile email: subject and sender stay on one line, cannot add properties or break the layout",
+              en.hasPrefix("---\ntype: capture\ntitle: \"Hi\\\" --- injected: true\"\ncreated: 2026-10-13\n") && en.components(separatedBy: "\n---\n").count == 4
+              && !en.contains("\u{0007}") && en.contains("**From:** \\*\\*Boss\\*\\* \\[x\\](javascript:alert(1)) --- evil: 1 \\<a@x.example\\>\n"))
+        if !ok { print("  got: \(en.debugDescription)") }
+        let cjk = EmailNote.fileName(String(repeating: "\u{6F22}", count: 100))
+        let w3 = try? EmailNote.write([Mail(id: "p", from: Address(name: "", email: "p@x.example"), subject: "../../evil", snippet: "", date: dt(13, 9, 0))], link: link, vault: vault)
+        check("save as note, hostile subject: file name cannot leave 01 Inbox (/, .., leading dots), control and direction characters go, long names fit",
+              EmailNote.fileName("../../.ssh/x\u{202E}gpj") == "sshxgpj" && EmailNote.fileName("\u{0000}\n") == "untitled" && cjk.count == 60 && cjk.utf8.count <= 180
+              && w3?.deletingLastPathComponent().path == vault.appendingPathComponent(EmailNote.folder).path && w3?.lastPathComponent == "evil.md")
         let ou = ObsidianTask.openURL(URL(fileURLWithPath: "/v/01 Inbox/Q&A #5?.md"))?.absoluteString ?? ""
         check("Obsidian Open link encodes & # ? so the right note opens", ou == "obsidian://open?path=/v/01%20Inbox/Q%26A%20%235%3F.md")
         return ok
