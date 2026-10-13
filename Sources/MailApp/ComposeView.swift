@@ -10,6 +10,9 @@ struct ComposeView: View {
     @StateObject private var linkURL = Box("https://")
     @StateObject private var problem = Box<String?>(nil)
     @StateObject private var picked = Box(0)
+    @StateObject private var bigFiles = Box<[BigFilePick]>([])   // too large to attach: sent as a Drive link at Send
+    @StateObject private var bigExpiry = Box(BigFileExpiry.days7)
+    @StateObject private var uploading = Box(false)
     @StateObject private var showCc: Box<Bool>
     @StateObject private var showBcc: Box<Bool>
     @FocusState private var focus: Line?
@@ -105,6 +108,15 @@ struct ComposeView: View {
                                 .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Remove attachment")
                         } }
                     }
+                    if !bigFiles.v.isEmpty {
+                        HStack { ForEach(bigFiles.v) { b in
+                            Button { bigFiles.v.removeAll { $0.id == b.id } } label: { Label("\(b.url.lastPathComponent)  \u{2715}", systemImage: "link") }
+                                .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Too big to attach, so it is sent as a link. Click to remove.")
+                        }
+                        Text("Link works for").font(Theme.small).foregroundStyle(Theme.sub)
+                        Picker("Link works for", selection: $bigExpiry.v) { ForEach(BigFileExpiry.allCases) { Text($0.label).tag($0) } }
+                            .labelsHidden().fixedSize().help("After this time Mail removes the file from your Google Drive") }
+                    }
                     if !draft.v.quoteHTML.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(draft.v.quoteHeader).font(Theme.small)
@@ -154,9 +166,16 @@ struct ComposeView: View {
         let cc = Address.parseList(draft.v.cc), bcc = Address.parseList(draft.v.bcc)
         if cc.isEmpty && !draft.v.cc.trimmingCharacters(in: .whitespaces).isEmpty { problem.v = "Check the email address in Cc."; return }
         if bcc.isEmpty && !draft.v.bcc.trimmingCharacters(in: .whitespaces).isEmpty { problem.v = "Check the email address in Bcc."; return }
+        guard !uploading.v else { return }
         problem.v = nil
         Task {
-            let html = await editor.html()
+            var html = await editor.html()
+            if !bigFiles.v.isEmpty {
+                uploading.v = true; problem.v = "Putting the big file on your Google Drive..."
+                defer { uploading.v = false }
+                do { html += try await store.uploadBigFiles(bigFiles.v, expiry: bigExpiry.v); problem.v = nil }
+                catch { problem.v = (error as? LocalizedError)?.errorDescription ?? "The big file could not be uploaded."; return }
+            }
             var d = draft.v
             func line(_ l: [Address]) -> String { l.map { $0.name.isEmpty ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ") }
             d.to = line(recipients); d.cc = line(cc); d.bcc = line(bcc)
@@ -168,7 +187,8 @@ struct ComposeView: View {
         let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.canChooseDirectories = false
         guard p.runModal() == .OK else { return }
         for u in p.urls {
-            guard let data = try? Data(contentsOf: u), data.count < 20_000_000 else { problem.v = "\(u.lastPathComponent) is too large (limit about 20 MB)."; continue }
+            if let n = (try? u.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, n > BigFile.threshold { bigFiles.v.append(BigFilePick(url: u, size: n)); continue }
+            guard let data = try? Data(contentsOf: u) else { problem.v = "\(u.lastPathComponent) could not be read."; continue }
             let mime = UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             draft.v.attachments.append(DraftAttachment(name: u.lastPathComponent, data: data, mime: mime))
         }

@@ -62,8 +62,8 @@ enum GmailError: Error, LocalizedError {
 // MARK: - Client
 
 final class GmailClient: @unchecked Sendable {
-    private let auth: GoogleAuth
-    private let session: URLSession
+    let auth: GoogleAuth
+    let session: URLSession
     static let base = "https://gmail.googleapis.com/gmail/v1/users/me"
 
     init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }

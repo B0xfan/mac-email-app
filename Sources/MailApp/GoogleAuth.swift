@@ -8,6 +8,7 @@ enum GoogleConfig {
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/gmail.settings.basic",
+        "https://www.googleapis.com/auth/drive.file",   // big files by link: only files Mail itself puts on Drive
     ]
     static let authEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!

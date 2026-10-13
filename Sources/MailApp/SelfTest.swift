@@ -4,6 +4,7 @@ import Foundation
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, String))?
+    nonisolated(unsafe) static var headers: [String: String]?   // sent with every answer (e.g. an upload address)
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -14,7 +15,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             req.httpBody = d
         }
         let (code, body) = Self.handler?(req) ?? (500, "{}")
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: Self.headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
@@ -265,6 +266,63 @@ enum SelfTest {
             do { _ = try await gc.vacation() } catch { readFailed = true }
             check("away: an unreadable answer throws too", readFailed)
             StubProtocol.handler = nil
+        }
+        // big files by link: Drive upload, sharing, expiry and deletion, stubbed (nothing real is uploaded)
+        do {
+            let t0 = Date(timeIntervalSince1970: 1_791_936_000)
+            check("big file: expiry choices are 3, 7, 30 days and Never (no end time)", BigFileExpiry.allCases.map(\.label) == ["3 days", "7 days", "30 days", "Never"]
+                  && BigFileExpiry.days3.end(from: t0) == t0.addingTimeInterval(3 * 86400) && BigFileExpiry.days30.end(from: t0) == t0.addingTimeInterval(30 * 86400) && BigFileExpiry.never.end(from: t0) == nil)
+            let hh = BigFile.html([("A <b>.zip", 50_000_000, "FID")], expiry: .never, now: t0), h7 = BigFile.html([("a.zip", 5, "F")], expiry: .days7, now: t0)
+            check("big file: the email block names the file (escaped), its Drive link, and says when the link stops (or that it does not)",
+                  hh.contains("A &lt;b&gt;.zip") && hh.contains("https://drive.google.com/file/d/FID/view") && hh.contains("does not expire") && h7.contains("works until") && !h7.contains("does not expire")
+                  && TextTools.htmlToPlain(hh).contains("https://drive.google.com/file/d/FID/view"))
+            check("big file: only files past their time are due", BigFile.due([DriveFile(id: "a", name: "a", deleteAt: t0), DriveFile(id: "b", name: "b", deleteAt: t0.addingTimeInterval(1))], now: t0).map(\.id) == ["a"])
+            let old = try? JSONDecoder().decode(TimingData.self, from: Data(#"{"snoozes":{},"scheduled":[],"followUps":[],"surfaced":{},"noReply":[]}"#.utf8))
+            check("big file: a timing file from before this feature still loads", old != nil && old?.bigFiles == nil)
+            let bf = FileManager.default.temporaryDirectory.appendingPathComponent("bigfile-\(UUID().uuidString).bin"); try? Data("0123456789".utf8).write(to: bf)
+            defer { try? FileManager.default.removeItem(at: bf) }
+            nonisolated(unsafe) var seen: [String] = []
+            nonisolated(unsafe) var permCode = 200, permBody = "{}"
+            StubProtocol.headers = ["Location": "https://www.googleapis.com/upload/session/xyz"]
+            StubProtocol.handler = { req in
+                let u = req.url!.absoluteString
+                if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+                seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
+                if u.contains("/permissions") { return (permCode, permBody) }
+                if u.contains("upload/session") { return (200, #"{"id":"FID1"}"#) }
+                return (200, "{}")
+            }
+            let gc = GmailClient(auth: pauth, session: session)
+            let id = try? await gc.driveUpload(bf)
+            check("big file: uploads in two steps, then opens it to anyone with the link as a reader",
+                  id == "FID1" && seen.count == 3 && seen[0].hasPrefix("POST /upload/drive/v3/files") && seen[0].contains("\(bf.lastPathComponent)") && seen[1].hasPrefix("PUT /upload/session/xyz")
+                  && seen[2].hasPrefix("POST /drive/v3/files/FID1/permissions") && seen[2].contains("anyone") && seen[2].contains("reader"))
+            seen = []; permCode = 500
+            var failed = false
+            do { _ = try await gc.driveUpload(bf) } catch { failed = true }
+            check("big file: if sharing fails the uploaded file is deleted again and the error is thrown", failed && seen.last?.hasPrefix("DELETE /drive/v3/files/FID1") == true)
+            permCode = 403; permBody = #"{"error":{"message":"Insufficient Permission"}}"#
+            var needs = false
+            do { _ = try await gc.driveUpload(bf) } catch BigFileError.needsPermission { needs = true } catch {}
+            check("big file: an old sign-in without the Drive permission says to sign in again", needs)
+            permCode = 200; permBody = "{}"; seen = []
+            let tf = FileManager.default.temporaryDirectory.appendingPathComponent("bigfile-t-\(UUID().uuidString).json"); defer { try? FileManager.default.removeItem(at: tf) }
+            let st = await MainActor.run { MailStore(auth: SignInModel(), gmail: gc, book: SenderBook(url: cbURL.appendingPathExtension("bf")), seen: SeenBook(url: cbURL.appendingPathExtension("bfs")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: tf)) }
+            let pick = BigFilePick(url: bf, size: 10)
+            let blockHTML = try? await st.uploadBigFiles([pick], expiry: .days7)
+            let kept = await MainActor.run { st.timing.data.bigFiles ?? [] }
+            _ = try? await st.uploadBigFiles([pick], expiry: .never)
+            let keptNever = await MainActor.run { st.timing.data.bigFiles ?? [] }
+            check("big file: a timed link is remembered for deletion 7 days out; Never is not remembered", blockHTML?.contains("FID1") == true && kept.count == 1 && kept[0].id == "FID1"
+                  && abs(kept[0].deleteAt.timeIntervalSinceNow - 7 * 86400) < 60 && keptNever.count == 1)
+            seen = []
+            await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(6 * 86400))
+            let early = await MainActor.run { st.timing.data.bigFiles?.count }
+            check("big file: nothing is deleted before its time", seen.isEmpty && early == 1)
+            await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(8 * 86400))
+            let late = await MainActor.run { st.timing.data.bigFiles?.count }
+            check("big file: at its time the file is deleted from Drive and forgotten", seen.count == 1 && seen[0].hasPrefix("DELETE /drive/v3/files/FID1") && late == 0)
+            StubProtocol.handler = nil; StubProtocol.headers = nil
         }
         // rules: Gmail filters in plain words, stubbed (John's real filters are never touched)
         do {
