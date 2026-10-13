@@ -194,6 +194,7 @@ enum SelfTest {
         if !(await partPhase4()) { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
+        if !(await awayPickers()) { ok = false }
         return ok
     }
 
@@ -234,6 +235,15 @@ enum SelfTest {
                   edited.json(cal: cal)["responseBodyHtml"] == nil && edited.json(cal: cal)["responseBodyPlainText"] as? String == "New text" && movedEnd.json(cal: cal)["endTime"] as? String != "1792100000000")
             var offBad = backwards; offBad.on = false
             check("away: turning off is never blocked by the dates or an empty text", off.problem(cal: cal) == nil && offBad.problem(cal: cal) == nil && offBad.json(cal: cal)["enableAutoReply"] as? Bool == false)
+            // an old away message left in Gmail (John's account held 3 June 2015, off) shows today; real dates and a running message are kept
+            let old2015 = "1433311200000", today = a.first
+            let staleOff = AwaySettings(json: ["enableAutoReply": false, "startTime": old2015], cal: cal, now: today)
+            let staleEnd = AwaySettings(json: ["enableAutoReply": false, "startTime": old2015, "endTime": "1433400000000"], cal: cal, now: today)
+            let staleOn = AwaySettings(json: ["enableAutoReply": true, "startTime": old2015], cal: cal, now: today)
+            let laterOff = AwaySettings(json: ["enableAutoReply": false, "startTime": j["startTime"] as! String], cal: cal, now: today.addingTimeInterval(-86400))
+            let offShowsToday: Bool = staleOff.first == today && staleOff.last == nil && staleEnd.first == today && staleEnd.last == today
+            let realKept: Bool = staleOn.first < today && laterOff.first == today
+            check("away: an old 2015 date shows as today while off; a running message and a future day are kept", offShowsToday && realKept)
             nonisolated(unsafe) var seen: [String] = []
             nonisolated(unsafe) var reply: (Int, String) = (200, #"{"enableAutoReply":true,"responseSubject":"Hi","responseBodyPlainText":"x","restrictToContacts":false}"#)
             StubProtocol.handler = { req in
