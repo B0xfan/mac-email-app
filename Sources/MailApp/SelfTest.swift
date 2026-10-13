@@ -335,7 +335,7 @@ enum SelfTest {
             delCode = 200; seen = []
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(5))
             let swept = await MainActor.run { st.timing.data.bigFiles?.count }
-            check("big file: if the clean-up delete fails the record is kept, due now; the next sweep deletes it", stuck.count == 1 && stuck.first?.id == "FID1" && abs(stuck.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60 && seen.count == 1 && swept == 0)
+            check("big file: if the clean-up delete fails the record is kept, due now; the next sweep deletes it", stuck.count == 2 && stuck.allSatisfy { $0.id == "FID1" } && abs(stuck.first?.deleteAt.timeIntervalSinceNow ?? 99) < 60 && seen.count == 2 && swept == 0)   // 2: the stub gives both uploads the same id; the failing second one is recorded too
             // share step fails and its own clean-up delete fails too: the file is recorded, due now
             permN = 0; permFailFrom = 1; delCode = 500
             let stErr = await MainActor.run { st.timing.change { $0.bigFiles = [] } }; _ = stErr
