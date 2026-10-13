@@ -68,8 +68,8 @@ final class GmailClient: @unchecked Sendable {
 
     init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }
 
-    /// Sending and filter creation are never retried after a timeout or 5xx (the call may have gone through, a retry would send twice / make a second filter). A 429 means Gmail did nothing, so it is retried for every call.
-    static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
+    /// False for sending and filter creation: after a timeout or 5xx the call may have gone through, so a retry would send twice / make a second filter. A 429 means Gmail did nothing, so send() retries that for every call regardless.
+    static func retriesAfterUncertainFailure(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
 
     func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
@@ -85,7 +85,7 @@ final class GmailClient: @unchecked Sendable {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         let data: Data, resp: URLResponse
-        let canRetry = Self.mayRetry(method: method, path: path)
+        let canRetry = Self.retriesAfterUncertainFailure(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
         catch {
             if canRetry && retry < 2 { try await Task.sleep(nanoseconds: 600_000_000); return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1) }

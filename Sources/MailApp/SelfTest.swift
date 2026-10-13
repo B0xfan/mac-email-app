@@ -908,8 +908,8 @@ enum SelfTest {
         let nb3 = await MainActor.run { NotesBook(url: nurl) }
         check("private notes: still there after Mail restarts (file on this Mac)", await MainActor.run { nb3.text(ppl.threadID) } == "kept")
         // round 1 safety fixes
-        check("send is never retried; reads still are", !GmailClient.mayRetry(method: "POST", path: "/messages/send") && !GmailClient.mayRetry(method: "POST", path: "/drafts/send")
-              && GmailClient.mayRetry(method: "GET", path: "/messages") && GmailClient.mayRetry(method: "POST", path: "/messages/batchModify"))
+        check("send is never retried; reads still are", !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/send") && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/drafts/send")
+              && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/settings/filters") && GmailClient.retriesAfterUncertainFailure(method: "GET", path: "/messages") && GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/batchModify"))
         nonisolated(unsafe) var sendHits = 0
         StubProtocol.handler = { req in
             if req.url!.absoluteString.contains("oauth2") || req.url!.absoluteString.contains("token") && !req.url!.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }

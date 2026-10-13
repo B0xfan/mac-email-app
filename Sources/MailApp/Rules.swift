@@ -155,7 +155,7 @@ struct RulesPanel: View {
             TextField(title, text: b(k)).textFieldStyle(.roundedBorder).labelsHidden()
         }
     }
-    private func start(_ r: MailRule) { d.v = r; orig.v = r; msg.v = ""; open.v = true }
+    private func start(_ r: MailRule) { if saving.v { return }; d.v = r; orig.v = r; msg.v = ""; open.v = true }
     /// Mail's folders, plus the rule's own folder when it is one Mail hides (like Blocked).
     private var folderChoices: [FolderNode] {
         var f = store.folders
@@ -236,7 +236,7 @@ struct RulesPanel: View {
             }
             Text("This rule: " + d.v.summary(store.ruleNames)).font(Theme.small).padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accSoft)).foregroundStyle(Theme.accInk)
-            if let was = store.rules.first(where: { $0.id == d.v.id }), was.fromBlock, d.v.folder != was.rule?.folder || d.v.from.isEmpty {
+            if let was = store.rules.first(where: { $0.id == d.v.id }), was.fromBlock, d.v.folder != was.rule?.folder || d.v.from != was.rule?.from {
                 Text("Saving stops blocking new mail from this sender. Emails already in Blocked stay there.").font(Theme.small).foregroundStyle(Theme.sub)
             }
             HStack {
