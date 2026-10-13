@@ -97,6 +97,7 @@ final class MailStore: ObservableObject {
     var blockedLabelID: String?
     let blockLabelName: String
     var knownCache: [String: Bool] = [:]
+    var sendersChecked = false   // false until the first new-sender check has run since launch
     @Published var inboxNext: String?            // Gmail page token for the next batch of inbox conversations
     @Published var loadingMore = false
     var lastLabelsAt: Date?, lastSmartAt: Date?
@@ -126,7 +127,8 @@ final class MailStore: ObservableObject {
 
     var newSenderMails: [Mail] {
         guard settings.screenNewSenders else { return [] }
-        return inbox.filter { isNew($0) }
+        // until the first check ran, an unchecked sender is shown nowhere (it may turn out known): no flash of the strip at launch
+        return inbox.filter { isNew($0) && (sendersChecked || knownCache[$0.from.email] != nil) }
     }
     var inboxMails: [Mail] {
         let base = settings.screenNewSenders ? inbox.filter { !isNew($0) } : inbox
@@ -287,6 +289,7 @@ final class MailStore: ObservableObject {
             if known { learned.append(addr) }
         }
         if !learned.isEmpty { book.approve(all: learned) }
+        sendersChecked = true
         objectWillChange.send()
     }
 

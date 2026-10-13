@@ -1094,12 +1094,15 @@ enum SelfTest {
               && r2calls.contains { $0.contains("/messages/T3b/untrash") } && r2calls.contains { $0.contains("/messages/T3a/untrash") })
         // new-sender lookup that fails is skipped and not remembered; a good one is
         let cs = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("c1", "newbie@x.example", h: 1)]; return st }
+        let pre = await MainActor.run { (cs.newSenderRows.count, cs.inboxMails.count) }   // before the first check: shown nowhere, no flash at launch
         failCount = true; countHits = 0
         await cs.classifySenders()
         let k1 = await MainActor.run { cs.knownCache["newbie@x.example"] }
         failCount = false; countKnown = false
         await cs.classifySenders()
         let k2 = await MainActor.run { cs.knownCache["newbie@x.example"] }
+        let post = await MainActor.run { (cs.newSenderRows.count, cs.inboxMails.count) }
+        check("new senders: before the first check an unchecked sender is in neither the strip nor the inbox; after it, a truly new one is in the strip", pre == (0, 0) && post == (1, 0))
         await MainActor.run { cs.inbox = [mk("c2", "friend@x.example", h: 1)] }
         countKnown = true
         await cs.classifySenders()
