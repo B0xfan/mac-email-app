@@ -68,7 +68,7 @@ final class GmailClient: @unchecked Sendable {
 
     init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }
 
-    /// Sending and filter creation are never retried: a timeout or 5xx can hide a call that went through, and a retry would send twice / make a second filter.
+    /// Sending and filter creation are never retried after a timeout or 5xx (the call may have gone through, a retry would send twice / make a second filter). A 429 means Gmail did nothing, so it is retried for every call.
     static func mayRetry(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
 
     func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
@@ -93,7 +93,7 @@ final class GmailClient: @unchecked Sendable {
         }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if (200..<300).contains(code) { return data }
-        if canRetry && (code == 429 || code >= 500) && retry < 3 {
+        if (code == 429 || (canRetry && code >= 500)) && retry < 3 {
             try await Task.sleep(nanoseconds: UInt64(800_000_000 * (retry + 1)))
             return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1)
         }

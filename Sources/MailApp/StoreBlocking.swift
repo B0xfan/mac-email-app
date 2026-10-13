@@ -88,8 +88,10 @@ extension MailStore {
     }
 
     func unblock(_ e: BlockedEntry) async {
+        var lifted = false
         do {
             try await gmail.deleteFilter(id: e.id)
+            lifted = true
             if let label = try await ensureLabelIfExists() {
                 let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
                 try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
@@ -98,7 +100,10 @@ extension MailStore {
             status = "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
             await refresh()
-        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+        } catch {
+            let why = (error as? LocalizedError)?.errorDescription ?? "Something went wrong."
+            self.error = lifted ? "\(e.title) is no longer blocked, but their old emails could not be moved back to your inbox. They are still in Blocked. \(why)" : why
+        }
     }
 
     // MARK: - Unsubscribe (only ever on a click)

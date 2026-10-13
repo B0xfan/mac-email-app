@@ -170,7 +170,8 @@ struct MenuBarLabel: View {
     @ObservedObject var settings: AppSettings
     var body: some View {
         let n = MenuBarLogic.unread(store.inboxMails, all: settings.menuBarAll, category: store.category(of:)).count
-        HStack(spacing: 3) { Image(nsImage: MenuBarIcon.image); if n > 0 { Text("\(n)") } }
+        HStack(spacing: 3) { Image(nsImage: MenuBarIcon.image).renderingMode(.template); if n > 0 { Text("\(n)") } }
+            .accessibilityElement(children: .ignore).accessibilityLabel(n > 0 ? "Audrey Mail, \(n) unread" : "Audrey Mail")
     }
 }
 

@@ -285,7 +285,7 @@ enum SelfTest {
             check("rules: size, forwarding, categories and a folder that keeps the inbox stay read-only", odd.allSatisfy { MailRule(filter($0), userLabels: user) == nil })
             check("rules: no condition or no action is refused", MailRule().problem != nil && MailRule(from: "a@b.c").problem != nil && r?.problem == nil)
             nonisolated(unsafe) var seen: [String] = []
-            nonisolated(unsafe) var failCreate = false, create500 = false, failDelete = false, blockRule = false
+            nonisolated(unsafe) var failCreate = false, create500 = false, create429 = 0, failDelete = false, blockRule = false
             nonisolated(unsafe) var created: [String: Any]?   // the last filter the stub accepted, listed back afterwards
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
@@ -293,6 +293,7 @@ enum SelfTest {
                 seen.append("\(req.httpMethod ?? "") \(req.url!.path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
                 if req.httpMethod == "POST" && failCreate { return (400, "{}") }
                 if req.httpMethod == "POST" && create500 { return (500, "{}") }
+                if req.httpMethod == "POST" && create429 > 0 { create429 -= 1; return (429, "{}") }
                 if req.httpMethod == "DELETE" && failDelete { return (403, "{}") }
                 if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"},{"id":"Label_2","name":"Blocked","type":"user"}]}"#) }
                 if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" {
@@ -321,7 +322,12 @@ enum SelfTest {
             seen = []; failCreate = false; create500 = true
             let e3 = await st.saveRule(edit!).error
             create500 = false
-            check("rules: a filter create that gets a server error is tried once, not repeated", e3 != nil && seen.filter { $0.hasPrefix("POST") }.count == 1 && !GmailClient.mayRetry(method: "POST", path: "/settings/filters"))
+            check("rules: a filter create that gets a server error is tried once, not repeated", e3 != nil && seen.filter { $0.hasPrefix("POST") }.count == 1)
+            // a 429 means Gmail did nothing, so the create is repeated and then succeeds
+            created = nil; seen = []; create429 = 1
+            let e3b = await st.saveRule(edit!).error
+            check("rules: a filter create that gets 429 is repeated once and then goes through", e3b == nil && seen.filter { $0.hasPrefix("POST") }.count == 2)
+            created = nil
             // the old copy cannot be removed: the editor gets the new id, so a second Save does not create it again
             seen = []; failDelete = true
             let e4 = await st.saveRule(edit!)
