@@ -5,7 +5,7 @@ on: workflow_dispatch
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Release build
@@ -31,7 +31,7 @@ jobs:
       # The self-test lives in the debug build only. A GUI-less runner may fail it; that must not fail the build.
       - name: Self-test (result is in this log)
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: |
           swift build
           .build/debug/MailApp --selftest

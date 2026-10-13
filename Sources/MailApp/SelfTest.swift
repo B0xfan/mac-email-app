@@ -270,15 +270,22 @@ enum SelfTest {
         // big files by link: Drive upload, sharing, expiry and deletion, stubbed (nothing real is uploaded)
         do {
             let t0 = Date(timeIntervalSince1970: 1_791_936_000)
-            check("big file: expiry choices are 3, 7, 30 days and Never (no end time)", BigFileExpiry.allCases.map(\.label) == ["3 days", "7 days", "30 days", "Never"]
-                  && BigFileExpiry.days3.end(from: t0) == t0.addingTimeInterval(3 * 86400) && BigFileExpiry.days30.end(from: t0) == t0.addingTimeInterval(30 * 86400) && BigFileExpiry.never.end(from: t0) == nil)
+            let day: TimeInterval = 86400
+            let labels: [String] = BigFileExpiry.allCases.map(\.label)
+            let e3: Date? = BigFileExpiry.days3.end(from: t0), e30: Date? = BigFileExpiry.days30.end(from: t0), eNever: Date? = BigFileExpiry.never.end(from: t0)
+            let expiryOK: Bool = labels == ["3 days", "7 days", "30 days", "Never"] && e3 == t0.addingTimeInterval(3 * day) && e30 == t0.addingTimeInterval(30 * day) && eNever == nil
+            check("big file: expiry choices are 3, 7, 30 days and Never (no end time)", expiryOK)
             let hh = BigFile.html([("A <b>.zip", 50_000_000, "FID")], expiry: .never, now: t0), h7 = BigFile.html([("a.zip", 5, "F")], expiry: .days7, now: t0)
-            check("big file: the email block names the file (escaped), its Drive link, and says when the link stops (or that it does not)",
-                  hh.contains("A &lt;b&gt;.zip") && hh.contains("https://drive.google.com/file/d/FID/view") && hh.contains("does not expire") && h7.contains("works until") && !h7.contains("does not expire")
-                  && TextTools.htmlToPlain(hh).contains("https://drive.google.com/file/d/FID/view"))
-            check("big file: only files past their time are due", BigFile.due([DriveFile(id: "a", name: "a", deleteAt: t0), DriveFile(id: "b", name: "b", deleteAt: t0.addingTimeInterval(1))], now: t0).map(\.id) == ["a"])
+            let linkURL = "https://drive.google.com/file/d/FID/view"
+            let htmlOK: Bool = hh.contains("A &lt;b&gt;.zip") && hh.contains(linkURL) && hh.contains("does not expire") && h7.contains("works until") && !h7.contains("does not expire")
+            let plainOK: Bool = TextTools.htmlToPlain(hh).contains(linkURL)
+            check("big file: the email block names the file (escaped), its Drive link, and says when the link stops (or that it does not)", htmlOK && plainOK)
+            let fa = DriveFile(id: "a", name: "a", deleteAt: t0), fb = DriveFile(id: "b", name: "b", deleteAt: t0.addingTimeInterval(1))
+            let dueIDs: [String] = BigFile.due([fa, fb], now: t0).map(\.id)
+            check("big file: only files past their time are due", dueIDs == ["a"])
             let old = try? JSONDecoder().decode(TimingData.self, from: Data(#"{"snoozes":{},"scheduled":[],"followUps":[],"surfaced":{},"noReply":[]}"#.utf8))
-            check("big file: a timing file from before this feature still loads", old != nil && old?.bigFiles == nil)
+            let oldOK: Bool = old != nil && old?.bigFiles == nil
+            check("big file: a timing file from before this feature still loads", oldOK)
             let bf = FileManager.default.temporaryDirectory.appendingPathComponent("bigfile-\(UUID().uuidString).bin"); try? Data("0123456789".utf8).write(to: bf)
             defer { try? FileManager.default.removeItem(at: bf) }
             nonisolated(unsafe) var seen: [String] = []
@@ -294,13 +301,14 @@ enum SelfTest {
             }
             let gc = GmailClient(auth: pauth, session: session)
             let id = try? await gc.driveUpload(bf)
-            check("big file: uploads in two steps, then opens it to anyone with the link as a reader",
-                  id == "FID1" && seen.count == 3 && seen[0].hasPrefix("POST /upload/drive/v3/files") && seen[0].contains("\(bf.lastPathComponent)") && seen[1].hasPrefix("PUT /upload/session/xyz")
-                  && seen[2].hasPrefix("POST /drive/v3/files/FID1/permissions") && seen[2].contains("anyone") && seen[2].contains("reader"))
+            let upOK: Bool = seen.count == 3 && seen[0].hasPrefix("POST /upload/drive/v3/files") && seen[0].contains(bf.lastPathComponent) && seen[1].hasPrefix("PUT /upload/session/xyz")
+            let shareOK: Bool = seen.count == 3 && seen[2].hasPrefix("POST /drive/v3/files/FID1/permissions") && seen[2].contains("anyone") && seen[2].contains("reader")
+            check("big file: uploads in two steps, then opens it to anyone with the link as a reader", id == "FID1" && upOK && shareOK)
             seen = []; permCode = 500
             var failed = false
             do { _ = try await gc.driveUpload(bf) } catch { failed = true }
-            check("big file: if sharing fails the uploaded file is deleted again and the error is thrown", failed && seen.last?.hasPrefix("DELETE /drive/v3/files/FID1") == true)
+            let lastCall: String = seen.last ?? ""
+            check("big file: if sharing fails the uploaded file is deleted again and the error is thrown", failed && lastCall.hasPrefix("DELETE /drive/v3/files/FID1"))
             permCode = 403; permBody = #"{"error":{"message":"Insufficient Permission"}}"#
             var needs = false
             do { _ = try await gc.driveUpload(bf) } catch BigFileError.needsPermission { needs = true } catch {}
@@ -313,15 +321,17 @@ enum SelfTest {
             let kept = await MainActor.run { st.timing.data.bigFiles ?? [] }
             _ = try? await st.uploadBigFiles([pick], expiry: .never)
             let keptNever = await MainActor.run { st.timing.data.bigFiles ?? [] }
-            check("big file: a timed link is remembered for deletion 7 days out; Never is not remembered", blockHTML?.contains("FID1") == true && kept.count == 1 && kept[0].id == "FID1"
-                  && abs(kept[0].deleteAt.timeIntervalSinceNow - 7 * 86400) < 60 && keptNever.count == 1)
+            let htmlHasID: Bool = blockHTML?.contains("FID1") ?? false
+            let secondsOut: Double = (kept.first?.deleteAt.timeIntervalSinceNow ?? 0) - 7 * day
+            check("big file: a timed link is remembered for deletion 7 days out; Never is not remembered", htmlHasID && kept.count == 1 && kept.first?.id == "FID1" && abs(secondsOut) < 60 && keptNever.count == 1)
             seen = []
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(6 * 86400))
             let early = await MainActor.run { st.timing.data.bigFiles?.count }
             check("big file: nothing is deleted before its time", seen.isEmpty && early == 1)
             await st.deleteExpiredBigFiles(now: Date().addingTimeInterval(8 * 86400))
             let late = await MainActor.run { st.timing.data.bigFiles?.count }
-            check("big file: at its time the file is deleted from Drive and forgotten", seen.count == 1 && seen[0].hasPrefix("DELETE /drive/v3/files/FID1") && late == 0)
+            let delCall: String = seen.first ?? ""
+            check("big file: at its time the file is deleted from Drive and forgotten", seen.count == 1 && delCall.hasPrefix("DELETE /drive/v3/files/FID1") && late == 0)
             StubProtocol.handler = nil; StubProtocol.headers = nil
         }
         // rules: Gmail filters in plain words, stubbed (John's real filters are never touched)
