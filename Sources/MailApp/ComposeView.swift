@@ -161,8 +161,8 @@ struct ComposeView: View {
     private func sendNow() { ready { d, html in store.send(d, bodyHTML: html) } }
     private func sendLater(_ at: Date) {
         if let p = BigFileLater.problem(bigFileCount: bigFiles.v.count) { problem.v = p; return }   // the link would start its clock now, not at send time
-        ready { d, html in Task { await store.sendLater(d, bodyHTML: html, at: at) } } }
-    private func ready(_ go: @escaping (ComposeDraft, String) -> Void) {
+        ready { d, html in await store.sendLater(d, bodyHTML: html, at: at) } }   // busy flag stays set until Gmail confirms the draft
+    private func ready(_ go: @escaping (ComposeDraft, String) async -> Void) {
         let recipients = Address.parseList(draft.v.to)
         guard !recipients.isEmpty else { problem.v = "Add at least one email address in To."; return }
         let cc = Address.parseList(draft.v.cc), bcc = Address.parseList(draft.v.bcc)
@@ -182,7 +182,7 @@ struct ComposeView: View {
             var d = draft.v
             func line(_ l: [Address]) -> String { l.map { $0.name.isEmpty ? $0.email : "\($0.name) <\($0.email)>" }.joined(separator: ", ") }
             d.to = line(recipients); d.cc = line(cc); d.bcc = line(bcc)
-            go(d, html)
+            await go(d, html)
         }
     }
 

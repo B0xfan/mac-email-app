@@ -15,10 +15,11 @@ struct BigFilePick: Equatable, Identifiable { let id = UUID(); let url: URL; let
 struct DriveFile: Codable, Equatable { var id: String; var name: String; var deleteAt: Date }
 
 enum BigFileError: Error, LocalizedError {
-    case needsPermission, failed(String)
+    case needsPermission, failed(String), stuck(String)   // stuck(id): shared step failed and the clean-up delete failed too
     var errorDescription: String? {
         switch self {
         case .needsPermission: return "Big files need one more Google permission. Open Settings, sign out of Google, and sign in again."
+        case .stuck: return "The big file could not be shared, and Mail could not remove it from your Google Drive yet. It will try again."
         case .failed(let m): return "The big file could not be sent as a link (\(m))."
         }
     }
@@ -71,7 +72,7 @@ extension GmailClient {
         let d = try await driveRun(put, file: url).0
         guard let id = (try? JSONSerialization.jsonObject(with: d) as? [String: Any])?["id"] as? String else { throw BigFileError.failed("no file id") }
         do { _ = try await driveRun(try await driveRequest(URL(string: "https://www.googleapis.com/drive/v3/files/\(id)/permissions")!, "POST", json: ["role": "reader", "type": "anyone"])) }
-        catch { try? await driveDelete(id); throw error }
+        catch { do { try await driveDelete(id) } catch { throw BigFileError.stuck(id) }; throw error }
         return id
     }
 
@@ -92,8 +93,10 @@ extension MailStore {
     func uploadBigFiles(_ picks: [BigFilePick], expiry: BigFileExpiry) async throws -> String {
         var done: [(name: String, size: Int, id: String)] = []
         let end = expiry.end(from: Date())
+        var cur = ""
         do {
             for p in picks {
+                cur = p.url.lastPathComponent
                 let id = try await gmail.driveUpload(p.url)
                 done.append((p.url.lastPathComponent, p.size, id))
                 if let end { timing.change { $0.bigFiles = ($0.bigFiles ?? []) + [DriveFile(id: id, name: p.url.lastPathComponent, deleteAt: end)] } }
@@ -101,6 +104,7 @@ extension MailStore {
         } catch {
             // a delete that fails keeps its record, due now, so the expiry sweep retries (never left public on Drive)
             var stuck: [DriveFile] = []
+            if case BigFileError.stuck(let id) = error { stuck.append(DriveFile(id: id, name: cur, deleteAt: Date())) }   // never recorded, still public
             for d in done where (try? await gmail.driveDelete(d.id)) == nil { stuck.append(DriveFile(id: d.id, name: d.name, deleteAt: Date())) }
             timing.change { t in t.bigFiles = (t.bigFiles ?? []).filter { f in !done.contains { $0.id == f.id } } + stuck }
             throw error
