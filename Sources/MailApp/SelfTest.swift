@@ -208,7 +208,7 @@ enum SelfTest {
         // away message: Gmail's vacation settings, stubbed (John's real setting is never touched)
         do {
             var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
-            var a = AwaySettings(); a.on = true; a.first = Date(timeIntervalSince1970: 1_792_000_000 - 1_792_000_000 % 86400); a.last = a.first.addingTimeInterval(6 * 86400)
+            var a = AwaySettings(); a.on = true; a.first = Date(timeIntervalSince1970: 1_791_936_000); a.last = a.first.addingTimeInterval(6 * 86400)
             a.subject = "Away"; a.body = "Back soon"; a.contactsOnly = true
             let j = a.json(cal: cal), back = AwaySettings(json: j, cal: cal)
             check("away: Gmail fields sent (on, times in ms, subject, text, contacts only); end is the midnight after the last day",
