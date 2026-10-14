@@ -7,11 +7,15 @@ import AppKit
 enum PlainText {
     /// `prepareHTML` runs on the HTML just before it is read (Save as note drops quoted copies and anything that could load from the web).
     static func of(text: String?, html: String?, snippet: String, prepareHTML: (String) -> String = { $0 }) -> String {
-        let raw: String
-        if let t = text, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { raw = unescape(t) }
-        else if let h = html { raw = fromHTML(prepareHTML(h)) }
-        else { raw = unescape(snippet) }
-        return tidy(raw)
+        let t = text.map { tidy(unescape($0)) } ?? ""
+        if !t.isEmpty && !isStub(t) { return t }   // real text only: not blank, not a "view in browser" line
+        if let h = html { let r = tidy(fromHTML(prepareHTML(h))); if !r.isEmpty { return r } }
+        return t.isEmpty ? tidy(unescape(snippet)) : t
+    }
+
+    /// A one-line "View this email in your browser" stand-in that senders put in the plain part.
+    private static func isStub(_ t: String) -> Bool {
+        !t.contains("\n") && t.range(of: #"^\W*(view|open|read|see)\b.*\b(browser|online|web)\b"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// The system's HTML importer must run on the main thread; from another thread this waits for it.

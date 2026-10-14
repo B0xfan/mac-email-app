@@ -58,8 +58,8 @@ enum EmailNote {
     static func esc(_ t: String, strict: Bool = false) -> String {
         var s = t
         for c in ["\\", "`", "[", "]", "<", ">"] + (strict ? ["*", "_", "|", "="] : []) { s = s.replacingOccurrences(of: c, with: "\\" + c) }
-        // only where the character would act: ~~ and %% in pairs, % after < (Templater), # when it would make a tag (a number sign before digits or a space, or inside a word, stays as written, no stray backslash)
-        s = s.replacingOccurrences(of: #"~(?=~)|(?<=~)~|%(?=%)|(?<=%)%|(?<=<)%|(?<![\p{L}\p{N}])#(?=\S*[^\s\d])"#, with: "\\\\$0", options: .regularExpression)
+        // only where the character would act: ~~ and %% in pairs, % after < (Templater), # when it would make a tag or a heading at the start of a line (a number sign before digits or a space, or inside a word, stays as written, no stray backslash)
+        s = s.replacingOccurrences(of: #"~(?=~)|(?<=~)~|%(?=%)|(?<=%)%|(?<=<)%|(?<![\p{L}\p{N}])#(?=\S*[^\s\d])|^#(?=\s|$)"#, with: "\\\\$0", options: .regularExpression)
         return s.replacingOccurrences(of: "(?<=:):|:(?=:)", with: "\\\\:", options: .regularExpression)
     }
 
@@ -101,9 +101,9 @@ enum EmailNote {
     /// The HTML part made ready for the plain-text reader: no head/style/script, quoted blocks dropped, and nothing that could load from the web.
     static func noteHTML(_ h: String) -> String {
         var s = re(h, #"\s+"#, " ")   // the source's own line breaks mean nothing in HTML
-        for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>")] { s = dropBetween(s, o, c) }
-        s = re(dropBlockquotes(s), #"<(img|link|iframe|object|embed|video|audio|source|meta|base)\b[^<>]*>|url\s*\([^)<>]{0,500}\)"#, "")
-        return s
+        for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>"), ("<svg", "</svg>")] { s = dropBetween(s, o, c) }
+        s = re(dropBlockquotes(s), #"<(img|link|iframe|frame|frameset|applet|input|object|embed|video|audio|source|meta|base)\b[^<>]*>"#, "")
+        return re(s, #"<(\w+)\b[^<>]*>"#, "<$1>")   // no attributes at all (src, href, background, poster, style url()): the HTML reader can fetch nothing; colspan and the like are not needed
     }
 
     /// Removes open...close blocks in one pass over one NSString (positions only, nothing copied or rescanned); unclosed means to the end.

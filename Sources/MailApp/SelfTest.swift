@@ -954,8 +954,8 @@ enum SelfTest {
         junk.text = "    # Order 5 shipped\n<b>Thanks</b> <https://x.example/t>\n[image: logo]\n=====\nEl lun, 12 oct 2026 a las 9:00, Ana (<a@x.example>) escribió:\n> hola\nBo\n-----Original Message-----\nFrom: Ana\nold copy"
         let jb = EmailNote.body(junk)
         check("save as note: plain text, headings/rules stay text, stray tags and picture stand-ins go, Spanish and Outlook quotes go, <links> stay",
-              jb == "# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo")
-        if jb != "# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo" { print("  got: \(jb.debugDescription)") }
+              jb == "\\# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo")
+        if jb != "\\# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo" { print("  got: \(jb.debugDescription)") }
 
         // a conversation, handed over out of order: each message once, oldest first, under a small From · date line
         let reply = Mail(id: "m4", from: Address(name: "John Hesch", email: "j@x.example"), subject: "Re: Venue walkthrough on Thursday", snippet: "", date: dt(13, 7, 15),
@@ -992,6 +992,17 @@ enum SelfTest {
               alb.contains("LIR \u{2192} LAX") && alb.contains("Rewards Member: #730424601") && alb.contains("Confirmation # HZLENL") && !alb.contains("&nbsp;") && !alb.contains("\\#") && !alb.contains("](")
               && !alb.contains("\n\n\n") && !alb.components(separatedBy: "\n").contains { !$0.isEmpty && $0.allSatisfy(\.isWhitespace) } && alb.contains(track) && EmailNote.body(alp) == "Plain wins\n\nSecond")
         if !ok { print("  got: \(alb.debugDescription)") }
+
+        // the HTML reader must be able to fetch nothing: no attribute survives, so no address sits inside any tag; svg and input go
+        let nasty = "<body background=\"http://t.example/a\"><table background=\"http://t.example/b\"><td background='http://t.example/c' style=\"background:&#117;rl(http://t.example/d)\">kept</td></table>"
+            + "<svg><image href=\"http://t.example/e\"/></svg><input type=image src=\"http://t.example/f\"><video poster=\"http://t.example/g\"></video><frame src=\"http://t.example/h\"><a href=\"http://t.example/i\">words</a></body>"
+        let clean = EmailNote.noteHTML(nasty)
+        var np = al; np.text = "View this email in your browser"; np.html = "<p>Real <b>body</b> text</p>"
+        var nb = al; nb.text = "\u{200B}\n \u{00A0}"; nb.html = "<p>Only html</p>"
+        check("save as note: HTML is stripped of every attribute and of svg/input/frame before it is read, so nothing can load from the web",
+              clean.range(of: "<[^<>]*http[^<>]*>", options: .regularExpression) == nil && !clean.contains("<svg") && !clean.contains("<input") && !clean.contains("<frame") && clean.contains("kept") && clean.contains("words"))
+        check("save as note: a plain part that is blank after tidying, or only a view-in-browser line, falls back to the HTML",
+              EmailNote.body(np) == "Real body text" && EmailNote.body(nb) == "Only html")
 
         // a reply to a forward keeps none of the quoted chain; a sentence mentioning "forwarded message" does not open the door; Spanish forward kept
         var rp = Mail(id: "f2", from: Address(name: "Dana", email: "d@x.example"), subject: "Re: Fwd: Your flight", snippet: "", date: dt(13, 9, 0))
