@@ -39,6 +39,7 @@ extension SelfTest {
                         let rs = reminders.map { #"{"message_id":"\#($0.key)","thread_id":"t","remind_at":\#($0.value.at),"status":"\#($0.value.status)","note":""}"# }
                         return (200, #"{"signin_ok":true,"reminders":[\#(rs.joined(separator: ","))]}"#)
                     }
+                    if m == "PUT" && putStatus != 200 { return (putStatus, "{}") }
                     if m == "PUT" { log.append("put reminder \(id) \(body["remind_at"] as? Int ?? 0)"); reminders[id] = (body["remind_at"] as? Int ?? 0, "pending"); return (200, #"{"status":"pending"}"#) }
                     if m == "DELETE" {
                         log.append("delete reminder \(id)")
