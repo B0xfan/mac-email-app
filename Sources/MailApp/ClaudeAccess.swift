@@ -72,10 +72,13 @@ final class ClaudeBackend: MCPBackend, @unchecked Sendable {
             if hidden(m, blocked: blocked) { return ("That email is not available to Claude.", true) }
             let body = PlainText.of(text: m.text, html: m.html, snippet: m.snippet)
             log("Read \u{201C}\(m.subject)\u{201D}")
-            let cut = body.count > 20_000
-            return ("from: \(m.from.display) <\(m.from.email)>\nto: \(m.to)\ndate: \(Self.stamp(m.date))\nsubject: \(m.subject)\n"
-                    + (m.attachments.isEmpty ? "" : "attachments: " + m.attachments.map(\.name).joined(separator: ", ") + "\n")
-                    + "\n" + String(body.prefix(20_000)) + (cut ? "\n\n[The rest of this long email was left out.]" : ""), false)
+            let cut: Bool = body.count > 20_000
+            let names: String = m.attachments.map(\.name).joined(separator: ", ")
+            var head: String = "from: \(m.from.display) <\(m.from.email)>\nto: \(m.to)\n"
+            head += "date: \(Self.stamp(m.date))\nsubject: \(m.subject)\n"
+            if !names.isEmpty { head += "attachments: \(names)\n" }
+            let tail: String = cut ? "\n\n[The rest of this long email was left out.]" : ""
+            return (head + "\n" + String(body.prefix(20_000)) + tail, false)
         } catch { return ("Could not read that email just now.", true) }
     }
 
@@ -100,7 +103,7 @@ final class ClaudeAccess: ObservableObject {
         JSONStore.save(activity, to: file)
     }
 
-    static var helperPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/AudreyMailClaude").path }
+    nonisolated static var helperPath: String { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/AudreyMailClaude").path }
 
     /// Called at launch and whenever the switch is flipped.
     func apply(store: MailStore, userChange: Bool = false) {
