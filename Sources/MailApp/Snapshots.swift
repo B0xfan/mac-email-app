@@ -63,7 +63,7 @@ enum Snapshots {
             shot("15-inbox-checking", MailRoot(store: chk))
 
             func smart(_ v: InboxView) -> MailStore {
-                let st = sampleStore(); st.settings.inboxView = v; st.settings.foldedGroups = ["newsletters"]; st.settings.screenNewSenders = false
+                let st = sampleStore(); st.settings.inboxView = v; st.settings.screenNewSenders = false
                 st.inbox.append(Mail(id: "bank", from: Address(name: "Lakeside Bank", email: "noreply@lakesidebank.example"), subject: "Your statement is ready", snippet: "Your September statement is ready to view.", date: Date().addingTimeInterval(-2.5 * 3600), labels: ["INBOX", "UNREAD"]))
                 st.book.approve("noreply@lakesidebank.example")
                 for i in st.inbox.indices where st.inbox[i].id == "news" { st.inbox[i].labels.append("UNREAD") }   // folded Newsletters then shows its unread count
@@ -73,7 +73,7 @@ enum Snapshots {
             shot("16-inbox-smart", MailRoot(store: smart(.smart)))
             shot("17-inbox-classic", MailRoot(store: smart(.classic)))
             shot("18-inbox-unread-first", MailRoot(store: smart(.unreadFirst)))
-            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart; AppSettings.shared.foldedGroups = ["newsletters"]
+            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart
 
             let pn = smart(.smart)
             pn.inbox.append(Mail(id: "gus", from: Address(name: "Gus Fenn (landlord)", email: "gus@fenn.example"), subject: "Lease renewal, sign by the 20th", snippet: "Please sign and return the renewal by the 20th.", date: Date().addingTimeInterval(-70 * 3600)))
@@ -85,7 +85,7 @@ enum Snapshots {
             SnapshotMode.barRow = nil
             pn.settings.inboxView = .classic; shot("20-pins-classic", MailRoot(store: pn))
             pn.settings.inboxView = .unreadFirst; shot("21-pins-unread-first", MailRoot(store: pn))
-            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart; AppSettings.shared.foldedGroups = ["newsletters"]
+            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart
 
             // set aside: the setting-aside moment (hover button, toast, count) and the list
             let sa = smart(.smart)
@@ -104,7 +104,7 @@ enum Snapshots {
             SnapshotMode.barRow = "a1"; sa.toast = nil; sa.mailbox = .setAside
             shot("23-set-aside-list", MailRoot(store: sa))
             SnapshotMode.barRow = nil
-            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart; AppSettings.shared.foldedGroups = ["newsletters"]
+            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart
 
 
             // section 5: sidebar folders, Smart Folders, saved searches (the sidebar is taller than the window, so these are drawn on a taller canvas)
@@ -147,7 +147,7 @@ enum Snapshots {
             SnapshotMode.swipeDX = ["priya": 150, "news": -150]
             shot("31-swipe", MailRoot(store: swp))
             SnapshotMode.swipeDX = [:]
-            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart; AppSettings.shared.foldedGroups = ["newsletters"]
+            AppSettings.shared.screenNewSenders = true; AppSettings.shared.inboxView = .smart
 
             let ask = sampleStore(); ask.openMail = ask.inbox[4]; ask.selectedID = "dana"; ask.mailbox = .newSenders
             shot("2-new-sender", MailRoot(store: ask))

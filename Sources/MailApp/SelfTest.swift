@@ -530,6 +530,17 @@ enum SelfTest {
         let afterUnpin = await MainActor.run { (store.isPinned(store.inbox.first { $0.id == "pin1" }!), store.listMails.map(\.id)) }
         check("pins: unpin removes the label and the email returns to its place by date",
               !afterUnpin.0 && afterUnpin.1 == ["pin2", "pin1"] && calls.contains { $0.contains("batchModify") && $0.contains("\"removeLabelIds\":[\"Label_9\"]") })
+        // Smart mode lists only the selected tab, so the next email after Archive / Set Aside stays in the tab
+        let tp = mk("tabp", "priya@x.example", unread: true, h: 1), tn = mk("tabn", "noreply@bank.example", unread: true, h: 2)
+        let tl = mk("tabl", "digest@x.example", unsub: true, h: 3), tl2 = mk("tabl2", "news@x.example", unsub: true, h: 4)
+        let tabRows: [[String]] = await MainActor.run {
+            store.inbox = [tp, tn, tl, tl2]; store.settings.inboxView = .smart
+            let rows = ["newsletters", "notifications", "people", "bogus"].map { t -> [String] in store.settings.smartTab = t; return store.listMails.map(\.id) }
+            store.settings.smartTab = MailCategory.people.rawValue
+            return rows
+        }
+        check("smart tabs: the list holds only the selected tab (bad value falls back to People)",
+              Set(tabRows[0]) == ["tabl", "tabl2"] && tabRows[1] == ["tabn"] && tabRows[2] == ["tabp"] && tabRows[3] == ["tabp"])
         await MainActor.run { store.settings.inboxView = .smart }
 
         // set aside: Gmail label (created once), leaves the inbox, lists newest-set-aside first, comes back on request

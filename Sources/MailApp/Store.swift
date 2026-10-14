@@ -153,7 +153,7 @@ final class MailStore: ObservableObject {
             let body: [Mail]
             switch settings.inboxView {
             case .classic: body = rest.sorted { $0.date > $1.date }
-            case .smart: body = SmartInbox.groups(rest, category: category(of:)).filter { !settings.foldedGroups.contains($0.id) }.flatMap { $0.mails }
+            case .smart: body = SmartInbox.groups(rest, category: category(of:)).filter { $0.id == (MailCategory(rawValue: settings.smartTab) ?? .people).rawValue }.flatMap { $0.mails }
             case .unreadFirst: body = SmartInbox.unreadFirst(rest).flatMap { $0.mails }   // same order as on screen
             }
             return pinnedMails + body
