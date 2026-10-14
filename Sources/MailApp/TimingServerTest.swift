@@ -42,6 +42,7 @@ extension SelfTest {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         let fake = FakeTiming()
+        func tmp(_ n: String) -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("selftest-ts-\(UUID().uuidString)-\(n).json") }
         StubProtocol.handler = { fake.handle($0) }
         defer { StubProtocol.handler = nil }
         let file = signedFile("ts-\(UUID().uuidString).json", "RTOKEN")
@@ -49,7 +50,7 @@ extension SelfTest {
         let tURL = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-tserver-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: tURL) }
         let srv = TimingServer(auth: a, session: session)
-        let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a, session: session), book: SenderBook(url: nil), seen: SeenBook(url: nil), categories: CategoryBook(url: nil),
+        let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),
                            asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: tURL), timingServer: srv)
         let oldDelay = st.settings.undoDelay; st.settings.undoDelay = 1
         defer { st.settings.undoDelay = oldDelay }
@@ -62,8 +63,9 @@ extension SelfTest {
         d.remindAt = at.addingTimeInterval(86400)
         await st.sendLater(d, bodyHTML: "hi", at: at)
         let saved = SignInFile.read(file).flatMap { try? JSONDecoder().decode(StoredSignIn.self, from: $0) }
+        let first = sched().first
         check("timing server: Send Later registers once with the Google sign-in and puts the job with its time",
-              fake.log == ["register RTOKEN", "put dNEW \(sec)", "get"] && sched().first?.server == "on" && sched().first?.draftID == "dNEW")
+              fake.log == ["register RTOKEN", "put dNEW \(sec)", "get"] && first?.server == "on" && first?.draftID == "dNEW")
         check("timing server: the key is kept in the private sign-in file next to the sign-in (file mode 0600)",
               saved?.timingKey == "K1" && saved?.refreshToken == "RTOKEN"
               && ((try? FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int) ?? 0) == 0o600)
@@ -75,24 +77,28 @@ extension SelfTest {
         fake.down = true; fake.log = []
         seed("d3", at: at)
         await st.syncServer()
-        check("server unreachable: the email stays in Scheduled, Mac carries on, no error shown", sched().contains { $0.draftID == "d3" && $0.server == nil } && st.error == nil)
+        let d3: ScheduledSend? = sched().first(where: { $0.draftID == "d3" })
+        check("server unreachable: the email stays in Scheduled, Mac carries on, no error shown", d3 != nil && d3?.server == nil && st.error == nil)
         fake.down = false
         await st.syncServer()
-        check("server back: the waiting email is told to the server", sched().first { $0.draftID == "d3" }?.server == "on" && fake.jobs["d3"]?.at == sec)
+        let d3b: ScheduledSend? = sched().first(where: { $0.draftID == "d3" })
+        check("server back: the waiting email is told to the server", d3b?.server == "on" && fake.jobs["d3"]?.at == sec)
 
         // 3. Sent while away: leaves Scheduled, says so, starts the reminder
         st.timing.change { $0.scheduled.removeAll(); $0.followUps = [] }
         seed("d4", at: at, remind: at.addingTimeInterval(86400), on: true)
         fake.jobs["d4"] = (sec, "sent", "sentS", "thrS", "")
         await st.syncServer()
-        check("sent while Mac was off: taken off Scheduled, a note says so, the reminder is set on the sent email",
-              sched().isEmpty && st.toast?.text.contains("went out on time while Mail was closed") == true && st.timing.data.followUps.map(\.messageID) == ["sentS"])
+        let followIDs: [String] = st.timing.data.followUps.map { $0.messageID }
+        let toldSent: Bool = st.toast?.text.contains("went out on time while Mail was closed") ?? false
+        check("sent while Mac was off: taken off Scheduled, a note says so, the reminder is set on the sent email", sched().isEmpty && toldSent && followIDs == ["sentS"])
 
         // 4. Failed: stays, shows "Could not send" / "Sign-in needed"
         seed("d5", at: at, on: true); seed("d6", at: at, on: true)
         fake.jobs["d5"] = (sec, "failed", "", "", "could not send"); fake.jobs["d6"] = (sec, "failed", "", "", "signin")
         await st.syncServer()
-        check("failed on the server: stays in Scheduled with a clear tag", sched().first { $0.draftID == "d5" }?.problem == "Could not send" && sched().first { $0.draftID == "d6" }?.problem == "Sign-in needed")
+        let p5: String? = sched().first(where: { $0.draftID == "d5" })?.problem, p6: String? = sched().first(where: { $0.draftID == "d6" })?.problem
+        check("failed on the server: stays in Scheduled with a clear tag", p5 == "Could not send" && p6 == "Sign-in needed")
         st.timing.change { $0.scheduled.removeAll { $0.draftID == "d5" || $0.draftID == "d6" } }; fake.jobs = [:]
 
         // 5. The server's Google sign-in is dead: one silent re-register, then it is surfaced
@@ -119,10 +125,12 @@ extension SelfTest {
         // 8. Change time: the server gets the new time first
         seed("d8", at: at); await st.syncServer()
         let later = at.addingTimeInterval(3600)
-        st.picker = .changeScheduled("d8"); await st.pickedTime(later)
-        check("change time: the server holds the new time", fake.jobs["d8"]?.at == Int(later.timeIntervalSince1970) && sched().first { $0.draftID == "d8" }?.at == later)
-        fake.down = true; st.picker = .changeScheduled("d8"); await st.pickedTime(at)
-        check("change time, server unreachable: not changed (an old time on the server could send it early)", sched().first { $0.draftID == "d8" }?.at == later && st.error == MailStore.cannotCancelText)
+        st.picker = TimePickerKind.changeScheduled("d8"); await st.pickedTime(later)
+        let d8a: Date? = sched().first(where: { $0.draftID == "d8" })?.at
+        check("change time: the server holds the new time", fake.jobs["d8"]?.at == Int(later.timeIntervalSince1970) && d8a == later)
+        fake.down = true; st.picker = TimePickerKind.changeScheduled("d8"); await st.pickedTime(at)
+        let d8b: Date? = sched().first(where: { $0.draftID == "d8" })?.at
+        check("change time, server unreachable: not changed (an old time on the server could send it early)", d8b == later && st.error == MailStore.cannotCancelText)
         st.error = nil; fake.down = false
 
         // 9. Send now: the server forgets it BEFORE Gmail sends; a 404 from Gmail means already sent
@@ -134,13 +142,13 @@ extension SelfTest {
         seed("d10", at: Date().addingTimeInterval(-60)); fake.gmailSendStatus = 404; fake.log = []
         await st.sendScheduledNow("d10")
         try? await Task.sleep(nanoseconds: 2_600_000_000)
-        check("draft send gives 404: treated as already sent, not an error", sched().isEmpty && st.error == nil && st.toast?.text.contains("already sent") == true)
+        check("draft send gives 404: treated as already sent, not an error", sched().isEmpty && st.error == nil && (st.toast?.text ?? "").contains("already sent"))
         fake.gmailSendStatus = 200
 
         // 10. Not on the list (403): the Mac keeps the email itself, and does not ask again and again
         let file2 = signedFile("ts2-\(UUID().uuidString).json", "RT2")
         let a2 = GoogleAuth(session: session, credentials: creds, file: file2, legacy: noKeychain)
-        let st2 = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a2, session: session), book: SenderBook(url: nil), seen: SeenBook(url: nil), categories: CategoryBook(url: nil),
+        let st2 = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a2, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),
                             asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: nil), timingServer: TimingServer(auth: a2, session: session))
         fake.registerStatus = 403; fake.registered = 0
         st2.timing.change { $0.scheduled = [ScheduledSend(draftID: "e1", at: at, to: "x", subject: "S")] }
