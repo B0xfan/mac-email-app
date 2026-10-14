@@ -22,7 +22,7 @@ enum Fetch { case ok(Data), none, error }
     /// Free mail services: their icon says nothing about the person, so these senders keep their initials.
     static let freeMail: Set<String> = ["gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com", "gmx.com", "mail.com"]
     /// One queue for every disk read, write and picture decode, so none runs on the main thread and writes keep their order.
-    nonisolated private static let io =DispatchQueue(label: "SenderPictures.io", qos: .utility)
+    nonisolated private static let io = DispatchQueue(label: "SenderPictures.io", qos: .utility)
 
     @Published private(set) var version = 0   // bumps when a new picture arrives so visible avatars redraw
     var contacts: ContactDirectory?

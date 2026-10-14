@@ -105,8 +105,8 @@ extension View { func tip(_ text: String) -> some View { background(TipView(text
 struct Avatar: View {
     let text: String
     var size: CGFloat = 40
-    var web = true             // false (flagged sender, Spam): never look the sender's website up
     var email: String? = nil   // given: show the Contacts photo or company icon when there is one (only while "Sender pictures" is on)
+    var web = true             // false (flagged sender, Spam): never look the sender's website up
     @ObservedObject private var pics = SenderPictures.shared
     @ObservedObject private var settings = AppSettings.shared
     var body: some View {
