@@ -228,11 +228,14 @@ extension SelfTest {
 
         // the same two tools against a pretend Gmail: every request that leaves is a read
         let methods = Lines()
+        final class Flag: @unchecked Sendable { var badFilters = false }
+        let flags = Flag()
         StubProtocol.handler = { req in
             let u = req.url!, p = u.path
             if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
             methods.add(req.httpMethod ?? "?")
             if p.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_B","name":"Blocked"}]}"#) }
+            if p.hasSuffix("/settings/filters") && flags.badFilters { return (200, "[1,2]") }
             if p.hasSuffix("/settings/filters") { return (200, #"{"filter":[{"id":"f1","criteria":{"from":"Spam@Bad.example"},"action":{"addLabelIds":["Label_B"]}},{"id":"f2","criteria":{"from":"old@spark.example"},"action":{"addLabelIds":["TRASH"]}},{"id":"f3","criteria":{"from":"rule@x.example"},"action":{"addLabelIds":["Label_Z"]}}]}"#) }
             if p.hasSuffix("/messages") { return (200, #"{"messages":[{"id":"abc1"}]}"#) }
             if p.hasSuffix("/messages/abc1") { return (200, #"{"id":"abc1","threadId":"tabc1","labelIds":["INBOX"],"snippet":"s","internalDate":"1700000000000","payload":{"mimeType":"text/plain","headers":[{"name":"From","value":"A <a@x.example>"},{"name":"Subject","value":"Real"}],"body":{"data":"SGVsbG8"}}}"#) }
@@ -246,6 +249,20 @@ extension SelfTest {
 
         let gl = try? await GmailClaudeSource(gmail: GmailClient(auth: pauth, session: session), blockLabelName: "Blocked").blockList()
         check("claude: the block list is read from Gmail: the Blocked label and the senders of Mail's blocks and Spark's older ones, not other rules", gl == ClaudeBlockList(labelID: "Label_B", senders: ["spam@bad.example", "old@spark.example"]))
+
+        // a filters answer that cannot be read is an error (so Claude is shown nothing), never "no blocks"
+        flags.badFilters = true
+        let badSrc = GmailClaudeSource(gmail: GmailClient(auth: pauth, session: session), blockLabelName: "Blocked")
+        var threw = false
+        do { _ = try await badSrc.blockList() } catch { threw = true }
+        let badBackend = ClaudeBackend(source: badSrc, blockLabelName: "Blocked", hideHidden: { true }, log: { _ in })
+        let badS = await badBackend.search("hello", max: 5), badR = await badBackend.read("abc1")
+        flags.badFilters = false
+        check("claude: a 200 answer from Gmail that cannot be read as the filter list denies everything instead of showing blocked mail", threw && badS.isError && badR.isError && badR.text.contains("could not check") && !badR.text.contains("Hello"))
+        let lst = ClaudeBlockList(labelID: nil, senders: ["a@x.example OR B@Y.example", "\"c@z.example\"", "{d@w.example e@w.example}", "@co.example", "plain.org"])
+        func f(_ e: String) -> Mail { Mail(id: "q", from: Address(name: "", email: e), subject: "s", snippet: "p", date: Date(), labels: []) }
+        check("claude: a block rule that lists several senders (OR, quotes, braces) hides each of them, and a bare domain hides the whole company",
+              ["a@x.example", "b@y.example", "c@z.example", "d@w.example", "e@w.example", "who@co.example", "me@plain.org"].allSatisfy { lst.hides(f($0)) } && !lst.hides(f("other@x.example")) && !lst.hides(f("a@x.example.evil")))
 
         // what stays hidden
         let sr = await be.search("hello", max: 10)

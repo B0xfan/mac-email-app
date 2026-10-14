@@ -4,7 +4,14 @@ import AppKit
 /// Who and what is hidden from Claude: the Blocked label, and every sender (or whole company) on the block list, whatever label their mail carries now.
 struct ClaudeBlockList: Equatable {
     var labelID: String?
-    var senders: [String]   // the "from" of each block rule, lower case: an address, or @company.com
+    var senders: [String]   // each blocked address, or @company.com, lower case
+    init(labelID: String?, senders: [String]) {
+        self.labelID = labelID
+        // a rule's "from" can be a list: a@x OR b@y, "a@x", {a@x b@y}
+        self.senders = senders.flatMap { raw in
+            raw.lowercased().replacingOccurrences(of: "[{}()\",]", with: " ", options: .regularExpression).split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { $0 != "or" }
+        }
+    }
     func hides(_ m: Mail) -> Bool {
         if let labelID, m.labels.contains(labelID) { return true }
         let e = m.from.email.lowercased()
@@ -30,8 +37,8 @@ struct GmailClaudeSource: ClaudeSource {
     }
     func message(_ id: String) async throws -> Mail { try await gmail.message(id: id, full: true) }
     func blockList() async throws -> ClaudeBlockList {
-        let label = try await gmail.labels().first { $0.name == blockLabelName }?.id   // no such label = no block list yet; an error propagates
-        let filters = try await gmail.filters()
+        let label = try await gmail.labelsStrict().first { $0.name == blockLabelName }?.id   // no such label = no block list yet; an error propagates
+        let filters = try await gmail.filtersStrict()
         let senders = filters.compactMap { f -> String? in
             guard let from = f.criteria?.from?.lowercased(), !from.isEmpty else { return nil }
             let add = f.action?.addLabelIds ?? []
@@ -189,8 +196,10 @@ final class ClaudeAccess: ObservableObject {
         if out == existing { return .done }
         let backup = file.appendingPathExtension("before-audrey-mail")
         if let existing, !fm.fileExists(atPath: backup.path) {
-            do { try existing.write(to: backup, options: .atomic); try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path) }
-            catch { return .unreadable }   // no safe copy of the original: change nothing
+            let tmp = backup.appendingPathExtension("tmp")
+            try? fm.removeItem(at: tmp)
+            guard fm.createFile(atPath: tmp.path, contents: existing, attributes: [.posixPermissions: 0o600]) else { return .unreadable }   // owner-only from the start
+            do { try fm.moveItem(at: tmp, to: backup) } catch { try? fm.removeItem(at: tmp); return .unreadable }   // no safe copy of the original: change nothing
         }
         do { try out.write(to: file, options: .atomic); return .done } catch { return on ? .unreadable : .done }
     }

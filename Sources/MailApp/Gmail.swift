@@ -227,6 +227,18 @@ final class GmailClient: @unchecked Sendable {
         return (try? JSONDecoder().decode(R.self, from: d))?.labels ?? []
     }
 
+    /// For safety checks: an answer that cannot be read is an error, never an empty list. (No labels at all is still a valid, empty answer.)
+    func labelsStrict() async throws -> [GLabel] {
+        struct R: Decodable { let labels: [GLabel]? }
+        guard let r = try? JSONDecoder().decode(R.self, from: try await send("/labels")) else { throw GmailError.http(0, "unreadable labels") }
+        return r.labels ?? []
+    }
+    func filtersStrict() async throws -> [GFilter] {
+        struct R: Decodable { let filter: [GFilter]? }
+        guard let r = try? JSONDecoder().decode(R.self, from: try await send("/settings/filters")) else { throw GmailError.http(0, "unreadable filters") }
+        return r.filter ?? []
+    }
+
     func createLabel(name: String) async throws -> GLabel {
         let d = try await send("/labels", method: "POST", body: body([
             "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"]))
