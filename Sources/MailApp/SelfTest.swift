@@ -1018,6 +1018,10 @@ enum SelfTest {
               !nn(rp).contains("Seat 12A") && !nn(rp).contains("Old chain") && !nn(rh).contains("Seat 12A") && nn(rp).contains("Thanks, got it.") && nn(rh).contains("Thanks, got it.")
               && !nn(mn).contains("Old chain") && !nn(mh).contains("Old chain") && nn(mn).contains("I forwarded message 3")
               && nn(es).contains("Asiento 12A") && !nn(es).contains("\n>") && nn(eh).contains("Asiento 12A") && nn(es).contains("title: \"Vuelo\"") == false)
+        check("save as note: forward drops the Sent from / Begin forwarded message lines, keeps the forwarded From line and body (plain and HTML)",
+              [fwn, fhn].allSatisfy { !$0.contains("Sent from my iPhone") && !$0.contains("Begin forwarded message") && $0.contains("From:") && $0.contains("Airline") && $0.contains("Seat 12A confirmed") }
+              && !nn(es).contains("Enviado desde") && !nn(es).contains("Inicio del mensaje") && nn(es).contains("Asiento 12A"))
+
         check("save as note: prefix-only subject keeps itself as the title; Re[2]: and RV: are dropped",
               EmailNote.subjectLine("Re:") == "Re:" && EmailNote.subjectLine("Re[2]: Hola") == "Hola" && EmailNote.subjectLine("RV: Reenviado: Vuelo") == "Vuelo"
               && nn(Mail(id: "p", from: Address(name: "", email: "p@x.example"), subject: "Re:", snippet: "", date: dt(13, 9, 0))).contains("title: \"Re:\"\n"))

@@ -159,14 +159,15 @@ enum EmailNote {
         while i < all.count {
             var l = all[i]; i += 1
             // Apple Mail quotes the forwarded text with ">" right after the marker; that block is the content, so keep it. Every other quote goes.
-            if l.range(of: "^" + fwdMarker + "$", options: [.regularExpression, .caseInsensitive]) != nil { fwd = 1 }
+            if l.range(of: "^" + fwdMarker + "$", options: [.regularExpression, .caseInsensitive]) != nil { fwd = 1; continue }   // the marker line itself is boilerplate: dropped, its header and body stay
             else if l.hasPrefix(">") { if fwd > 0 { fwd = 2; l = l.replacingOccurrences(of: #"^(>\s*)+"#, with: "", options: .regularExpression) } }
             else if !l.isEmpty || fwd == 2 { fwd = 0 }
             if l.hasPrefix("On ") || l.hasPrefix("El ") {   // "On ... wrote:", which Gmail may wrap onto a second line; Spanish "El ... escribió:"
                 if wrote(l) { continue }
                 if i < all.count, l.count <= 400, wrote(l + " " + all[i]) { i += 1; continue }
             }
-            if l.hasPrefix(">") || l.range(of: #"^\[image: [^\]]*\]$"#, options: .regularExpression) != nil { continue }   // quotes; Gmail's stand-in for pictures
+            if l.hasPrefix(">") || l.range(of: #"^\[image: [^\]]*\]$"#, options: .regularExpression) != nil
+                || l.range(of: #"^(sent from my (iphone|ipad)|enviado desde mi (iphone|ipad))\.?$"#, options: [.regularExpression, .caseInsensitive]) != nil { continue }   // quotes; Gmail's stand-in for pictures; phone signature lines
             let rule = l.range(of: #"^(([-_*])( *\2){2,}|=+|-+) *$"#, options: .regularExpression) != nil   // "--" signature line: text, not a heading or a line
             lines.append((rule ? "\\" : "") + escLine(l))
         }
