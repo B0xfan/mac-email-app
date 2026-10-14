@@ -56,8 +56,10 @@ enum EmailNote {
     /// % (comments; also breaks Templater's <%), < > (HTML, <script>, <iframe>), :: (Dataview fields).
     /// strict (names, subjects): also * _ | = so they cannot change the layout.
     static func esc(_ t: String, strict: Bool = false) -> String {
-        var s = t.replacingOccurrences(of: "[\u{E000}-\u{E002}]", with: "", options: .regularExpression)
-        for c in ["\\", "`", "~", "[", "]", "#", "%", "<", ">"] + (strict ? ["*", "_", "|", "="] : []) { s = s.replacingOccurrences(of: c, with: "\\" + c) }
+        var s = t
+        for c in ["\\", "`", "[", "]", "<", ">"] + (strict ? ["*", "_", "|", "="] : []) { s = s.replacingOccurrences(of: c, with: "\\" + c) }
+        // only where the character would act: ~~ and %% in pairs, # when it would make a tag (a number sign before digits or a space, or inside a word, stays as written, no stray backslash)
+        s = s.replacingOccurrences(of: #"~(?=~)|(?<=~)~|%(?=%)|(?<=%)%|(?<![\p{L}\p{N}])#(?=\S*[^\s\d])"#, with: "\\\\$0", options: .regularExpression)
         return s.replacingOccurrences(of: "(?<=:):|:(?=:)", with: "\\\\:", options: .regularExpression)
     }
 
@@ -74,24 +76,17 @@ enum EmailNote {
         return s
     }
 
-    /// Links from the HTML travel as \u{E000}words\u{E001}address\u{E002} (private characters, removed from the email first); bare web addresses too.
-    static let linkRx = try! NSRegularExpression(pattern: "\u{E000}([^\u{E000}-\u{E002}]*)\u{E001}([^\u{E000}-\u{E002}]*)\u{E002}|https?://[^\\s<>\"\u{E000}-\u{E002}]+", options: .caseInsensitive)
+    static let linkRx = try! NSRegularExpression(pattern: "https?://[^\\s<>\"]+", options: .caseInsensitive)
 
-    /// One line of email text, escaped, with its web links made into safe [words](address) links.
+    /// One line of email text, escaped. Web addresses stay as plain addresses (Obsidian makes them clickable), with link-breaking characters encoded.
     static func escLine(_ l: String) -> String {
         let ns = l as NSString
         var out = "", last = 0
         for m in linkRx.matches(in: l, range: NSRange(location: 0, length: ns.length)) {
-            var r = m.range, words: String, url: String
-            if m.range(at: 1).location != NSNotFound {
-                words = ns.substring(with: m.range(at: 1)); url = ns.substring(with: m.range(at: 2))
-            } else {
-                url = ns.substring(with: r)
-                while let c = url.last, ".,;:!?)]}'".contains(c) { url.removeLast() }   // the sentence's punctuation is not part of the address
-                r.length = (url as NSString).length; words = url
-            }
-            out += esc(ns.substring(with: NSRange(location: last, length: r.location - last)))
-            if !words.isEmpty { out += safeURL(url).map { "[\(esc(words))](\($0))" } ?? esc(words) }
+            var r = m.range, url = ns.substring(with: r)
+            while let c = url.last, ".,;:!?)]}'".contains(c) { url.removeLast() }   // the sentence's punctuation is not part of the address
+            r.length = (url as NSString).length
+            out += esc(ns.substring(with: NSRange(location: last, length: r.location - last))) + (safeURL(url) ?? esc(url))
             last = r.location + r.length
         }
         return out + esc(ns.substring(from: last))
@@ -103,15 +98,12 @@ enum EmailNote {
         s.replacingOccurrences(of: pattern, with: with, options: [.regularExpression, .caseInsensitive])
     }
 
-    /// HTML part to text: no head/style, quoted blocks dropped, links as [words](address), block ends as line breaks.
-    static func htmlText(_ h: String) -> String {
+    /// The HTML part made ready for the plain-text reader: no head/style/script, quoted blocks dropped, and nothing that could load from the web.
+    static func noteHTML(_ h: String) -> String {
         var s = re(h, #"\s+"#, " ")   // the source's own line breaks mean nothing in HTML
         for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>")] { s = dropBetween(s, o, c) }
-        s = links(dropBlockquotes(s))
-        s = re(s, #"</(p|h[1-6]|table|ul|ol)\s*>"#, "\n\n")
-        s = re(s, #"<br\s*/?>|</(div|tr|li)\s*>"#, "\n")
-        s = re(s, #"<li\b[^<>]*>"#, "\n- ")
-        return re(s, "<[^<>]*>", "")   // tags; [^<>] keeps every try short, so a hostile email cannot make this slow
+        s = re(dropBlockquotes(s), #"<(img|link|iframe|object|embed|video|audio|source|meta|base)\b[^<>]*>|url\s*\([^)<>]{0,500}\)"#, "")
+        return s
     }
 
     /// Removes open...close blocks in one pass over one NSString (positions only, nothing copied or rescanned); unclosed means to the end.
@@ -155,68 +147,9 @@ enum EmailNote {
         return depth == 0 || keeping ? out + ns.substring(from: last) : out
     }
 
-    /// <a href="u">words</a> becomes a link for web addresses, the words alone otherwise; picture-only links go.
-    /// One pass over one NSString: once no "</a" is left, later <a> tags are not searched again (no rescans on a hostile email).
-    static func links(_ h: String) -> String {
-        let ns = NSString(string: h), n = ns.length
-        func sub(_ a: Int, _ b: Int) -> String { ns.substring(with: NSRange(location: a, length: b - a)) }
-        var out = "", pos = 0, closers = true
-        while pos < n {
-            let o = ns.range(of: "<a", options: .caseInsensitive, range: NSRange(location: pos, length: n - pos))
-            if o.location == NSNotFound { break }
-            out += sub(pos, o.location)
-            let a = o.location + 2
-            pos = a
-            guard closers, a < n, let sp = Unicode.Scalar(ns.character(at: a)), CharacterSet.whitespaces.contains(sp) else { out += "<a"; continue }
-            let gt = ns.rangeOfCharacter(from: CharacterSet(charactersIn: "<>"), options: [], range: NSRange(location: a, length: n - a)).location
-            guard gt != NSNotFound, ns.character(at: gt) == 62 else { out += "<a"; continue }   // 62 is ">"
-            let close = ns.range(of: "</a", options: .caseInsensitive, range: NSRange(location: gt, length: n - gt)).location
-            let end = close == NSNotFound ? NSNotFound : ns.range(of: ">", options: [], range: NSRange(location: close, length: n - close)).location
-            guard end != NSNotFound else { closers = false; out += "<a"; continue }
-            let url = href(sub(a, gt))
-            let words = re(sub(gt + 1, close), "<[^<>]*>", "").trimmingCharacters(in: .whitespaces)
-            if url.flatMap(safeURL) == nil { out += words }   // mailto:, javascript:, obsidian:, file:, no href: the words only, never a link
-            else if !words.isEmpty { out += "\u{E000}\(words)\u{E001}\(url!)\u{E002}" }   // made into a safe link in escLine
-            pos = end + 1
-        }
-        return out + (pos < n ? ns.substring(from: pos) : "")
-    }
-
-    /// The href value of one tag, read in one pass.
-    static func href(_ tag: String) -> String? {
-        guard let h = tag.range(of: "href", options: .caseInsensitive) else { return nil }
-        var t = tag[h.upperBound...].drop(while: { $0 == " " })
-        guard t.first == "=" else { return nil }
-        t = t.dropFirst().drop(while: { $0 == " " })
-        guard let q = t.first, q == "\"" || q == "'", let e = t.dropFirst().firstIndex(of: q) else { return nil }
-        return String(t[t.index(after: t.startIndex)..<e]).trimmingCharacters(in: .whitespaces)
-    }
-
-    static func unescape(_ s: String) -> String {
+    /// Note clean-up on top of PlainText: quoted copies and stand-ins go, lines are escaped for Obsidian.
+    static func tidy(_ s: String) -> String {
         var s = s
-        for (a, b) in [("&rsquo;", "\u{2019}"), ("&lsquo;", "\u{2018}"), ("&rdquo;", "\u{201D}"), ("&ldquo;", "\u{201C}"), ("&mdash;", "\u{2014}"),
-                       ("&ndash;", "\u{2013}"), ("&hellip;", "\u{2026}"), ("&bull;", "\u{2022}"), ("&copy;", "\u{00A9}"), ("&apos;", "'"), ("&zwnj;", ""), ("&shy;", "")] {
-            s = s.replacingOccurrences(of: a, with: b)
-        }
-        s = s.htmlUnescaped
-        guard let rx = try? NSRegularExpression(pattern: #"&#(x[0-9a-fA-F]+|\d+);"#) else { return s }
-        let ns = s as NSString
-        var out = "", last = 0
-        for m in rx.matches(in: s, range: NSRange(location: 0, length: ns.length)) {
-            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            let n = ns.substring(with: m.range(at: 1))
-            let v = n.hasPrefix("x") || n.hasPrefix("X") ? UInt32(n.dropFirst(), radix: 16) : UInt32(n)
-            out += v.flatMap { Unicode.Scalar($0) }.map { String(Character($0)) } ?? ""
-            last = m.range.location + m.range.length
-        }
-        return out + ns.substring(from: last)
-    }
-
-    /// Shared final pass for plain and HTML text.
-    static func tidy(_ raw: String) -> String {
-        var s = unescape(raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"))
-        s = s.replacingOccurrences(of: "[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{00AD}\u{034F}\u{202A}-\u{202E}\u{2066}-\u{2069}]", with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: "[\u{00A0}\u{2007}\u{202F}\t]", with: " ", options: .regularExpression)
         // quoted copies: Outlook's "Original Message" and all below it; the "On ... wrote:" line is dropped in the loop below
         s = s.replacingOccurrences(of: #"(?s)(^|\n)[ ]*-{2,}[ ]*(Original [Mm]essage|Mensaje original)[ ]*-{2,}.*$"#, with: "", options: .regularExpression)
         var lines: [String] = []
@@ -237,22 +170,13 @@ enum EmailNote {
             let rule = l.range(of: #"^(([-_*])( *\2){2,}|=+|-+) *$"#, options: .regularExpression) != nil   // "--" signature line: text, not a heading or a line
             lines.append((rule ? "\\" : "") + escLine(l))
         }
-        s = lines.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lines.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// One message's text: the plain part when there is one, else the HTML part.
+    /// One message's text, as plain text first (PlainText), then cleaned for the note.
     static func body(_ m: Mail) -> String {
-        let strip = { (s: String) in s.replacingOccurrences(of: "[\u{E000}-\u{E002}]", with: "", options: .regularExpression) }
-        return bodyText(text: m.text.map(strip), html: m.html.map(strip), snippet: strip(m.snippet))
-    }
-
-    private static func bodyText(text: String?, html: String?, snippet: String) -> String {
-        if let t = text, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return tidy(re(t, #"</?[a-z][a-z0-9]*(\s[^<>]*)?/?>"#, ""))   // stray tags only: <https://...> and <name@x> stay
-        }
-        if let h = html { return tidy(htmlText(h)) }
-        return tidy(snippet)
+        tidy(PlainText.of(text: m.text.map { re($0, #"</?[a-z][a-z0-9]*(\s[^<>]*)?/?>"#, "") },   // stray tags only: <https://...> and <name@x> stay
+                          html: m.html, snippet: m.snippet, prepareHTML: noteHTML))
     }
 
     // MARK: The note
