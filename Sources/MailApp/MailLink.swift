@@ -20,7 +20,7 @@ enum MailLink {
 
     /// Same reading as Save as note (quoted history dropped, nothing fetched from the web), minus the Obsidian backslashes: the shared page is plain text.
     static func body(_ m: Mail) -> String {
-        SaveNote.body(m).replacingOccurrences(of: #"\\([\\!-/:-@\[-`{-~])"#, with: "$1", options: .regularExpression)
+        EmailNote.body(m).replacingOccurrences(of: #"\\([\\!-/:-@\[-`{-~])"#, with: "$1", options: .regularExpression)
     }
 
     /// "Today, 8:38 AM", "Yesterday, 8:38 AM", otherwise "Tue 14 Oct 2026, 8:38 AM". Shown as is on the shared page.
