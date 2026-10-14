@@ -74,6 +74,8 @@ struct NoteButton: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
             }
             .buttonStyle(.plain).accessibilityLabel(shown ? "Hide private note" : "Show private note").tip("Show or hide your private note on this email")
+        } else {   // approved 2026-10-14: a sticky note with a plus, same size as the other icons
+            IconButton(symbol: "note.text.badge.plus", label: "Add note") { store.noteOpen = t; store.noteEdit = t }
         }
     }
 }
