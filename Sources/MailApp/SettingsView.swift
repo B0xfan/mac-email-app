@@ -175,6 +175,7 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("Allow Claude to use my mail", isOn: Binding(get: { settings.claudeEnabled }, set: { settings.claudeEnabled = $0; claude.apply(store: app.store, userChange: true) })).labelsHidden().toggleStyle(.switch)
             } }
+            Text("While this is on, apps running on this Mac under your account can ask Mail for your email, Claude included.").font(Theme.small).foregroundStyle(Theme.sub)
             if let m = claude.message { Text(m).font(Theme.small).foregroundStyle(Theme.sub) }
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text("What Claude may do").font(Theme.bodyStrong)

@@ -92,9 +92,10 @@ enum MCPSocket {
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
     }
 
-    static func readLine(_ fd: Int32, cap: Int = 4_000_000) -> Data? {
+    /// `deadline` is for the whole line: a client that sends one byte at a time cannot keep a worker for longer.
+    static func readLine(_ fd: Int32, cap: Int = 4_000_000, deadline: Date = Date().addingTimeInterval(120)) -> Data? {
         var out = Data(), buf = [UInt8](repeating: 0, count: 65536)
-        while out.count < cap {
+        while out.count < cap, Date() < deadline {
             let n = read(fd, &buf, buf.count)
             if n <= 0 { break }
             if let nl = buf[0..<n].firstIndex(of: 10) { out.append(buf, count: nl); return out }
@@ -121,7 +122,7 @@ enum MCPSocket {
         let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
         guard ok == 0 else { return nil }
         writeLine(fd, line)
-        return readLine(fd)
+        return readLine(fd, deadline: Date().addingTimeInterval(Double(timeout)))
     }
 
     final class Server: @unchecked Sendable {
@@ -136,10 +137,13 @@ enum MCPSocket {
             guard var a = MCPSocket.address(path) else { return false }
             let dir = (path as NSString).deletingLastPathComponent
             try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            chmod(dir, 0o700)   // also when the folder was already there
             unlink(path)   // a leftover file from a crash
             let s = socket(AF_UNIX, SOCK_STREAM, 0)
             guard s >= 0 else { return false }
+            let oldMask = umask(0o077)   // the socket file is born owner-only, not fixed up afterwards
             let bound = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(s, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+            umask(oldMask)
             guard bound == 0, chmod(path, 0o600) == 0, listen(s, 8) == 0 else { close(s); unlink(path); return false }
             lock.lock(); fd = s; running = true; lock.unlock()
             Thread.detachNewThread { [self] in loop(s) }
@@ -162,9 +166,9 @@ enum MCPSocket {
                 if c < 0 { continue }
                 var uid: uid_t = 0, gid: gid_t = 0
                 guard getpeereid(c, &uid, &gid) == 0, uid == geteuid() else { close(c); continue }   // only this Mac user
-                MCPSocket.timeouts(c, seconds: 60)
+                MCPSocket.timeouts(c, seconds: 10)
                 DispatchQueue.global().async { [handler] in
-                    guard let line = MCPSocket.readLine(c) else { close(c); return }
+                    guard let line = MCPSocket.readLine(c, deadline: Date().addingTimeInterval(120)) else { close(c); return }
                     Task {
                         if let out = await handler(line) { MCPSocket.writeLine(c, out) }
                         close(c)
@@ -193,6 +197,6 @@ enum ClaudeConfig {
         if let command, had?["command"] as? String == command { return existing } // already set up
         if let command { servers[key] = ["command": command] } else { servers.removeValue(forKey: key) }
         root["mcpServers"] = servers
-        return try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        return try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
     }
 }
