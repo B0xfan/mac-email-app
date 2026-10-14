@@ -969,6 +969,24 @@ enum SelfTest {
               EmailNote.fileName(fw.subject) == "Your flight is booked HZLENL to Los Angeles on 11-12-2026" && fwn.contains("title: \"Your flight is booked: HZLENL to Los Angeles on 11/12/2026\"")
               && fwn.contains("Seat 12A confirmed") && !fwn.contains("\n>") && fhn.contains("Seat 12A confirmed") && fhn.contains("Airline"))
 
+        // a reply to a forward keeps none of the quoted chain; a sentence mentioning "forwarded message" does not open the door; Spanish forward kept
+        var rp = Mail(id: "f2", from: Address(name: "Dana", email: "d@x.example"), subject: "Re: Fwd: Your flight", snippet: "", date: dt(13, 9, 0))
+        rp.text = "Thanks, got it.\n\nOn Mon, Oct 13, 2026 at 9:00 AM Shelly <s@x.example> wrote:\n> Begin forwarded message:\n>\n> > Seat 12A confirmed\n> ---------- Forwarded message ---------\n> Old chain"
+        rp.html = "<div>Thanks, got it.</div><div>On Mon Shelly wrote:</div><blockquote><div>Begin forwarded message:</div><blockquote><div>Seat 12A confirmed</div></blockquote></blockquote>"
+        var rh = rp; rh.text = nil
+        var mn = rp; mn.text = "I forwarded message 3 to Bob.\n\n> Old chain"; mn.html = "<div>I forwarded message 3 to Bob.</div><blockquote>Old chain</blockquote>"
+        var mh = mn; mh.text = nil
+        var es = fw; es.subject = "RV: Vuelo"; es.text = "Enviado desde mi iPhone\n\nInicio del mensaje reenviado:\n\n> Asiento 12A confirmado"; es.html = "<div>Inicio del mensaje reenviado:</div><blockquote>Asiento 12A confirmado</blockquote>"
+        var eh = es; eh.text = nil
+        let nn = { (m: Mail) in EmailNote.content([m], link: link, now: dt(13, 9, 0), tz: tz) }
+        check("save as note: reply to a forward drops the quoted chain; a sentence mentioning a forwarded message keeps no history (plain and HTML); Spanish forward kept",
+              !nn(rp).contains("Seat 12A") && !nn(rp).contains("Old chain") && !nn(rh).contains("Seat 12A") && nn(rp).contains("Thanks, got it.") && nn(rh).contains("Thanks, got it.")
+              && !nn(mn).contains("Old chain") && !nn(mh).contains("Old chain") && nn(mn).contains("I forwarded message 3")
+              && nn(es).contains("Asiento 12A") && !nn(es).contains("\n>") && nn(eh).contains("Asiento 12A") && nn(es).contains("title: \"Vuelo\"") == false)
+        check("save as note: prefix-only subject keeps itself as the title; Re[2]: and RV: are dropped",
+              EmailNote.subjectLine("Re:") == "Re:" && EmailNote.subjectLine("Re[2]: Hola") == "Hola" && EmailNote.subjectLine("RV: Reenviado: Vuelo") == "Vuelo"
+              && nn(Mail(id: "p", from: Address(name: "", email: "p@x.example"), subject: "Re:", snippet: "", date: dt(13, 9, 0))).contains("title: \"Re:\"\n"))
+
         // file naming and writing, in a temporary vault only
         check("save as note: file name from the subject, unsafe characters dropped, very long subjects cut, subject kept as title",
               EmailNote.fileName("Re: Q&A #5 [draft]") == "Q&A 5 draft" && EmailNote.fileName(String(repeating: "a", count: 300)).count == 120 && EmailNote.fileName("...") == "untitled"

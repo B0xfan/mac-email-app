@@ -35,8 +35,13 @@ enum EmailNote {
 
     /// The subject on one line without its Fwd:/Fw:/Re: prefixes (the note is about the content, not the mail trail).
     static func subjectLine(_ s: String) -> String {
-        oneLine(s).replacingOccurrences(of: #"^((re|fwd?|aw|wg)\s*:\s*)+"#, with: "", options: [.regularExpression, .caseInsensitive])
+        let o = oneLine(s), t = o.replacingOccurrences(of: #"^((re|fwd?|aw|wg|rv|reenviado)(\[\d+\])?\s*:\s*)+"#, with: "", options: [.regularExpression, .caseInsensitive])
+        return t.isEmpty ? o : t   // a subject that is only a prefix keeps itself
     }
+
+    /// A forward's own marker line, standing alone: iPhone "Begin forwarded message:", Gmail "---------- Forwarded message ---------", Spanish and German forms.
+    /// A sentence that merely mentions it, or a quoted copy of it, does not match.
+    static let fwdMarker = #"(?:-{2,}\s*)?(?:begin forwarded message|forwarded message|inicio del mensaje reenviado|mensaje reenviado|weitergeleitete nachricht)\s*:?\s*(?:-{2,})?"#
 
     /// Subject or name on one line: control characters become spaces, invisible format characters go, spaces collapse.
     static func oneLine(_ s: String) -> String {
@@ -102,9 +107,7 @@ enum EmailNote {
     static func htmlText(_ h: String) -> String {
         var s = re(h, #"\s+"#, " ")   // the source's own line breaks mean nothing in HTML
         for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>")] { s = dropBetween(s, o, c) }
-        // a forward's content sits in a blockquote after "Begin forwarded message:"; it is the message itself, so only quotes before that line are dropped
-        let fwd = s.range(of: "forwarded message", options: .caseInsensitive)
-        s = links(fwd.map { dropBlockquotes(String(s[..<$0.lowerBound])) + s[$0.lowerBound...] } ?? dropBlockquotes(s))
+        s = links(dropBlockquotes(s))
         s = re(s, #"</(p|h[1-6]|table|ul|ol)\s*>"#, "\n\n")
         s = re(s, #"<br\s*/?>|</(div|tr|li)\s*>"#, "\n")
         s = re(s, #"<li\b[^<>]*>"#, "\n- ")
@@ -131,16 +134,26 @@ enum EmailNote {
     }
 
     /// Removes <blockquote> blocks (the quoted copies Gmail and Apple Mail add), nested ones included.
+    /// Exception: the first block after a forward's own marker outside any quote is the forwarded message itself, so it stays.
     static func dropBlockquotes(_ h: String) -> String {
-        guard let rx = try? NSRegularExpression(pattern: #"<(/?)blockquote\b[^<>]*>"#, options: .caseInsensitive) else { return h }
+        guard let rx = try? NSRegularExpression(pattern: #"<(/?)blockquote\b[^<>]*>|(?<=>)\s*"# + fwdMarker + #"\s*(?=<)"#, options: .caseInsensitive) else { return h }
         let ns = h as NSString
-        var out = "", depth = 0, last = 0
+        var out = "", depth = 0, last = 0, armed = false, keeping = false
         for m in rx.matches(in: h, range: NSRange(location: 0, length: ns.length)) {
-            if depth == 0 { out += ns.substring(with: NSRange(location: last, length: m.range.location - last)) }
-            depth = max(0, depth + (m.range(at: 1).length > 0 ? -1 : 1))
+            if m.range(at: 1).location == NSNotFound { if depth == 0 && !keeping { armed = true }; continue }   // a marker; its text stays with the next piece
+            let seg = ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            if depth == 0 || keeping { out += seg }
+            if armed && seg.range(of: #"(wrote|escribió):"#, options: .regularExpression) != nil { armed = false }   // a reply's quote, not the forward
+            if m.range(at: 1).length > 0 {
+                depth = max(0, depth - 1)
+                if depth == 0 { keeping = false }
+            } else {
+                if depth == 0 && armed { keeping = true; armed = false }
+                depth += 1
+            }
             last = m.range.location + m.range.length
         }
-        return depth == 0 ? out + ns.substring(from: last) : out
+        return depth == 0 || keeping ? out + ns.substring(from: last) : out
     }
 
     /// <a href="u">words</a> becomes a link for web addresses, the words alone otherwise; picture-only links go.
@@ -210,11 +223,13 @@ enum EmailNote {
         var lines: [String] = []
         let all = s.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }   // leading spaces would turn into code blocks in Obsidian
         func wrote(_ a: String) -> Bool { a.count <= 400 && (a.hasSuffix(" wrote:") || a.hasSuffix(" escribió:")) }
-        var i = 0, forwarded = false
+        var i = 0, fwd = 0   // fwd: 1 = a forward marker was just seen, 2 = inside the ">" block that follows it
         while i < all.count {
             var l = all[i]; i += 1
-            if l.count <= 60, l.range(of: "forwarded message", options: .caseInsensitive) != nil { forwarded = true }   // Apple Mail quotes the forwarded text with ">"; that is the content, so keep it
-            if forwarded, l.hasPrefix(">") { l = l.replacingOccurrences(of: #"^(>\s*)+"#, with: "", options: .regularExpression) }
+            // Apple Mail quotes the forwarded text with ">" right after the marker; that block is the content, so keep it. Every other quote goes.
+            if l.range(of: "^" + fwdMarker + "$", options: [.regularExpression, .caseInsensitive]) != nil { fwd = 1 }
+            else if l.hasPrefix(">") { if fwd > 0 { fwd = 2; l = l.replacingOccurrences(of: #"^(>\s*)+"#, with: "", options: .regularExpression) } }
+            else if !l.isEmpty || fwd == 2 { fwd = 0 }
             if l.hasPrefix("On ") || l.hasPrefix("El ") {   // "On ... wrote:", which Gmail may wrap onto a second line; Spanish "El ... escribió:"
                 if wrote(l) { continue }
                 if i < all.count, l.count <= 400, wrote(l + " " + all[i]) { i += 1; continue }
