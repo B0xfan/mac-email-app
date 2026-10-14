@@ -10,11 +10,12 @@ extension SelfTest {
         var jobs: [String: (at: Int, status: String, sentID: String, thread: String, note: String)] = [:]
         var log: [String] = []   // timing-server calls and Gmail sends, in order
         var gmailSendStatus = 200
-        var reminders: [String: (at: Int, status: String)] = [:], jobRemind: [String: Int] = [:]
+        var reminders: [String: (at: Int, status: String)] = [:], jobRemind: [String: Int] = [:], deleteSays: String?, deleteCode = 200, deleteTimeout = false, hits = 0
         var key: String { "K\(keyN)" }
         func handle(_ req: URLRequest) -> (Int, String) {
             let u = req.url!, m = req.httpMethod ?? "GET", p = u.path, body = req.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
             if u.host == "audreypka.com" {
+                hits += 1
                 if down { return (503, "{}") }
                 if p.hasSuffix("/register") {
                     log.append("register \(body["refresh_token"] as? String ?? "")"); registered += 1
@@ -39,7 +40,13 @@ extension SelfTest {
                         return (200, #"{"signin_ok":true,"reminders":[\#(rs.joined(separator: ","))]}"#)
                     }
                     if m == "PUT" { log.append("put reminder \(id) \(body["remind_at"] as? Int ?? 0)"); reminders[id] = (body["remind_at"] as? Int ?? 0, "pending"); return (200, #"{"status":"pending"}"#) }
-                    if m == "DELETE" { log.append("delete reminder \(id)"); return (200, #"{"status":"\#(reminders.removeValue(forKey: id)?.status ?? "none")"}"#) }
+                    if m == "DELETE" {
+                        log.append("delete reminder \(id)")
+                        if deleteTimeout { return (-1, "") }
+                        if deleteCode != 200 { return (deleteCode, #"{"status":"firing"}"#) }
+                        let had = reminders.removeValue(forKey: id)?.status ?? "none"
+                        return (200, #"{"status":"\#(deleteSays ?? had)"}"#)
+                    }
                 }
                 if m == "PUT" && putStatus != 200 { log.append("put \(id) refused"); return (putStatus, "{}") }
                 if m == "PUT" && timeout { jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (-1, "") }   // stored, but the answer never came
@@ -48,6 +55,7 @@ extension SelfTest {
                 return (404, "{}")
             }
             if u.absoluteString.contains("oauth2") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            if p.hasSuffix("/batchModify") { log.append("gmail modify") }
             if p.hasSuffix("/drafts/send") { log.append("gmail send"); return gmailSendStatus == 200 ? (200, #"{"id":"sentG","threadId":"thrG"}"#) : (gmailSendStatus, #"{"error":{"message":"gone"}}"#) }
             if p.hasSuffix("/drafts") && m == "POST" { return (200, #"{"id":"dNEW"}"#) }
             if p.contains("/drafts/") { return (200, #"{"id":"x"}"#) }
@@ -307,10 +315,41 @@ extension SelfTest {
         check("Send Later without a reminder: no remind_at is sent", fake.jobRemind["dNEW"] == nil)
         var dr = ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new); dr.remindAt = later5
         await st5.sendLater(dr, bodyHTML: "hi", at: due5)
-        check("Send Later with a reminder: remind_at goes with the job", fake.jobRemind["dNEW"] == Int(later5.timeIntervalSince1970) || st5.timing.data.scheduled.first?.server == "maybe")
+        check("Send Later with a reminder: remind_at goes with the job", fake.jobRemind["dNEW"] == Int(later5.timeIntervalSince1970))
         st5.timing.change { $0.scheduled = [ScheduledSend(draftID: "dX", at: due5, to: "x", subject: "S", remindAt: due5.addingTimeInterval(-10))] }
         await st5.syncServer()
         check("a reminder not later than the send is left out, the job still goes", st5.timing.data.scheduled.first?.server == "on" && fake.jobRemind["dX"] == nil)
+
+        // 18. Review fixes: only a clear "the service never acted" lets Mail act; no half answers
+        let noMod = { !fake.log.contains("gmail modify") }
+        addFU("r6", at: past); await st5.syncReminders()
+        fake.deleteSays = "fired"; fake.log = []
+        await st5.runTimers(); fake.deleteSays = nil
+        check("the list said pending but the service had fired by the time of the DELETE: tag only, Gmail untouched", fus().isEmpty && st5.timing.data.noReply.contains("r6") && noMod())
+        addFU("r7", at: past); await st5.syncReminders()
+        fake.deleteTimeout = true; fake.log = []
+        await st5.runTimers(); fake.deleteTimeout = false
+        check("DELETE timed out (the service may have acted): Mail waits, nothing changes", fus().map(\.messageID) == ["r7"] && !st5.timing.data.noReply.contains("r7") && noMod())
+        fake.deleteCode = 409; fake.log = []
+        await st5.runTimers()
+        check("409 firing: Mail waits for the next check", fus().map(\.messageID) == ["r7"] && noMod())
+        fake.deleteCode = 403; fake.log = []
+        await st5.runTimers(); fake.deleteCode = 200
+        check("403 from the service: Mail waits, does not act", fus().map(\.messageID) == ["r7"] && noMod())
+        await st5.runTimers()
+        check("...and acts once the service answers pending or none", fus().isEmpty && st5.timing.data.noReply.contains("r7"))
+        addFU("r10", at: past); await st5.syncReminders(); fake.down = true; fake.hits = 0
+        await st5.runTimers(); fake.down = false
+        check("service unreachable: one call is tried, the rest are skipped, Mail's own check acts", fake.hits == 1 && fus().isEmpty && st5.timing.data.noReply.contains("r10"))
+        fake.putStatus = 403; addFU("r11", at: due5); await st5.syncReminders(); fake.putStatus = 200
+        check("a 403 on putting a reminder is not a verdict: it is tried again", fus().first?.server == nil)
+        await st5.syncReminders()
+        check("...and goes through next time", fus().first?.server == "on")
+        addFU("r12", at: due5); await st5.syncReminders()
+        fake.reminders["r11"] = (dsec, "fired"); fake.log = []
+        await st5.removeAccount()
+        check("remove account: reminders the service already acted on are dropped, the rest go back to not told",
+              fake.log.contains("delete reminder r11") && fake.log.contains("delete reminder r12") && fus().map(\.messageID) == ["r12"] && fus().first?.server == nil)
         return ok
     }
 }

@@ -198,7 +198,7 @@ extension MailStore {
     /// Mail's own tag for a reminder that came back: the email sits at the top, unread, "No reply yet".
     func applyNoReply(_ id: String, now: Date) async {
         timing.change { $0.surfaced[id] = now; if !$0.noReply.contains(id) { $0.noReply.append(id) } }
-        if let m = try? await gmail.message(id: id, full: false) {
+        if let m = try? await gmail.message(id: id, full: false), m.labels.contains("INBOX") {   // archived on the phone since: the tag stays, the email does not come back
             var x = m; x.date = now
             inbox.removeAll { $0.id == x.id }; inbox.append(x); inbox.sort { $0.date > $1.date }; saveCache()
         }
@@ -208,15 +208,16 @@ extension MailStore {
     /// The timing service is asked first (DELETE): only when it never acted (pending, none, failed, or unreachable) does Mail act.
     private func checkFollowUp(_ f: FollowUp, now: Date) async {
         var serverDidIt = false
-        if f.server != "off", let srv = timingServer {
+        if f.server != "off", !offline, let srv = timingServer {
             do {
                 switch try await srv.cancel(f.messageID, reminder: true) {
                 case "fired": serverDidIt = true   // it already put the email back; only Mail's tag is missing
                 case "replied", "gone": timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }; return
                 default: timing.change { t in if let i = t.followUps.firstIndex(where: { $0.messageID == f.messageID }) { t.followUps[i].server = "off" } }   // it holds nothing now
                 }
-            } catch TimingServerError.busy { return }   // being fired right now: look again next time
-            catch {}   // unreachable: Mail does it itself
+            } catch TimingServerError.unreachable { offline = true }   // no answer at all: Mail does it itself
+            catch TimingServerError.refused(400) {}   // the service does not know this reminder: Mail does it itself
+            catch { return }   // timed out (it may have acted), busy, 401/403/429: look again next time; acting now could bring back an email archived on the phone
         }
         do {
             if serverDidIt { await applyNoReply(f.messageID, now: now) }
@@ -239,6 +240,7 @@ extension MailStore {
     func runTimers(now: Date = Date()) async {
         guard !timersBusy else { return }
         timersBusy = true; defer { timersBusy = false }
+        offline = false   // the first "unreachable" in this pass skips the other service calls
         await registerWithServer()   // first thing after launch, with the existing sign-in
         await syncServer()
         await syncReminders()

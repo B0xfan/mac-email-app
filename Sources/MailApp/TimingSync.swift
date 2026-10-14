@@ -13,7 +13,7 @@ extension MailStore {
 
     /// One pass: tell the service about new or changed emails, then read back what it did.
     func syncServer() async {
-        guard let srv = timingServer, !serverBusy, !timing.data.scheduled.isEmpty else { return }
+        guard let srv = timingServer, !serverBusy, !offline, !timing.data.scheduled.isEmpty else { return }
         serverBusy = true; defer { serverBusy = false }
         do {
             for s in timing.data.scheduled where s.server == nil || s.server == "maybe" {
@@ -61,17 +61,19 @@ extension MailStore {
                     if s.problem != nil { markScheduled(s.draftID) { $0.problem = nil } }
                 }
             }
-        } catch {}   // unreachable or refused: nothing to do now, the next check tries again
+        } catch TimingServerError.unreachable { offline = true }
+        catch {}   // refused or timed out: nothing to do now, the next check tries again
     }
 
     /// Once per launch, with the existing sign-in and no prompt: makes sure the service has this Mac registered (a first
     /// keyed call registers by itself; a key the service no longer knows is replaced). Until now only an actual Send Later
     /// made that call, so a Mac that never scheduled anything was never registered.
     func registerWithServer() async {
-        guard let srv = timingServer, !registerDone else { return }
+        guard let srv = timingServer, !registerDone, !offline else { return }
         do { _ = try await srv.reminders(); registerDone = true }
         catch TimingServerError.refused(let c) where c == 400 || c == 403 { registerDone = true }   // not on the list: do not ask again this launch
-        catch {}   // unreachable or no sign-in yet: the next check tries again
+        catch TimingServerError.unreachable { offline = true }
+        catch {}   // no sign-in yet: the next check tries again
     }
 
     private func markFollow(_ id: String, _ f: (inout FollowUp) -> Void) {
@@ -80,13 +82,14 @@ extension MailStore {
 
     /// One pass: tell the service about new reminders, then act on what it did while this Mac was off.
     func syncReminders() async {
-        guard let srv = timingServer, !reminderBusy, timing.data.followUps.contains(where: { $0.server != "off" }) else { return }
+        guard let srv = timingServer, !reminderBusy, !offline, timing.data.followUps.contains(where: { $0.server != "off" }) else { return }
         reminderBusy = true; defer { reminderBusy = false }
         do {
             for f in timing.data.followUps where f.server == nil {
                 do { try await srv.putReminder(f.messageID, thread: f.threadID, at: f.at); markFollow(f.messageID) { $0.server = "on" } }
                 catch TimingServerError.refused(429) { continue }   // too many at the service right now: next time
-                catch TimingServerError.refused { markFollow(f.messageID) { $0.server = "off" } }   // it will not hold this one: Mail does it
+                catch TimingServerError.refused(400) { markFollow(f.messageID) { $0.server = "off" } }   // it will not hold this one: Mail does it
+                catch TimingServerError.refused { continue }   // 401, 403, 404...: not a verdict on this reminder, try again next time
             }
             let list = try await srv.reminders()
             for f in timing.data.followUps where f.server == "on" {
@@ -100,7 +103,8 @@ extension MailStore {
                 timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }
                 _ = try? await srv.cancel(f.messageID, reminder: true)   // acknowledge
             }
-        } catch {}   // unreachable or refused: the Mac's own check still works
+        } catch TimingServerError.unreachable { offline = true }
+        catch {}   // refused: the Mac's own check still works
     }
 
     /// Before Keep as draft or a new time: the service must really let go. Unreachable while it may hold the email = no.
@@ -134,7 +138,9 @@ extension MailStore {
     func releaseReminders() async {
         guard let srv = timingServer else { return }
         for f in timing.data.followUps where f.server != "off" {
-            if (try? await srv.cancel(f.messageID, reminder: true)) != nil { markFollow(f.messageID) { $0.server = nil } }
+            guard let st = try? await srv.cancel(f.messageID, reminder: true) else { continue }
+            if ["fired", "replied", "gone"].contains(st) { timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } } }   // already acted on
+            else { markFollow(f.messageID) { $0.server = nil } }
         }
     }
 }

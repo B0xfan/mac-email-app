@@ -80,7 +80,7 @@ final class MailStore: ObservableObject {
     var scheduledTask: Task<Void, Never>?
     var timersBusy = false
     var timingServer: TimingServer?   // nil in tests that do not use it
-    var serverBusy = false, signinRetried = false, signinWarned = false, reminderBusy = false, registerDone = false
+    var serverBusy = false, signinRetried = false, signinWarned = false, reminderBusy = false, registerDone = false, offline = false
     @Published var timingSigninBad = false
     let timing: TimingBook
     // Phase 2 section 5: folders (Gmail labels), Smart Folders and saved searches (the last two live on this Mac)

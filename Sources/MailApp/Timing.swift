@@ -231,7 +231,7 @@ struct TimePickerCard: View {
             }
             .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 2)
             .accessibilityAddTraits(.updatesFrequently)
-            Text("Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
+            Text(kind == .remind ? "Works even when your Mac is off." : "Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
         }
         .padding(6).frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
