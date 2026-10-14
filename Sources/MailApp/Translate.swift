@@ -25,7 +25,8 @@ enum TranslateText {
     static func sample(text: String?, html: String?, snippet: String) -> String {
         if let t = text, !t.isEmpty { return t }
         if var h = html {
-            h = h.replacingOccurrences(of: "<(style|script)[^>]*>.*?</\\1>", with: " ", options: [.regularExpression, .caseInsensitive])
+            h = String(h.prefix(300_000))   // a huge newsletter is judged from its first part
+            h = h.replacingOccurrences(of: "(?s)<(style|script)[^>]*>.*?</\\1>", with: " ", options: [.regularExpression, .caseInsensitive])
             h = h.replacingOccurrences(of: "<[^>]*>", with: " ", options: .regularExpression)
             return h.htmlUnescaped.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         }
@@ -33,20 +34,45 @@ enum TranslateText {
     }
 
     /// Paragraphs for the translator (blank-line separated). Stops at `limit` characters; `cut` says the rest was left out.
-    static func paragraphs(_ text: String, limit: Int = 20_000) -> (parts: [String], cut: Bool) {
+    static func paragraphs(_ text: String, limit: Int = 20_000, chunk: Int = 5_000) -> (parts: [String], cut: Bool) {
         var out: [String] = [], n = 0
         for p in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n") {
-            let q = p.trimmingCharacters(in: .whitespacesAndNewlines)
-            if q.isEmpty { continue }
-            if n + q.count > limit { return (out, true) }
-            out.append(q); n += q.count
+            for q in pieces(p.trimmingCharacters(in: .whitespacesAndNewlines), max: chunk) {
+                if n + q.count > limit { return (out, true) }
+                out.append(q); n += q.count
+            }
         }
         return (out, false)
     }
 
+    /// A paragraph longer than `max` characters is cut at a space (never inside a word).
+    static func pieces(_ text: String, max: Int) -> [String] {
+        var rest = Substring(text), out: [String] = []
+        while rest.count > max {
+            let edge = rest.index(rest.startIndex, offsetBy: max)
+            let cut = rest[..<edge].lastIndex(where: { $0.isWhitespace }) ?? edge
+            let head = rest[..<cut].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !head.isEmpty { out.append(head) }
+            rest = rest[cut...].drop(while: { $0.isWhitespace })
+        }
+        let tail = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !tail.isEmpty { out.append(tail) }
+        return out
+    }
+
+    /// Text compared without the differences an editor adds: non-breaking spaces, line-end spaces, the number of blank lines.
+    static func norm(_ s: String) -> String {
+        let lines = s.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").map { l -> String in
+            String(l.map { $0.isWhitespace ? " " : $0 }).trimmingCharacters(in: .whitespaces)
+        }
+        var out: [String] = []
+        for l in lines { if l.isEmpty, out.last?.isEmpty ?? true { continue }; out.append(l) }
+        return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The body without the writer's signature (signatures are not translated), and the signature if the body ended with it.
     static func splitSignature(_ body: String, signature: String) -> (text: String, signature: String) {
-        let sig = signature.trimmingCharacters(in: .whitespacesAndNewlines), t = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sig = norm(signature), t = norm(body)
         guard !sig.isEmpty, t.hasSuffix(sig) else { return (t, "") }
         return (String(t.dropLast(sig.count)).trimmingCharacters(in: .whitespacesAndNewlines), sig)
     }
@@ -68,6 +94,8 @@ final class Translator: ObservableObject {
     @Published private(set) var languages: [(code: String, name: String)] = []
     private var waiting: [UUID: CheckedContinuation<[String]?, Never>] = [:]
     private var queue: [(Job, CheckedContinuation<[String]?, Never>)] = []
+    private let timeout: Double
+    init(timeout: Double = 180) { self.timeout = timeout }
 
     static var available: Bool { if #available(macOS 15.0, *) { return true } else { return false } }
 
@@ -85,7 +113,7 @@ final class Translator: ObservableObject {
         let (j, c) = queue.removeFirst()
         waiting[j.id] = c; job = j
         Task { [weak self] in   // a job nobody picks up (no open window) must not hang the caller
-            try? await Task.sleep(nanoseconds: 180_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64((self?.timeout ?? 0) * 1e9))
             self?.finish(j.id, nil)
         }
     }
@@ -169,7 +197,11 @@ extension MailStore {
         let (parts, cut) = TranslateText.paragraphs(plain)
         let target = TranslateText.myLanguage
         guard !parts.isEmpty, let out = await Translator.shared.translate([m.subject] + parts, from: code, to: target), out.count == parts.count + 1 else {
-            status = "Mail could not translate this email. The Mac may still be getting the language ready."; return
+            guard openMail?.id == m.id else { return }   // the answer must not show over another email
+            let msg = "Mail could not translate this email. The Mac may still be getting the language ready."
+            status = msg
+            Task { try? await Task.sleep(nanoseconds: 8_000_000_000); if status == msg { status = "" } }
+            return
         }
         translations[m.id] = MailTranslation(from: TranslateText.name(TranslateText.base(code)), to: TranslateText.name(target), subject: out[0], body: out.dropFirst().joined(separator: "\n\n"), cut: cut)
         translationShown.insert(m.id)
@@ -201,10 +233,11 @@ final class ComposeTranslate: ObservableObject {
     @Published var result: String?
     @Published var busy = false
     @Published var message: String?
+    var source = ""   // the text that was translated; "Use this" refuses if the email no longer says this
     init(replyTo language: String?) {
         let saved = UserDefaults.standard.string(forKey: "translateTarget")
         let wanted = language.map(TranslateText.base)
-        target = [wanted, saved].compactMap { $0 }.first { !TranslateText.myLanguages.contains($0) } ?? "es"
+        target = [wanted, saved, "es", "en"].compactMap { $0 }.first { !TranslateText.myLanguages.contains($0) } ?? "es"
     }
     var targetName: String { TranslateText.name(target) }
 
@@ -214,17 +247,23 @@ final class ComposeTranslate: ObservableObject {
         let (text, _) = TranslateText.splitSignature(await editor.text(), signature: signature)
         let (parts, _) = TranslateText.paragraphs(text)
         guard !parts.isEmpty else { message = "Write something first, then translate it."; return }
-        guard let out = await Translator.shared.translate(parts, from: TranslateText.myLanguage, to: target), out.count == parts.count else {
+        guard let out = await Translator.shared.translate(parts, from: nil, to: target), out.count == parts.count else {
             message = "Mail could not translate this. The Mac may still be getting \(targetName) ready."; return
         }
+        source = text
         result = out.joined(separator: "\n\n")
     }
 
-    func use(editor: EditorController, signature: String) async {
+    /// Puts the translation in, unless the email was changed after it was translated (then nothing is replaced).
+    func use(current: String, signature: String, insert: (String) -> Void) {
         guard let r = result else { return }
-        let (_, sig) = TranslateText.splitSignature(await editor.text(), signature: signature)
-        editor.setHTML(TranslateText.composeHTML(translation: r, signature: sig))
+        let (now, sig) = TranslateText.splitSignature(current, signature: signature)
+        guard now == source else { result = nil; message = "You changed the email. Translate it again."; return }
+        insert(TranslateText.composeHTML(translation: r, signature: sig))
         result = nil
+    }
+    func use(editor: EditorController, signature: String) async {
+        use(current: await editor.text(), signature: signature) { editor.insertHTML($0) }
     }
 
     func choose(_ code: String) { target = code; UserDefaults.standard.set(code, forKey: "translateTarget"); result = nil }

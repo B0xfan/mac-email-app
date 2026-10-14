@@ -54,10 +54,48 @@ extension SelfTest {
         let sp = TranslateText.splitSignature("Yes, I can.\n\nJohn\nCosta Rica", signature: "John\nCosta Rica")
         check("translate: my signature is not translated and goes back as it was", sp.text == "Yes, I can." && sp.signature == "John\nCosta Rica" && TranslateText.splitSignature("Hi", signature: "John").signature == ""
               && TranslateText.composeHTML(translation: "Si <b>", signature: "John") == "<div>Si &lt;b&gt;</div><div><br></div><div>John</div>" && TranslateText.composeHTML(translation: "Si", signature: "") == "<div>Si</div>")
-        let (jobs, none) = await MainActor.run { () -> (Bool, Bool) in
-            let t = Translator.shared; return (t.job == nil, !Translator.available || true) }
+        let big = String(repeating: "word ", count: 6000)
+        let bp = TranslateText.paragraphs(big)
+        check("translate: one huge paragraph is cut at spaces into pieces, up to the 20,000 limit, instead of failing",
+              !bp.parts.isEmpty && bp.cut && bp.parts.allSatisfy { $0.count <= 5000 && $0.split(separator: " ").allSatisfy { $0 == "word" } } && bp.parts.map(\.count).reduce(0, +) <= 20_000)
+        let css = "<style>\n" + String(repeating: "p { color: red;\n margin: 0 }\n", count: 200) + "</style><p>" + es + "</p>"
+        let smp = TranslateText.sample(text: nil, html: css, snippet: "")
+        check("translate: a many-line style block in a newsletter does not hide its language", !smp.contains("color") && TranslateText.foreignLanguage(of: smp, mine: ["en"]) == "es")
+        let nb = TranslateText.splitSignature("Hola\u{00A0}\n\n\n\nJohn\u{00A0}\nCosta\u{00A0}Rica", signature: "John\nCosta Rica")
+        check("translate: the signature is found even with non-breaking spaces or a different number of blank lines", nb.text == "Hola" && nb.signature == "John\nCosta Rica")
+        let (refused, accepted, msg) = await MainActor.run { () -> (String?, String?, String?) in
+            let m = ComposeTranslate(replyTo: nil); m.result = "Si"; m.source = "Yes"
+            var a: String?; m.use(current: "Yes, and more\n\nJohn", signature: "John") { a = $0 }
+            let note = m.message
+            m.result = "Si"; m.message = nil
+            var b: String?; m.use(current: "Yes\u{00A0}\n\n\nJohn", signature: "John") { b = $0 }
+            return (a, b, note)
+        }
+        check("translate: 'Use this' puts nothing in if the email was changed after translating, and says so; unchanged text goes in with the signature",
+              refused == nil && msg == "You changed the email. Translate it again." && accepted == "<div>Si</div><div><br></div><div>John</div>")
+        let target = await MainActor.run { ComposeTranslate(replyTo: "es-CR").target }
+        check("translate: the writing target is never the Mac's own language", !TranslateText.myLanguages.contains(target))
+        if Translator.available {
+            let t = await MainActor.run { Translator(timeout: 0.3) }
+            let none = await t.translate(["a"], from: "es", to: "en")
+            let idle = await MainActor.run { t.job == nil }
+            check("translate queue: a job nobody picks up is given up after the timeout and the queue is free again", none == nil && idle)
+            let q = await MainActor.run { Translator(timeout: 20) }
+            async let r1 = q.translate(["a"], from: "es", to: "en")
+            async let r2 = q.translate(["b"], from: "es", to: "en")
+            var served: [[String]] = []
+            for _ in 0..<2 {
+                var job: Translator.Job?
+                for _ in 0..<100 { job = await MainActor.run { q.job }; if job != nil { break }; try? await Task.sleep(nanoseconds: 50_000_000) }
+                guard let job else { break }
+                served.append(job.texts)
+                await MainActor.run { q.finish(job.id, job.texts.map { $0.uppercased() }); q.finish(UUID(), nil) }   // an unknown id is harmless
+            }
+            let (a, b) = await (r1, r2)
+            check("translate queue: jobs run one at a time, each caller gets its own answer", Set(served.map { $0[0] }) == ["a", "b"] && a == ["A"] && b == ["B"])
+        } else { print("PASS translate queue: skipped, needs macOS 15") }
         let nothing = await Translator.shared.translate([], from: "es", to: "en")
-        check("translate: nothing to translate answers at once with no job queued", jobs && none && nothing == nil)
+        check("translate: nothing to translate answers at once", nothing == nil)
         if !(await searchPagingChecks()) { ok = false }
         if !(await inboxBudgetChecks()) { ok = false }
         check("search: an address after 'from' is used whole", p("from tomas@x.example").gmail == "from:\"tomas@x.example\"")

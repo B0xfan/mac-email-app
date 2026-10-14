@@ -221,10 +221,10 @@ final class EditorController: ObservableObject {
             web.evaluateJavaScript("document.getElementById('ed').innerText") { r, _ in c.resume(returning: (r as? String) ?? "") }
         }
     }
-    /// Replaces everything in the writing area.
-    func setHTML(_ html: String) {
+    /// Replaces everything in the writing area the way typing would, so Command-Z undoes it.
+    func insertHTML(_ html: String) {
         guard let d = try? JSONEncoder().encode(html), let lit = String(data: d, encoding: .utf8) else { return }
-        run("document.getElementById('ed').innerHTML=\(lit)")
+        run("var e=document.getElementById('ed');e.focus();document.execCommand('selectAll');document.execCommand('insertHTML',false,\(lit))")
     }
     func html() async -> String {
         guard let web else { return "" }
