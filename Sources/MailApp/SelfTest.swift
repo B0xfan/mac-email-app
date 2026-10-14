@@ -53,7 +53,12 @@ enum SelfTest {
         // RFC 7636 appendix B vector
         check("PKCE challenge matches RFC 7636 vector",
               PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
-        check("client file loads", (try? ClientCredentials.load()) != nil)
+        // The Google client file is not on the CI runner: skip there only; locally a missing file still FAILs.
+        if (try? ClientCredentials.load()) == nil, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil {
+            print("SKIP client file loads (CI)")
+        } else {
+            check("client file loads", (try? ClientCredentials.load()) != nil)
+        }
 
         // Share hand-off: only a UUID token resolves, only inside the hand-off folder
         do {

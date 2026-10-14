@@ -28,9 +28,8 @@ jobs:
           path: AudreyMail.zip
           retention-days: 3
           compression-level: 0
-      # The self-test lives in the debug build only. A GUI-less runner may fail it; that must not fail the build.
+      # The self-test lives in the debug build only. A failing or non-compiling self-test must fail the run.
       - name: Self-test (result is in this log)
-        continue-on-error: true
         timeout-minutes: 25
         run: |
           swift build
