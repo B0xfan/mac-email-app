@@ -206,6 +206,7 @@ enum SelfTest {
         if !(await partPins()) { ok = false }
         if !(await partStore()) { ok = false }
         if !(await partTiming()) { ok = false }
+        if !(await partTimingServer()) { ok = false }
         if !(await partPhase4()) { ok = false }
         if !partSaveNote() { ok = false }
         if !(await partSenderWarnings()) { ok = false }

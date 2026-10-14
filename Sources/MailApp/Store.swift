@@ -79,6 +79,9 @@ final class MailStore: ObservableObject {
     var pendingScheduled: (draftID: String, tid: UUID)?
     var scheduledTask: Task<Void, Never>?
     var timersBusy = false
+    var timingServer: TimingServer?   // nil in tests that do not use it
+    var serverBusy = false, signinRetried = false, signinWarned = false
+    @Published var timingSigninBad = false
     let timing: TimingBook
     // Phase 2 section 5: folders (Gmail labels), Smart Folders and saved searches (the last two live on this Mac)
     @Published var folders: [FolderNode] = []
@@ -121,10 +124,10 @@ final class MailStore: ObservableObject {
     /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
     let pendingDir: URL?
 
-    init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(),
+    init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(), timingServer: TimingServer? = nil,
          blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil) {
         self.cacheURL = cacheURL; self.pendingDir = pendingDir
-        self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.blockLabelName = blockLabelName
+        self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.timingServer = timingServer; self.blockLabelName = blockLabelName
         SenderPictures.shared.contacts = contacts
     }
 

@@ -109,6 +109,8 @@ struct ScheduledSend: Codable, Identifiable, Equatable {
     var to: String
     var subject: String
     var remindAt: Date?
+    var server: String?    // nil = not yet told to the timing service, "on" = it holds the job, "off" = it holds nothing (Mail sends it)
+    var problem: String?   // what the timing service reported: "Could not send" or "Sign-in needed"
     var id: String { draftID }
 }
 
@@ -290,12 +292,14 @@ struct ScheduledList: View {
     @ObservedObject var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
-            PlaceHeader(title: "Scheduled", note: "Emails waiting to be sent. They wait in Gmail as drafts, so your phone shows them in Drafts. Mail must be open for them to go out on time.")
+            PlaceHeader(title: "Scheduled", note: "Emails waiting to be sent. They wait in Gmail as drafts, so your phone shows them in Drafts. If this Mac is off, the timing service sends them.")
+            if store.timingSigninBad { Tag(text: "The timing service needs you to sign in again", warm: true).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4) }
             ForEach(store.timing.data.scheduled.sorted { $0.at < $1.at }) { s in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text("To: \(Address.parse(s.to).display)").font(.system(size: 14, weight: .semibold)).lineLimit(1)
                         Tag(text: "Sends " + TimeParser.short(s.at))
+                        if let p = s.problem { Tag(text: p, warm: true) }
                         Spacer(minLength: 8)
                         Text("Draft").font(Theme.small).foregroundStyle(Theme.sub)
                     }
@@ -303,7 +307,7 @@ struct ScheduledList: View {
                     HStack(spacing: 8) {
                         Button("Send now") { Task { await store.sendScheduledNow(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .primary, small: true))
                         Button("Change time") { store.picker = .changeScheduled(s.draftID) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
-                        Button("Keep as draft") { store.unschedule(s.draftID) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                        Button("Keep as draft") { Task { await store.unschedule(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                             .help("Stop the timer. The email stays in Drafts.")
                     }.padding(.top, 4)
                 }

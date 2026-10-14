@@ -17,8 +17,10 @@ extension MailStore {
             timing.change { $0.snoozes[id] = d }; objectWillChange.send()
             showToast("Snoozed until \(TimeParser.short(d)).")
         case .changeScheduled(let id):
-            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d } }; objectWillChange.send()
+            guard await serverAgrees(id, newTime: d) else { return }   // an old time still held by the service could send it early
+            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; if t.scheduled[i].server == "on" { t.scheduled[i].server = nil } } }; objectWillChange.send()
             showToast("Will send \(TimeParser.short(d)).")
+            await syncServer()
         default: break
         }
     }
@@ -94,16 +96,19 @@ extension MailStore {
             timing.change { $0.scheduled.removeAll { $0.draftID == id }; $0.scheduled.append(ScheduledSend(draftID: id, at: at, to: d.to, subject: d.subject, remindAt: d.remindAt)) }
             compose = nil
             showToast("Will send \(TimeParser.short(at)). It is in Scheduled in the sidebar.")
+            await syncServer()   // tells the timing service; if it cannot be reached, the next check does
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not schedule the email." }
     }
 
-    func unschedule(_ draftID: String) {
+    func unschedule(_ draftID: String) async {
+        guard await serverAgrees(draftID) else { return }   // the timing service must let go first
         timing.change { $0.scheduled.removeAll { $0.draftID == draftID } }; objectWillChange.send()
         showToast("Kept in Drafts. It will not be sent.")
     }
 
     /// Drops schedules whose draft is gone (sent or deleted on the phone). Errors other than "not found" keep them.
     func verifyScheduled() async -> Int {
+        await syncServer()   // first: an email the service sent while Mail was closed is told as "sent", not "deleted"
         var dropped = 0
         for s in timing.data.scheduled {
             if (try? await gmail.draftExists(id: s.draftID)) == false {
@@ -129,6 +134,7 @@ extension MailStore {
                 return
             }
         } catch { return }   // offline: try again on the next check
+        await releaseServer(s.draftID)   // before touching the draft; Undo then needs nothing from the service
         let delay = settings.undoDelay
         toast = ToastInfo(text: MailStore.sendingText(delay), action: "Undo")
         let tid = toast!.id
@@ -154,6 +160,9 @@ extension MailStore {
                 }
                 self.objectWillChange.send()
                 if self.toast?.id == tid { self.showToast("Sent.", seconds: 4) }
+            } catch GmailError.http(404, _) {   // the draft is gone: the timing service (or the phone) sent it first
+                self.timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }; self.objectWillChange.send()
+                if self.toast?.id == tid { self.showToast("\u{201C}\(s.subject)\u{201D} was already sent.", seconds: 6) }
             } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "The scheduled email could not be sent. It is still in Scheduled." }
         }
     }
@@ -196,6 +205,7 @@ extension MailStore {
     func runTimers(now: Date = Date()) async {
         guard !timersBusy else { return }
         timersBusy = true; defer { timersBusy = false }
+        await syncServer()
         let wakeIDs = TimingRules.due(timing.data.snoozes, now: now).filter { id in snoozed.contains { $0.id == id } }
         if !wakeIDs.isEmpty { await wake(wakeIDs, now: now) }
         for f in timing.data.followUps where f.at <= now { await checkFollowUp(f, now: now) }

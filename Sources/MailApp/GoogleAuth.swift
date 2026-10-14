@@ -150,7 +150,7 @@ final class LoopbackListener: @unchecked Sendable {
     func cancel() { finish(.failure(CancellationError())) }
 }
 
-struct StoredSignIn: Codable { var refreshToken: String; var email: String? }
+struct StoredSignIn: Codable { var refreshToken: String; var email: String?; var timingKey: String? }   // timingKey: the timing service's key, kept with the sign-in
 
 /// Owns the sign-in lifecycle. Refresh token in the private sign-in file (see SignInFile); access token in memory only.
 actor GoogleAuth {
@@ -201,6 +201,14 @@ actor GoogleAuth {
         try? SignInFile.write(d, to: file)
         cachedSignIn = s
         return s
+    }
+
+    func refreshToken() -> String? { stored()?.refreshToken }
+    func timingKey() -> String? { stored()?.timingKey }
+    func setTimingKey(_ k: String?) {
+        guard var s = stored() else { return }
+        s.timingKey = k
+        if let d = try? JSONEncoder().encode(s), (try? SignInFile.write(d, to: file)) != nil { cachedSignIn = s }
     }
 
     func signOut() {
