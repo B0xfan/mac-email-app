@@ -11,4 +11,6 @@ SIGNKC="$SUPPORT/signing.keychain-db"
 if [ ! -f "$SIGNKC" ]; then echo "Signing keychain missing: $SIGNKC - run scripts/setup-signing.sh"; exit 1; fi
 security unlock-keychain -p "$(cat "$SUPPORT/signing.pw")" "$SIGNKC"
 codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.share --entitlements ShareExtension/MailShare.entitlements "$EXT"
+HELPER="$APP/Contents/MacOS/AudreyMailClaude"
+if [ -f "$HELPER" ]; then codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.claude "$HELPER"; fi
 codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp "$APP"

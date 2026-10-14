@@ -37,7 +37,7 @@ enum TranslateText {
     static func paragraphs(_ text: String, limit: Int = 20_000, chunk: Int = 5_000) -> (parts: [String], cut: Bool) {
         var out: [String] = [], n = 0
         for p in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n") {
-            for q in pieces(p.trimmingCharacters(in: .whitespacesAndNewlines), max: chunk) {
+            for q in pieces(String(p.prefix(limit + chunk + 1)).trimmingCharacters(in: .whitespacesAndNewlines), max: chunk) {   // never walk a multi-megabyte paragraph past the cap
                 if n + q.count > limit { return (out, true) }
                 out.append(q); n += q.count
             }
