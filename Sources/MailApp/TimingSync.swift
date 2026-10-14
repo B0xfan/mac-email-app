@@ -69,7 +69,7 @@ extension MailStore {
     /// keyed call registers by itself; a key the service no longer knows is replaced). Until now only an actual Send Later
     /// made that call, so a Mac that never scheduled anything was never registered.
     /// Only inside a timer pass: a direct call (Send Later, Change time) must still try the service.
-    func markOffline() { if timersBusy { markOffline() } }
+    func markOffline() { if timersBusy { offline = true } }
 
     func registerWithServer() async {
         guard let srv = timingServer, !registerDone, !offline else { return }
