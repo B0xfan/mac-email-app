@@ -1102,8 +1102,11 @@ enum SelfTest {
         }
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sp-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
-        var web: [String: Data] = [:], asked: [String] = []
-        let fetch: (URL) async -> Data? = { u in asked.append(u.absoluteString); return web[u.absoluteString] }
+        var web: [String: Data] = [:], asked: [String] = [], down = false, lag: UInt64 = 0
+        let fetch: SenderPictures.Fetcher = { u, _ in
+            asked.append(u.absoluteString); if lag > 0 { try? await Task.sleep(nanoseconds: lag) }
+            return down ? .error : (web[u.absoluteString].map(Fetch.ok) ?? .none)
+        }
         let sp = SenderPictures(dir: dir, fetch: fetch)
         var clock = Date(timeIntervalSince1970: 1_800_000_000); sp.now = { clock }
 
@@ -1148,6 +1151,68 @@ enum SelfTest {
         asked = []
         await sp.load("me@gmail.com")
         check("picture: free mail services are never asked (their logo is not the person)", asked.isEmpty && sp.picture(for: "me@gmail.com") == nil)
+
+        // 2: only plain domain names are ever fetched
+        let bad = ["1.2.3.4", "localhost", "a.com:8080", "a_b.com", "-a.com", "a..com", "a.com.", "a.b1", "0x7f.0x1", "exämple.com", "a.com/x", String(repeating: "a", count: 250) + ".com", ""]
+        check("domain: IP addresses, ports, odd characters, no dot, too long are refused",
+              bad.allSatisfy { !SenderPictures.validDomain($0) } && ["e.united.com", "a-b.co.cr", "x.xn--p1ai", "shop.example"].allSatisfy(SenderPictures.validDomain))
+        asked = []
+        await sp.load("a@1.2.3.4"); await sp.load("a@localhost"); await sp.load("a@host.com:81")
+        check("domain: a refused name asks nothing and shows initials", asked.isEmpty && sp.picture(for: "a@1.2.3.4") == nil)
+
+        // 3: flagged senders and Spam get no website lookup, and no icon already known for the domain
+        asked = []
+        await sp.load("evil@fresh.example", web: false)
+        check("flagged/Spam: no website is asked", asked.isEmpty && sp.picture(for: "evil@fresh.example", web: false) == nil)
+        check("flagged/Spam: a domain whose icon is known still shows initials for a flagged sender",
+              sp.picture(for: "x@shop.example") != nil && sp.picture(for: "x@shop.example", web: false) == nil)
+        check("flagged/Spam: the list row's check says no for Spam and for a failed sender check",
+              !SenderCheck.siteIconOK(Mail(id: "s", from: Address(name: "A", email: "a@shop.example"), subject: "", snippet: "", date: clock, labels: ["SPAM"]))
+              && SenderCheck.siteIconOK(Mail(id: "n", from: Address(name: "A", email: "a@shop.example"), subject: "", snippet: "", date: clock, labels: ["INBOX"]))
+              && !SenderCheck.siteIconOK({ var m = Mail(id: "f", from: Address(name: "A", email: "a@shop.example"), subject: "", snippet: "", date: clock); m.authResults = "mx.google.com; dmarc=fail header.from=shop.example"; return m }()))
+
+        // 4: only a clean "not found" is a miss; trouble is not, and a failed refresh keeps the old icon
+        down = true; asked = []
+        await sp.load("z@trouble.example")
+        let first = asked.count
+        asked = []; await sp.load("z@trouble.example")
+        check("misses: a network error / timeout / 429 / 5xx is not remembered (asked again)", first > 0 && !asked.isEmpty && sp.picture(for: "z@trouble.example") == nil)
+        check("misses: 404 is a clean miss, 429 / 5xx / timeout are not",
+              { if case .none = SenderPictures.status(404) { return true }; return false }() && [429, 500, 503, 408, 302].allSatisfy { if case .error = SenderPictures.status($0) { return true }; return false })
+        clock = clock.addingTimeInterval(40 * 86400); asked = []
+        let stale = SenderPictures(dir: dir, fetch: fetch); stale.now = { clock }
+        await stale.load("a@shop.example")
+        check("misses: a failed refresh keeps the old icon on screen and asks again next time",
+              stale.picture(for: "a@shop.example")?.px == 96 && !asked.isEmpty)
+        down = false
+
+        // 1: downloads are capped, and slow ones end
+        func stream(_ n: Int) -> AsyncStream<UInt8> { AsyncStream { c in for _ in 0..<n { c.yield(7) }; c.finish() } }
+        var r1 = "", r2 = "", r3 = "", r4 = ""
+        switch await SenderPictures.capped(stream(1000), declared: 1000, cap: 300, prefixOK: false) { case .none: r1 = "none"; default: r1 = "other" }
+        switch await SenderPictures.capped(stream(1000), declared: -1, cap: 300, prefixOK: false) { case .none: r2 = "none"; default: r2 = "other" }
+        switch await SenderPictures.capped(stream(1000), declared: -1, cap: 300, prefixOK: true) { case .ok(let d): r3 = "ok\(d.count)"; default: r3 = "other" }
+        switch await SenderPictures.capped(stream(200), declared: 200, cap: 300, prefixOK: false) { case .ok(let d): r4 = "ok\(d.count)"; default: r4 = "other" }
+        check("download: an oversized declared length is refused; a stream past the cap is cut off (a page keeps its start)", r1 == "none" && r2 == "none" && r3 == "ok300" && r4 == "ok200")
+        let t0 = Date()
+        let slow: Fetch = await SenderPictures.withDeadline(0.2, fallback: .error) { try? await Task.sleep(nanoseconds: 5_000_000_000); return .ok(Data()) }
+        var slowErr = false; if case .error = slow { slowErr = true }
+        check("download: a download that never finishes ends at the deadline as an error", slowErr && Date().timeIntervalSince(t0) < 2)
+        check("download: an image over 1024 px is refused before it is decoded", SenderPictures.shrink(png(1100), photo: false) == nil && SenderPictures.shrink(png(1000), photo: false) != nil)
+
+        // 5: two rows of one domain both end with the picture, even when the first row scrolls away
+        web["https://twin.example/favicon.ico"] = png(32); lag = 150_000_000; asked = []
+        let t1 = Task { await sp.load("a@twin.example") }, t2 = Task { await sp.load("b@twin.example") }
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        t1.cancel(); await t1.value; await t2.value
+        check("same domain: the second row gets the picture although the first row was cut off", sp.picture(for: "b@twin.example") != nil)
+        web["https://twin2.example/favicon.ico"] = png(32); asked = []
+        let u1 = Task { await sp.load("a@twin2.example") }, u2 = Task { await sp.load("b@twin2.example") }
+        await u1.value; await u2.value
+        check("same domain: two rows at once fetch once and both show the picture",
+              sp.picture(for: "a@twin2.example") != nil && sp.picture(for: "b@twin2.example") != nil && asked.filter { $0.hasSuffix("/favicon.ico") }.count == 1)
+        lag = 0
+        await SenderPictures.drain()
         return ok
     }
 

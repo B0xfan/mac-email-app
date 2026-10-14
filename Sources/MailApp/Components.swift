@@ -105,12 +105,13 @@ extension View { func tip(_ text: String) -> some View { background(TipView(text
 struct Avatar: View {
     let text: String
     var size: CGFloat = 40
+    var web = true             // false (flagged sender, Spam): never look the sender's website up
     var email: String? = nil   // given: show the Contacts photo or company icon when there is one (only while "Sender pictures" is on)
     @ObservedObject private var pics = SenderPictures.shared
     @ObservedObject private var settings = AppSettings.shared
     var body: some View {
         let on = settings.senderPictures && !SnapshotMode.on ? email : nil   // drawn test screens never go online
-        let pic = on.flatMap { pics.picture(for: $0) }
+        let pic = on.flatMap { pics.picture(for: $0, web: web) }
         ZStack {
             if let p = pic, p.icon {
                 // a small icon stays its own size, centered on white; it is never stretched
@@ -125,7 +126,7 @@ struct Avatar: View {
             }
         }
         .frame(width: size, height: size).accessibilityHidden(true)
-        .task(id: "\(on ?? "")") { if let e = on { await pics.load(e) } }
+        .task(id: "\(on ?? "")|\(web)") { if let e = on { await pics.load(e, web: web) } }
     }
 }
 

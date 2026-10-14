@@ -478,7 +478,7 @@ struct MessageRow: View {
     private var rowButton: some View {
         Button(action: tap) {
             HStack(alignment: .top, spacing: 10) {
-            if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email) }
+            if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail)) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
@@ -663,6 +663,7 @@ struct ReadingContent: View {
         let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers)
         let sender = mail.from.email.lowercased()
         let loadImgs = HTMLSafety.shouldLoadImages(auto: store.settings.loadImages, senderAllowed: store.settings.imageSenders.contains(sender), loadedThisEmail: store.imagesLoaded.contains(mail.id))
+        let warns = store.senderWarnings(mail)
         VStack(alignment: .leading, spacing: 10) {
             if store.selectedIsNewSender {
                 Card(padding: 12) {
@@ -674,11 +675,11 @@ struct ReadingContent: View {
                 }
             }
             HStack(spacing: 12) {
-                Avatar(text: mail.from.initials, size: 36, email: mail.from.email)
+                Avatar(text: mail.from.initials, size: 36, email: mail.from.email, web: warns.isEmpty && !mail.labels.contains("SPAM"))
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 8) {
                         Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)
-                        ForEach(store.senderWarnings(mail), id: \.label) { SenderWarningLabel(warning: $0) }
+                        ForEach(warns, id: \.label) { SenderWarningLabel(warning: $0) }
                         Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
                     }.id(mail.id)   // a bubble left open does not carry over to the next email
                     if store.mailbox != .recent { Text(Fmt.long(mail.date)).font(Theme.small).foregroundStyle(Theme.sub) }

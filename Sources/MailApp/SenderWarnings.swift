@@ -108,6 +108,9 @@ enum SenderCheck {
         return p.suffix(three ? 3 : 2).joined(separator: ".")
     }
 
+    /// A list row has no address book to compare names with, so it uses the two checks that need only the email itself. Spam never gets a website lookup.
+    static func siteIconOK(_ m: Mail) -> Bool { !m.labels.contains("SPAM") && warnings(m, me: [], isNew: false, known: []).isEmpty }
+
     /// Names that many unrelated senders use; a match on these says nothing about who wrote.
     static let generic: Set<String> = ["info", "support", "customer service", "team", "admin", "no reply", "noreply", "no-reply", "newsletter", "notifications", "hello", "help", "billing", "sales"]
 
