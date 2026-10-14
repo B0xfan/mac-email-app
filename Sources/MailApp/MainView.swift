@@ -348,7 +348,7 @@ struct ListPane: View {
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
         MaybeScroll {
-            VStack(spacing: 8) {
+            ListStack(spacing: 8) {
                 if store.mailbox == .inbox { AwayStrip(store: store) }
                 if store.mailbox == .inbox || store.mailbox == .newSenders, store.settings.screenNewSenders, !store.newSenderRows.isEmpty {
                     NewSendersStrip(store: store)
@@ -405,6 +405,7 @@ struct ListPane: View {
                         MessageRow(mail: m, selected: store.selectedID == m.id, swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
                             .contextMenu { moveToFolderMenu(store, m) }
                     } }
+                    if store.mailbox != .inbox, store.otherNext != nil { MoreRow(loading: store.loadingOtherMore, page: store.otherNext) { await store.loadMoreOther() } }
                     if store.listMails.isEmpty && !store.loading && store.mailbox != .snoozed && store.mailbox != .scheduled {
                         Text(emptyText).font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 32)
                     }

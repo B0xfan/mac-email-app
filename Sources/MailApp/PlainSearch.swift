@@ -14,7 +14,8 @@ enum PlainSearch {
     struct Result: Equatable {
         var gmail: String            // what goes to Gmail
         var chips: [SearchChip]      // what Mail understood
-        var passthrough: Bool        // typed Gmail syntax (from:bob, quotes): sent unchanged
+        var words: [String] = []     // the words left over after the tags (what private notes are searched for)
+        var passthrough: Bool        // typed Gmail operators (from:bob): sent unchanged
         var understood: Bool { !chips.isEmpty }
     }
 
@@ -28,25 +29,27 @@ enum PlainSearch {
         return t.joined(separator: " ")
     }
 
+    private static let operatorPattern = "^-?(from|to|cc|bcc|in|is|has|label|category|after|before|older|newer|older_than|newer_than|subject|filename|size|larger|smaller|list|deliveredto|rfc822msgid|after):"
     private static let months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
     private static let nameStops: Set<String> = ["from", "to", "sent", "this", "last", "past", "in", "on", "during", "about", "with", "unread", "today", "yesterday",
-                                                 "since", "before", "after", "and", "that", "has", "have", "having", "attachment", "attachments", "containing", "regarding"]
+                                                 "since", "or", "before", "after", "and", "that", "has", "have", "having", "attachment", "attachments", "containing", "regarding"]
     private static let fillers: Set<String> = ["show", "find", "search", "get", "all", "me", "my", "emails", "email", "mails", "mail", "messages", "message",
                                                "of", "the", "a", "an", "that", "are", "is", "with", "and", "from", "to", "sent", "about", "for"]
 
     static func parse(_ text: String, now: Date = Date(), calendar cal: Calendar = .current) -> Result {
         let raw = tokens(text)
-        // typed Gmail syntax keeps working exactly as before
-        if text.contains(":") || text.contains("\"") || text.contains("(") { return Result(gmail: text, chips: [], passthrough: true) }
+        // typed Gmail operators (from:bob) keep working exactly as before; a colon elsewhere ("re: invoice", "3:30") is just a word
+        if raw.contains(where: { $0.lowercased().range(of: operatorPattern, options: .regularExpression) != nil }) { return Result(gmail: text, chips: [], words: [], passthrough: true) }
         let n = raw.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.?!;")) }
         var used = Set<Int>(), chips: [SearchChip] = [], parts: [String] = []
         var haveDate = false, haveUnread = false, haveAttach = false
 
         func take(_ r: Range<Int>, _ label: String, _ q: String) { used.formUnion(r); chips.append(SearchChip(label: label, tokens: r)); parts.append(q) }
         func name(from j: Int) -> (String, Range<Int>)? {
-            var k = j
-            while k < n.count, k - j < 4, !nameStops.contains(n[k]), !n[k].isEmpty { k += 1 }
-            guard k > j else { return nil }
+            // one word, or two when both start with a capital ("Tomas Garcia"); "from Amazon invoice" is Amazon plus the word invoice
+            guard j < n.count, !nameStops.contains(n[j]), !n[j].isEmpty else { return nil }
+            var k = j + 1
+            if k < n.count, !nameStops.contains(n[k]), raw[j].first?.isUppercase == true, raw[k].first?.isUppercase == true, !raw[j].hasSuffix(",") { k += 1 }
             let words = raw[j..<k].map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ",.?!;")) }
             return (words.joined(separator: " "), j..<k)
         }
@@ -79,8 +82,13 @@ enum PlainSearch {
             }
         }
         // what is left stays ordinary search words
-        for (k, t) in raw.enumerated() where !used.contains(k) && !fillers.contains(n[k]) { parts.append(t) }
-        return Result(gmail: parts.joined(separator: " "), chips: chips.sorted { $0.tokens.lowerBound < $1.tokens.lowerBound }, passthrough: false)
+        var words: [String] = []
+        for (k, t) in raw.enumerated() where !used.contains(k) && !fillers.contains(n[k]) {
+            // a stray OR next to a tag would leave Gmail with half a choice
+            if t == "OR", k == 0 || k == raw.count - 1 || used.contains(k - 1) || used.contains(k + 1) { continue }
+            words.append(t)
+        }
+        return Result(gmail: (parts + words).joined(separator: " "), chips: chips.sorted { $0.tokens.lowerBound < $1.tokens.lowerBound }, words: words, passthrough: false)
     }
 
     // MARK: dates
@@ -102,12 +110,12 @@ enum PlainSearch {
         }
         if w == "last" || w == "past", let c = Int(at(i + 1)), c > 0, c <= 3650 {
             let unit = at(i + 2)
-            let days = unit.hasPrefix("day") ? c : unit.hasPrefix("week") ? c * 7 : unit.hasPrefix("month") ? c * 30 : 0
-            if days > 0 { return (i..<(i + 3), day(-days)..<day(1)) }
+            let comp: Calendar.Component? = unit.hasPrefix("day") ? .day : unit.hasPrefix("week") ? .weekOfYear : unit.hasPrefix("month") ? .month : unit.hasPrefix("year") ? .year : nil
+            if let comp, let start = cal.date(byAdding: comp, value: -c, to: today) { return (i..<(i + 3), start..<day(1)) }
         }
         // "in August", "August 2025", "in 2025"
         let pre = (w == "in" || w == "during") ? 1 : 0
-        let m = months.firstIndex { $0 == at(i + pre) || ($0.count > 3 && $0.prefix(3) == at(i + pre)) }
+        let m = months.firstIndex { $0 == at(i + pre) || ($0.count > 3 && $0.prefix(3) == at(i + pre)) || ($0 == "september" && at(i + pre) == "sept") }
         let yearTok = at(i + pre + (m == nil ? 0 : 1))
         let year = yearTok.count == 4 ? Int(yearTok).flatMap { (1990...2100).contains($0) ? $0 : nil } : nil
         if let m, pre == 1 || year != nil {

@@ -168,10 +168,7 @@ struct InboxBody: View {
                 ForEach(g.mails) { row($0) }
             }
         }
-        if store.inboxNext != nil {
-            Button(store.loadingMore ? "Loading..." : "Show older emails") { Task { await store.loadMoreInbox() } }
-                .buttonStyle(LinkButtonStyle()).disabled(store.loadingMore).padding(12)
-        }
+        if store.inboxNext != nil { MoreRow(loading: store.loadingMore, page: store.inboxNext) { await store.loadMoreInbox() } }
     }
     private func row(_ m: Mail) -> some View {
         let pinned = store.isPinned(m)

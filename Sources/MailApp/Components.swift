@@ -289,3 +289,25 @@ struct SearchChips: View {
         }
     }
 }
+
+/// The list's rows. Lazy, so a row (and the "more" row at the bottom) is only made when it scrolls near the screen; flat in headless snapshots.
+struct ListStack<Content: View>: View {
+    let spacing: CGFloat
+    @ViewBuilder var content: Content
+    var body: some View {
+        if SnapshotMode.on { VStack(spacing: spacing) { content } } else { LazyVStack(spacing: spacing) { content } }
+    }
+}
+
+/// The end of a long list: asks for the next page by itself when it scrolls into view (`page` changes with every page, so it asks again
+/// while it stays in view). The button stays as a fallback.
+struct MoreRow: View {
+    let loading: Bool
+    let page: String?
+    let load: () async -> Void
+    var body: some View {
+        Button(loading ? "Loading..." : "Show older emails") { Task { await load() } }
+            .buttonStyle(LinkButtonStyle()).disabled(loading).padding(12)
+            .task(id: page) { await load() }
+    }
+}

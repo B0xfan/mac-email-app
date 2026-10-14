@@ -32,6 +32,10 @@ final class MailStore: ObservableObject {
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
     @Published var search = ""
+    @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
+    @Published var loadingOtherMore = false
+    var otherSource: OtherSource?
+    var otherGen = 0
     @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
     @Published var status = ""                 // spoken-style status line
     @Published var toast: ToastInfo?
@@ -312,48 +316,91 @@ final class MailStore: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Where the current "other" list (search, Sent, folder, Smart Folder, saved search, Archive) comes from, so more of it can be fetched.
+    enum OtherSource { case query(String), labels([String]) }
+    static let otherPage = 50
+
+    private func otherPage(_ src: OtherSource, token: String?) async throws -> (ids: [String], next: String?) {
+        switch src {
+        case .query(let q): return try await gmail.listPage(q: q, max: Self.otherPage, pageToken: token)
+        case .labels(let l): return try await gmail.listPage(labels: l, max: Self.otherPage, pageToken: token)
+        }
+    }
+
     func loadOther() async {
+        otherGen += 1; let gen = otherGen   // an older, slower call must never overwrite newer results
+        otherNext = nil; otherSource = nil
         let q = search.trimmingCharacters(in: .whitespaces)
         do {
+            var src: OtherSource?
+            var read: PlainSearch.Result?
             if mailbox == .search && !q.isEmpty {
-                let read = PlainSearch.parse(q)
-                searchRead = read
-                let ids = try await gmail.listIDs(q: read.gmail.isEmpty ? q : read.gmail, max: 40)
-                other = await gmail.messages(ids: ids)
-                // private notes are searched too (they live on this Mac, Gmail cannot see them)
-                let have = Set(other.map(\.threadID))
-                let extra = NotesBook.shared.search(q).filter { !have.contains($0.threadID) }.map(\.messageID)
-                if !extra.isEmpty { other += await gmail.messages(ids: extra) }
-                return
+                let r = PlainSearch.parse(q); read = r
+                src = .query(r.gmail.isEmpty ? q : r.gmail)
+            } else {
+                switch mailbox {
+                case .sent: src = .labels(["SENT"])
+                case .drafts:
+                    let d = try await gmail.drafts()
+                    let got = await gmail.messages(ids: d.map { $0.messageID })
+                    guard gen == otherGen else { return }
+                    draftMap = Dictionary(uniqueKeysWithValues: d.map { ($0.messageID, $0.draftID) }); other = got
+                case .recent:
+                    let ids = seen.ids(withinDays: settings.recentDays)
+                    let got = await gmail.messages(ids: ids)
+                    let byID = Dictionary(got.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                    guard gen == otherGen else { return }
+                    other = ids.compactMap { byID[$0] }
+                case .archive:
+                    src = .query("-in:inbox -in:sent -in:drafts -in:trash -in:spam -label:\"\(blockLabelName)\"" + (snoozeLabelID == nil ? "" : " -label:\"\(labelList.first { $0.id == snoozeLabelID }?.name ?? "Snoozed")\""))
+                case .folder(let id): src = .labels([id])
+                case .smart(let id):
+                    let sq = organizer.smart.first { $0.id == id }?.query ?? ""
+                    if sq.isEmpty { other = [] } else { src = .query(sq) }
+                case .saved(let id):
+                    let sq = organizer.searches.first { $0.id == id }?.query ?? ""
+                    let g = PlainSearch.parse(sq).gmail   // a saved plain-words search is read again each time ("last month" moves)
+                    if sq.isEmpty { other = [] } else { src = .query(g.isEmpty ? sq : g) }
+                default: other = []
+                }
             }
-            switch mailbox {
-            case .sent: other = await gmail.messages(ids: try await gmail.listIDs(labels: ["SENT"], max: 40))
-            case .drafts:
-                let d = try await gmail.drafts()
-                draftMap = Dictionary(uniqueKeysWithValues: d.map { ($0.messageID, $0.draftID) })
-                other = await gmail.messages(ids: d.map { $0.messageID })
-            case .recent:
-                let ids = seen.ids(withinDays: settings.recentDays)
-                let got = await gmail.messages(ids: ids)
-                let byID = Dictionary(got.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                other = ids.compactMap { byID[$0] }
-            case .archive:
-                other = await gmail.messages(ids: try await gmail.listIDs(q: "-in:inbox -in:sent -in:drafts -in:trash -in:spam -label:\"\(blockLabelName)\"" + (snoozeLabelID == nil ? "" : " -label:\"\(labelList.first { $0.id == snoozeLabelID }?.name ?? "Snoozed")\""), max: 40))
-            case .folder(let id): other = await gmail.messages(ids: try await gmail.listIDs(labels: [id], max: 40))
-            case .smart(let id):
-                let q = organizer.smart.first { $0.id == id }?.query ?? ""
-                other = q.isEmpty ? [] : await gmail.messages(ids: try await gmail.listIDs(q: q, max: 40))
-            case .saved(let id):
-                let q = organizer.searches.first { $0.id == id }?.query ?? ""
-                let g = PlainSearch.parse(q).gmail   // a saved plain-words search is read again each time ("last month" moves)
-                other = q.isEmpty ? [] : await gmail.messages(ids: try await gmail.listIDs(q: g.isEmpty ? q : g, max: 40))
-            default: other = []
+            guard let src else { return }
+            let page = try await otherPage(src, token: nil)
+            var mails = await gmail.messages(ids: page.ids)
+            if let read {
+                // private notes are searched too (they live on this Mac, Gmail cannot see them); only by the words Mail did not turn into a tag
+                let words = read.passthrough ? q : read.words.joined(separator: " ")
+                if !words.isEmpty {
+                    let have = Set(mails.map(\.threadID))
+                    let extra = NotesBook.shared.search(words).filter { !have.contains($0.threadID) }.map(\.messageID)
+                    if !extra.isEmpty { mails += await gmail.messages(ids: extra) }
+                }
+                mails.sort { $0.date > $1.date }
             }
-        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+            guard gen == otherGen else { return }
+            if let read { searchRead = read }
+            other = mails; otherSource = src; otherNext = page.next
+        } catch { if gen == otherGen { self.error = (error as? LocalizedError)?.errorDescription } }
+    }
+
+    /// The next page of the open list (scrolling to the last row asks for it). Search, Sent, folders, Smart Folders, saved searches and Archive go all the way back.
+    func loadMoreOther() async {
+        guard let tok = otherNext, let src = otherSource, !loadingOtherMore else { return }
+        let gen = otherGen
+        loadingOtherMore = true; defer { loadingOtherMore = false }
+        do {
+            let page = try await otherPage(src, token: tok)
+            let have = Set(other.map(\.id))
+            let more = await gmail.messages(ids: page.ids.filter { !have.contains($0) })
+            guard gen == otherGen else { return }
+            other += more
+            if mailbox == .search { other.sort { $0.date > $1.date } }
+            otherNext = page.next
+        } catch { if gen == otherGen { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load more." } }
     }
 
     func select(_ box: Mailbox) async {
-        homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
+        otherGen += 1; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
