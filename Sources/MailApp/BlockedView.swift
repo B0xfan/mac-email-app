@@ -18,13 +18,13 @@ struct BlockedView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(e.title).font(Theme.bodyStrong).lineLimit(2)
                                 HStack(spacing: 8) {
-                                    Text(e.isCompany ? "Whole company" : "One address").foregroundStyle(Theme.sub)
+                                    Text(e.toTrash ? "Older block, goes to Trash" : e.isCompany ? "Whole company" : "One address").foregroundStyle(Theme.sub)
                                     Text(e.isCompany ? "Company" : "Address").font(Theme.label)
                                         .foregroundStyle(Theme.revInk).padding(.horizontal, 8).background(Capsule().fill(Theme.revSoft))
                                 }.font(Theme.small)
                             }
                             Spacer()
-                            Text("\(e.count) email\(e.count == 1 ? "" : "s")").font(Theme.small).foregroundStyle(Theme.sub)
+                            if !e.toTrash { Text("\(e.count) email\(e.count == 1 ? "" : "s")").font(Theme.small).foregroundStyle(Theme.sub) }
                             Button("Unblock") { Task { await store.unblock(e) } }
                                 .buttonStyle(MailButtonStyle(kind: .neutral)).accessibilityLabel("Unblock \(e.title)")
                         }

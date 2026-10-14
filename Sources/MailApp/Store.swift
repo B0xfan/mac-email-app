@@ -10,6 +10,7 @@ struct BlockedEntry: Identifiable, Hashable {
     var isCompany: Bool { from.hasPrefix("@") }
     var title: String { isCompany ? "Everyone at \(from.dropFirst())" : from }
     var count: Int
+    var toTrash = false     // an older block (Spark's): the filter sends their mail to Trash
 }
 
 struct ToastInfo: Equatable { var text: String; var action: String?; var link: URL? = nil; var id = UUID() }

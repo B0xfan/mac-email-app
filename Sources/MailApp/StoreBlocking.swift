@@ -70,14 +70,18 @@ extension MailStore {
     func loadBlocked() async {
         do {
             let labelID = try await ensureLabelIfExists()
-            guard let labelID else { blocked = []; return }
-            let fs = try await gmail.filters().filter { ($0.action?.addLabelIds ?? []).contains(labelID) && $0.criteria?.from != nil }
+            let all = try await gmail.filters()
+            let fs = all.filter { labelID != nil && ($0.action?.addLabelIds ?? []).contains(labelID!) && $0.criteria?.from != nil }
+            // Spark's blocks are plain "from X, send to Trash" filters; list them too so John manages every block in one place
+            let old = all.filter { ($0.action?.addLabelIds ?? []).contains("TRASH") && $0.criteria?.from != nil && $0.criteria?.subject == nil && $0.criteria?.query == nil && $0.criteria?.to == nil && $0.action?.forward == nil }
             let g = gmail, name = blockLabelName
-            blocked = await mapLimited(fs, limit: 4) { f in
+            let mine = await mapLimited(fs, limit: 4) { f in
                 let from = f.criteria!.from!
                 let n = (try? await g.countEstimate(q: "label:\"\(name)\" from:\(GmailQuery.term(from))")) ?? 0
                 return BlockedEntry(id: f.id, from: from, count: n)
             }
+            // no per-sender count for these: one call each would be hundreds of calls
+            blocked = mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
@@ -95,12 +99,12 @@ extension MailStore {
                 covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
             }
             lifted = true
-            if !covered, let label = try await ensureLabelIfExists() {
+            if !covered, !e.toTrash, let label = try await ensureLabelIfExists() {   // old Spark blocks: just the filter goes; their emails stay where they are
                 let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
                 try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
             }
             if !e.isCompany && !covered { book.approve(e.from) }
-            status = covered ? "That block was already gone, but another block still covers \(e.title), so their emails stay in Blocked." : "Unblocked \(e.title). Their old emails went back to your inbox."
+            status = covered ? "That block was already gone, but another block still covers \(e.title), so their emails stay in Blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
             await refresh()
         } catch {

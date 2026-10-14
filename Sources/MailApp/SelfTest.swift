@@ -437,7 +437,7 @@ enum SelfTest {
                 if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"},{"id":"Label_2","name":"Blocked","type":"user"}]}"#) }
                 if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" {
                     let extra = created.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }.map { "," + $0 } ?? ""
-                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# + (dupBlock ? #",{"id":"b2","criteria":{"from":"Spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# : "") + "]}" : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
+                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# + (dupBlock ? #",{"id":"b2","criteria":{"from":"Spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# : "") + #",{"id":"t1","criteria":{"from":"old@spark.example"},"action":{"addLabelIds":["TRASH"]}},{"id":"t2","criteria":{"from":"x@y.example","subject":"s"},"action":{"addLabelIds":["TRASH"]}}"# + "]}" : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
                 }
                 if u.contains("/messages") && req.httpMethod == "GET" { return (200, #"{"messages":[{"id":"m1"}]}"#) }
                 if req.httpMethod == "POST" && u.hasSuffix("/settings/filters") {
@@ -487,6 +487,13 @@ enum SelfTest {
             await st.deleteRule(brow)
             check("rules: deleting a block's rule behaves like Unblock (filter deleted, old emails moved back)", brow.fromBlock && seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/b1") }
                   && seen.contains { $0.contains("batchModify") && $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"Label_2\"]") })
+            // Spark's old blocks (send to Trash) are listed too; Unblock removes only the filter
+            await st.loadBlocked()
+            let bl = await MainActor.run { st.blocked }
+            check("blocking: Spark's send-to-Trash filters are listed (a Trash filter with a subject is not)", bl.contains { $0.id == "t1" && $0.toTrash } && !bl.contains { $0.id == "t2" } && bl.first?.toTrash == false)
+            seen = []
+            await st.unblock(bl.first { $0.id == "t1" }!)
+            check("blocking: unblocking an old Trash block deletes the filter and moves no emails", seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/t1") } && !seen.contains { $0.contains("batchModify") })
             // the filter is already gone (404): the old emails still go back, unless another filter blocks the same sender
             await st.loadBlocked()
             let be = await MainActor.run { st.blocked.first! }
