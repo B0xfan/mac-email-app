@@ -32,6 +32,7 @@ final class MailStore: ObservableObject {
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
     @Published var search = ""
+    @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
     @Published var status = ""                 // spoken-style status line
     @Published var toast: ToastInfo?
     @Published var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
@@ -315,7 +316,9 @@ final class MailStore: ObservableObject {
         let q = search.trimmingCharacters(in: .whitespaces)
         do {
             if mailbox == .search && !q.isEmpty {
-                let ids = try await gmail.listIDs(q: q, max: 40)
+                let read = PlainSearch.parse(q)
+                searchRead = read
+                let ids = try await gmail.listIDs(q: read.gmail.isEmpty ? q : read.gmail, max: 40)
                 other = await gmail.messages(ids: ids)
                 // private notes are searched too (they live on this Mac, Gmail cannot see them)
                 let have = Set(other.map(\.threadID))
@@ -342,14 +345,15 @@ final class MailStore: ObservableObject {
                 other = q.isEmpty ? [] : await gmail.messages(ids: try await gmail.listIDs(q: q, max: 40))
             case .saved(let id):
                 let q = organizer.searches.first { $0.id == id }?.query ?? ""
-                other = q.isEmpty ? [] : await gmail.messages(ids: try await gmail.listIDs(q: q, max: 40))
+                let g = PlainSearch.parse(q).gmail   // a saved plain-words search is read again each time ("last month" moves)
+                other = q.isEmpty ? [] : await gmail.messages(ids: try await gmail.listIDs(q: g.isEmpty ? q : g, max: 40))
             default: other = []
             }
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
     func select(_ box: Mailbox) async {
-        homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
+        homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }

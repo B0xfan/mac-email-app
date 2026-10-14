@@ -370,6 +370,7 @@ struct ListPane: View {
                         }
                     }
                 }
+                if store.mailbox == .search, store.isSearching, let read = store.searchRead, !read.passthrough { SearchChips(store: store, read: read) }
                 if store.mailbox == .recent { RecentHeader() }
                 if store.mailbox == .recent {
                     ForEach(RecentGroups.groups(store.listMails, opened: { store.openedAt($0) })) { g in

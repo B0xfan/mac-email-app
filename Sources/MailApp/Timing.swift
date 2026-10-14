@@ -174,6 +174,8 @@ enum TimePickerKind: Equatable {
         case .remind: return "Remind me if no reply"
         }
     }
+    /// Snooze is a Mac timer; Send Later and reminders also live on the timing service.
+    var worksWithMacOff: Bool { switch self { case .snooze, .changeSnooze: return false; default: return true } }
     var verb: String {
         switch self {
         case .snooze, .changeSnooze: return "snooze"
@@ -231,7 +233,7 @@ struct TimePickerCard: View {
             }
             .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 2)
             .accessibilityAddTraits(.updatesFrequently)
-            Text(kind == .remind ? "Works even when your Mac is off." : "Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
+            Text(kind.worksWithMacOff ? "Works even when your Mac is off." : "Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
         }
         .padding(6).frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))

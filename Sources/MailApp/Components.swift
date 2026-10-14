@@ -266,3 +266,26 @@ struct MaybeScroll<Content: View>: View {
     }
 }
 enum SnapshotMode { nonisolated(unsafe) static var on = false; nonisolated(unsafe) static var barRow: String?; nonisolated(unsafe) static var swipeDX: [String: CGFloat] = [:] }   // swipeDX: drawn screens show a row part-way through a slide   // barRow: drawn-screen tests show the hover buttons on this row
+
+/// The tags under the search bar: what Mail understood from the typed words. Clicking a tag removes it and searches again.
+struct SearchChips: View {
+    @ObservedObject var store: MailStore
+    let read: PlainSearch.Result
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(read.chips) { c in
+                    Button { store.search = PlainSearch.removing(c, from: store.search); Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } } label: {
+                        HStack(spacing: 4) { Text(c.label); Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                            .font(Theme.small.weight(.semibold)).foregroundStyle(Theme.text)
+                            .padding(.horizontal, 11).padding(.vertical, 3)
+                            .background(Capsule().fill(Theme.selStrong)).overlay(Capsule().stroke(Theme.acc, lineWidth: 1.5))
+                    }
+                    .buttonStyle(.plain).help("Remove \u{201C}\(c.label)\u{201D} from this search")
+                    .accessibilityLabel("\(c.label). Remove from this search")
+                }
+                Text(read.understood ? "Mail understood this" : "Mail searched for these words.").font(Theme.small).foregroundStyle(Theme.sub).fixedSize()
+            }
+        }
+    }
+}
