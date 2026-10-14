@@ -192,23 +192,44 @@ extension MailStore {
 
     func addFollowUp(messageID: String, threadID: String, at: Date, to: String, subject: String) {
         timing.change { $0.followUps.append(FollowUp(messageID: messageID, threadID: threadID, sentAt: Date(), at: at, to: to, subject: subject)) }
+        Task { await syncReminders() }   // tells the timing service now; if it cannot be reached, the next check does
+    }
+
+    /// Mail's own tag for a reminder that came back: the email sits at the top, unread, "No reply yet".
+    func applyNoReply(_ id: String, now: Date) async {
+        timing.change { $0.surfaced[id] = now; if !$0.noReply.contains(id) { $0.noReply.append(id) } }
+        if let m = try? await gmail.message(id: id, full: false) {
+            var x = m; x.date = now
+            inbox.removeAll { $0.id == x.id }; inbox.append(x); inbox.sort { $0.date > $1.date }; saveCache()
+        }
     }
 
     /// Nobody answered: the sent email comes back to the top of the inbox, unread, tagged "No reply yet".
+    /// The timing service is asked first (DELETE): only when it never acted (pending, none, failed, or unreachable) does Mail act.
     private func checkFollowUp(_ f: FollowUp, now: Date) async {
+        var serverDidIt = false
+        if f.server != "off", let srv = timingServer {
+            do {
+                switch try await srv.cancel(f.messageID, reminder: true) {
+                case "fired": serverDidIt = true   // it already put the email back; only Mail's tag is missing
+                case "replied", "gone": timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }; return
+                default: timing.change { t in if let i = t.followUps.firstIndex(where: { $0.messageID == f.messageID }) { t.followUps[i].server = "off" } }   // it holds nothing now
+                }
+            } catch TimingServerError.busy { return }   // being fired right now: look again next time
+            catch {}   // unreachable: Mail does it itself
+        }
         do {
-            let thread = try await gmail.threadMessages(id: f.threadID)
-            if !TimingRules.hasReply(thread, after: f.sentAt, sentID: f.messageID) {
-                try await gmail.modify(ids: [f.messageID], add: ["INBOX", "UNREAD"])
-                timing.change { $0.surfaced[f.messageID] = now; if !$0.noReply.contains(f.messageID) { $0.noReply.append(f.messageID) } }
-                if let m = try? await gmail.message(id: f.messageID, full: false) {
-                    var x = m; x.date = now
-                    inbox.removeAll { $0.id == x.id }; inbox.append(x); inbox.sort { $0.date > $1.date }; saveCache()
+            if serverDidIt { await applyNoReply(f.messageID, now: now) }
+            else {
+                let thread = try await gmail.threadMessages(id: f.threadID)
+                if !TimingRules.hasReply(thread, after: f.sentAt, sentID: f.messageID) {
+                    try await gmail.modify(ids: [f.messageID], add: ["INBOX", "UNREAD"])
+                    await applyNoReply(f.messageID, now: now)
                 }
             }
-            timing.change { $0.followUps.removeAll { $0 == f } }
+            timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }
         } catch GmailError.http(404, _) {
-            timing.change { $0.followUps.removeAll { $0 == f } }   // the email or thread was deleted
+            timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }   // the email or thread was deleted
         } catch {}   // offline: try again on the next check
     }
 
@@ -218,7 +239,9 @@ extension MailStore {
     func runTimers(now: Date = Date()) async {
         guard !timersBusy else { return }
         timersBusy = true; defer { timersBusy = false }
+        await registerWithServer()   // first thing after launch, with the existing sign-in
         await syncServer()
+        await syncReminders()
         let wakeIDs = TimingRules.due(timing.data.snoozes, now: now).filter { id in snoozed.contains { $0.id == id } }
         if !wakeIDs.isEmpty { await wake(wakeIDs, now: now) }
         for f in timing.data.followUps where f.at <= now { await checkFollowUp(f, now: now) }

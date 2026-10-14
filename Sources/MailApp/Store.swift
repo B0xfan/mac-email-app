@@ -80,7 +80,7 @@ final class MailStore: ObservableObject {
     var scheduledTask: Task<Void, Never>?
     var timersBusy = false
     var timingServer: TimingServer?   // nil in tests that do not use it
-    var serverBusy = false, signinRetried = false, signinWarned = false
+    var serverBusy = false, signinRetried = false, signinWarned = false, reminderBusy = false, registerDone = false
     @Published var timingSigninBad = false
     let timing: TimingBook
     // Phase 2 section 5: folders (Gmail labels), Smart Folders and saved searches (the last two live on this Mac)
@@ -206,6 +206,7 @@ final class MailStore: ObservableObject {
     /// The service keeps its jobs when a new sign-in registers again (it only swaps the key), so cancel them first or they would still go out.
     func removeAccount() async {
         for s in timing.data.scheduled where s.server != "off" { await releaseServer(s.draftID) }
+        await releaseReminders()
         await auth.signOut(); accountEmail = ""
     }
 

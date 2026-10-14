@@ -121,6 +121,7 @@ struct FollowUp: Codable, Equatable {
     var at: Date
     var to: String
     var subject: String
+    var server: String?    // nil = not yet told to the timing service, "on" = it holds the reminder, "off" = it holds nothing (Mail does it)
 }
 
 struct TimingData: Codable, Equatable {

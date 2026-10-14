@@ -10,6 +10,7 @@ extension SelfTest {
         var jobs: [String: (at: Int, status: String, sentID: String, thread: String, note: String)] = [:]
         var log: [String] = []   // timing-server calls and Gmail sends, in order
         var gmailSendStatus = 200
+        var reminders: [String: (at: Int, status: String)] = [:], jobRemind: [String: Int] = [:]
         var key: String { "K\(keyN)" }
         func handle(_ req: URLRequest) -> (Int, String) {
             let u = req.url!, m = req.httpMethod ?? "GET", p = u.path, body = req.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
@@ -31,9 +32,18 @@ extension SelfTest {
                     return (200, #"{"signin_ok":\#(signinOK),"jobs":[\#(js.joined(separator: ","))]}"#)
                 }
                 let id = String(p.split(separator: "/").last ?? "")
+                if p.contains("/reminders") {
+                    if m == "GET" {
+                        log.append("get reminders")
+                        let rs = reminders.map { #"{"message_id":"\#($0.key)","thread_id":"t","remind_at":\#($0.value.at),"status":"\#($0.value.status)","note":""}"# }
+                        return (200, #"{"signin_ok":true,"reminders":[\#(rs.joined(separator: ","))]}"#)
+                    }
+                    if m == "PUT" { log.append("put reminder \(id) \(body["remind_at"] as? Int ?? 0)"); reminders[id] = (body["remind_at"] as? Int ?? 0, "pending"); return (200, #"{"status":"pending"}"#) }
+                    if m == "DELETE" { log.append("delete reminder \(id)"); return (200, #"{"status":"\#(reminders.removeValue(forKey: id)?.status ?? "none")"}"#) }
+                }
                 if m == "PUT" && putStatus != 200 { log.append("put \(id) refused"); return (putStatus, "{}") }
                 if m == "PUT" && timeout { jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (-1, "") }   // stored, but the answer never came
-                if m == "PUT" { log.append("put \(id) \(body["send_at"] as? Int ?? 0)"); jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (200, #"{"status":"pending"}"#) }
+                if m == "PUT" { log.append("put \(id) \(body["send_at"] as? Int ?? 0)"); jobRemind[id] = body["remind_at"] as? Int; jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (200, #"{"status":"pending"}"#) }
                 if m == "DELETE" { log.append("delete \(id)"); let had = jobs.removeValue(forKey: id) != nil; return (200, #"{"status":"\#(had ? "pending" : "none")"}"#) }
                 return (404, "{}")
             }
@@ -259,6 +269,48 @@ extension SelfTest {
         StubProtocol.handler = { req in req.url!.path.hasSuffix("/messages/deadbeef") ? (404, #"{"error":{"message":"Requested entity was not found."}}"#) : fake.handle(req) }
         await store4.openLinked("deadbeef")
         check("link for me: an email that is gone shows a small message, not a wrong email", store4.toast?.text == "That email is no longer in this account." && store4.openMail == nil)
+
+        // 17. Registers at launch with no Send Later; reminders go to the service and come back from it
+        let a5 = GoogleAuth(session: session, credentials: creds, file: signedFile("ts5-\(UUID().uuidString).json", "RT5"), legacy: noKeychain)
+        let st5 = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a5, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),
+                            asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: nil), timingServer: TimingServer(auth: a5, session: session))
+        fake.registerStatus = 200; fake.reminders = [:]; fake.log = []
+        await st5.runTimers(); await st5.runTimers()
+        let k5 = await a5.timingKey()
+        check("launch: with nothing scheduled the Mac still registers once, with the existing sign-in", fake.log == ["register RT5", "get reminders"] && k5 != nil)
+        let due5 = Date().addingTimeInterval(86400), dsec = Int(due5.timeIntervalSince1970)
+        func fus() -> [FollowUp] { st5.timing.data.followUps }
+        func addFU(_ id: String, at: Date) { st5.timing.change { $0.followUps.append(FollowUp(messageID: id, threadID: "t" + id, sentAt: Date().addingTimeInterval(-3600), at: at, to: "dana@x.example", subject: "Quote")) } }
+        addFU("r1", at: due5); fake.log = []
+        await st5.syncReminders()
+        check("a reminder is put on the service with its thread and time", fake.log.first == "put reminder r1 \(dsec)" && fus().first?.server == "on")
+        fake.reminders["r1"] = (dsec, "fired"); fake.log = []
+        await st5.syncReminders()
+        check("fired while Mac was off: Mail sets its own No reply yet tag, drops the local reminder, acknowledges", fus().isEmpty && st5.timing.data.noReply.contains("r1") && fake.log.contains("delete reminder r1") && !fake.log.contains("gmail send"))
+        addFU("r2", at: due5); await st5.syncReminders(); fake.reminders["r2"] = (dsec, "replied")
+        await st5.syncReminders()
+        check("replied: the local reminder is dropped, no tag", fus().isEmpty && !st5.timing.data.noReply.contains("r2"))
+        addFU("r3", at: due5); await st5.syncReminders(); fake.reminders["r3"] = (dsec, "failed")
+        await st5.syncReminders()
+        check("failed on the service: kept, Mail does it itself", fus().first?.server == "off")
+        st5.timing.change { $0.followUps = [] }
+        let past = Date().addingTimeInterval(-60)
+        addFU("r4", at: past); await st5.syncReminders(); fake.log = []
+        await st5.runTimers()
+        check("Mail's own timer asks the service first (DELETE), then acts on pending", fake.log.contains("delete reminder r4") && fus().isEmpty && st5.timing.data.noReply.contains("r4"))
+        addFU("r5", at: past); await st5.syncReminders(); fake.down = true; fake.log = []
+        await st5.runTimers(); fake.down = false
+        check("service unreachable: Mail's own check still works", fus().isEmpty && st5.timing.data.noReply.contains("r5"))
+        st5.timing.change { $0.scheduled = [] }
+        let later5 = due5.addingTimeInterval(3600)
+        await st5.sendLater(ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new), bodyHTML: "hi", at: due5)
+        check("Send Later without a reminder: no remind_at is sent", fake.jobRemind["dNEW"] == nil)
+        var dr = ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new); dr.remindAt = later5
+        await st5.sendLater(dr, bodyHTML: "hi", at: due5)
+        check("Send Later with a reminder: remind_at goes with the job", fake.jobRemind["dNEW"] == Int(later5.timeIntervalSince1970) || st5.timing.data.scheduled.first?.server == "maybe")
+        st5.timing.change { $0.scheduled = [ScheduledSend(draftID: "dX", at: due5, to: "x", subject: "S", remindAt: due5.addingTimeInterval(-10))] }
+        await st5.syncServer()
+        check("a reminder not later than the send is left out, the job still goes", st5.timing.data.scheduled.first?.server == "on" && fake.jobRemind["dX"] == nil)
         return ok
     }
 }

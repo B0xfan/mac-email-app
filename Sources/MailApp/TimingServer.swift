@@ -5,6 +5,8 @@ import Foundation
 /// whoever sends first consumes the draft, so nothing goes out twice.
 struct ServerJob: Equatable { let draftID: String, status: String, sentID: String, threadID: String, note: String }
 
+struct ServerReminder: Equatable { let messageID: String, status: String }
+
 enum TimingServerError: Error, Equatable { case unreachable, timedOut, busy, refused(Int) }   // timedOut: the request may have reached the service
 
 struct TimingServer: Sendable {
@@ -41,17 +43,38 @@ struct TimingServer: Sendable {
     }
 
     /// Schedule or change the time. 409 = too late to change (it is sending or already done): the next status check shows the result.
-    func put(_ draftID: String, at: Date) async throws {
-        let (c, _) = try await call("PUT", "jobs/" + draftID, ["send_at": Int(at.timeIntervalSince1970)])
+    /// The whole state goes every time: a put without remind_at removes the reminder. A reminder the service would
+    /// refuse (not later than the send, or out of its time range) is left out; Mail then sets it itself after the send.
+    func put(_ draftID: String, at: Date, remindAt: Date? = nil) async throws {
+        var body: [String: Any] = ["send_at": Int(at.timeIntervalSince1970)]
+        if let r = remindAt, r > at, r.timeIntervalSinceNow > -3000, r.timeIntervalSinceNow < 399 * 86400 { body["remind_at"] = Int(r.timeIntervalSince1970) }
+        let (c, _) = try await call("PUT", "jobs/" + draftID, body)
         guard c == 200 || c == 409 else { throw TimingServerError.refused(c) }
     }
 
     /// Cancel. Returns the server's word: pending (cancelled in time), none, sent, gone, failed. 409 sending -> .busy.
-    @discardableResult func cancel(_ draftID: String) async throws -> String {
-        let (c, o) = try await call("DELETE", "jobs/" + draftID)
+    /// Same for a reminder: pending, none, fired, replied, gone, failed; 409 firing -> .busy.
+    @discardableResult func cancel(_ id: String, reminder: Bool = false) async throws -> String {
+        let (c, o) = try await call("DELETE", (reminder ? "reminders/" : "jobs/") + id)
         if c == 409 { throw TimingServerError.busy }
         guard c == 200 else { throw TimingServerError.refused(c) }
         return o["status"] as? String ?? "none"
+    }
+
+    /// "Remind me if no reply": the service holds only ids and the time. 409 = it already acted: the next reminders() shows the result.
+    func putReminder(_ messageID: String, thread: String, at: Date) async throws {
+        let (c, _) = try await call("PUT", "reminders/" + messageID, ["thread_id": thread, "remind_at": Int(at.timeIntervalSince1970)])
+        guard c == 200 || c == 409 else { throw TimingServerError.refused(c) }
+    }
+
+    /// Also the cheapest keyed call: Mail uses it at launch to make sure it is registered with a key the service accepts.
+    func reminders() async throws -> [ServerReminder] {
+        let (c, o) = try await call("GET", "reminders")
+        guard c == 200 else { throw TimingServerError.refused(c) }
+        return (o["reminders"] as? [[String: Any]] ?? []).compactMap { r in
+            guard let id = r["message_id"] as? String, let st = r["status"] as? String else { return nil }
+            return ServerReminder(messageID: id, status: st)
+        }
     }
 
     func jobs() async throws -> (signinOK: Bool, jobs: [ServerJob]) {
