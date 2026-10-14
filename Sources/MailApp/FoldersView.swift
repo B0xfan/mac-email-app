@@ -93,6 +93,8 @@ struct FolderRow: View {
 @MainActor @ViewBuilder
 func moveToFolderMenu(_ store: MailStore, _ m: Mail) -> some View {
     Button("Make a rule from this email\u{2026}") { store.makeRule(from: m) }
+    Button { store.copyLinkForMe(m) } label: { Label("Copy link for me", systemImage: "link") }   // the same two links as the header button
+    Button { Task { await store.copyLinkToShare(m) } } label: { Label("Copy link to share", systemImage: "globe") }
     Menu("Move to folder") {
         if store.folders.isEmpty { Text("No folders yet") }
         ForEach(store.folders) { f in

@@ -5,7 +5,8 @@ import Foundation
 extension SelfTest {
     /// The pretend timing server's state.
     final class FakeTiming: @unchecked Sendable {
-        var down = false, registerStatus = 200, signinOK = true, registered = 0, keyN = 0, timeout = false, putStatus = 200
+        var down = false, registerStatus = 200, signinOK = true, registered = 0, keyN = 0, timeout = false, putStatus = 200, shareStatus = 200
+        var shareBodies: [Data] = []
         var jobs: [String: (at: Int, status: String, sentID: String, thread: String, note: String)] = [:]
         var log: [String] = []   // timing-server calls and Gmail sends, in order
         var gmailSendStatus = 200
@@ -20,6 +21,10 @@ extension SelfTest {
                     keyN += 1; return (200, #"{"api_key":"\#(key)","email":"x@example.com"}"#)
                 }
                 guard req.value(forHTTPHeaderField: "Authorization") == "Bearer \(key)", keyN > 0 else { log.append("401"); return (401, "{}") }
+                if p.hasSuffix("/mail-share/links") && m == "POST" {
+                    shareBodies.append(req.httpBody ?? Data())
+                    return shareStatus == 200 ? (200, #"{"token":"T","url":"https://audreypka.com/e/T","expires_at":1}"#) : (shareStatus, "{}")
+                }
                 if p.hasSuffix("/jobs") && m == "GET" {
                     log.append("get")
                     let js = jobs.map { #"{"draft_id":"\#($0.key)","send_at":\#($0.value.at),"status":"\#($0.value.status)","sent_id":"\#($0.value.sentID)","thread_id":"\#($0.value.thread)","note":"\#($0.value.note)"}"# }
@@ -220,6 +225,34 @@ extension SelfTest {
         st2.timing.change { $0.scheduled = [ScheduledSend(draftID: "e1", at: at, to: "x", subject: "S")] }
         await st2.syncServer(); await st2.syncServer()
         check("not on the server's list (403): Mac sends it itself as before, registration tried once", st2.timing.data.scheduled.first?.server == "off" && fake.registered == 1)
+
+        // 16. Link to an email: link for me, link to share (same key, text cut to the limits), a gone email
+        let okID: String? = MailLink.id(from: URL(string: "audreymail://email/7f3a91c2e0")!)
+        let badID: String? = MailLink.id(from: URL(string: "audreymail://email/../x")!)
+        let shareID: String? = MailLink.id(from: URL(string: "audreymail://share?subject=a")!)
+        let mineURL: String = MailLink.mine("7f3a91c2e0").absoluteString
+        check("link for me: only a hex Gmail id in audreymail://email/<id> opens an email", okID == "7f3a91c2e0" && badID == nil && shareID == nil && mineURL == "audreymail://email/7f3a91c2e0")
+        fake.registerStatus = 200; fake.log = []
+        let a3 = GoogleAuth(session: session, credentials: creds, file: signedFile("ts3-\(UUID().uuidString).json", "RT3"), legacy: noKeychain)
+        let srv3 = TimingServer(auth: a3, session: session)
+        var long = Self.mk("7f3a91c2e0", "priya@x.example"); long.text = String(repeating: "\u{E9}", count: 150_001)
+        let (lf, cut) = MailLink.fields(long)
+        check("link to share: every field is cut to the service's limit and the cut is reported", cut && lf["body"]?.unicodeScalars.count == 150_000 && lf["subject"] != nil && lf["date"]?.isEmpty == false)
+        let u = try? await srv3.makeLink(lf)
+        let sent = fake.shareBodies.last.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let urlOK: Bool = u?.absoluteString == "https://audreypka.com/e/T"
+        let utf8OK: Bool = sent.contains("\u{E9}") && !sent.contains("\\u00")
+        check("link to share: registers with the existing key handling, sends plain UTF-8 (no \\u escapes), returns the page address", urlOK && fake.log == ["register RT3"] && utf8OK)
+        fake.shareStatus = 413
+        var refused = 0
+        do { _ = try await srv3.makeLink(lf) } catch TimingServerError.refused(let c) { refused = c } catch {}
+        check("link to share: too large (413) is refused with its code", refused == 413)
+        fake.shareStatus = 200
+        let store4 = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a3, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),
+                               asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil), timing: TimingBook(url: nil), timingServer: srv3)
+        StubProtocol.handler = { req in req.url!.path.hasSuffix("/messages/deadbeef") ? (404, #"{"error":{"message":"Requested entity was not found."}}"#) : fake.handle(req) }
+        await store4.openLinked("deadbeef")
+        check("link for me: an email that is gone shows a small message, not a wrong email", store4.toast?.text == "That email is no longer in this account." && store4.openMail == nil)
         return ok
     }
 }

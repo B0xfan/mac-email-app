@@ -96,6 +96,7 @@ struct ToastView: View {
             if let a = toast.action {
                 Button(a) {
                     if let l = toast.link { NSWorkspace.shared.open(l); store.toast = nil }
+                    else if a == "Done" || a == "OK" { store.toast = nil }
                     else if store.undoSend != nil || store.pendingScheduled != nil, toast.text.hasPrefix("Sending") { store.undoPendingSend() }
                     else { Task { await store.undoLast() } }
                 }
@@ -234,6 +235,38 @@ struct NavRow: View {
 
 // MARK: - Toolbar
 
+/// The link button: a small menu with the two kinds of link (approved drawing mockup-link-to-email.html).
+struct LinkMenuButton: View {
+    @ObservedObject var store: MailStore
+    let enabled: Bool
+    @State private var open = false
+    var body: some View {
+        IconButton(symbol: "link", label: enabled ? "Copy a link to this email" : "Link, open an email first", enabled: enabled) { open = true }
+            .popover(isPresented: $open, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    row("envelope", "Copy link for me", "Opens this email in Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
+                    Divider()
+                    row("globe", "Copy link to share", "Anyone you send it to can read this email in a web page") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
+                }
+                .padding(6).frame(width: 290)
+            }
+    }
+    private func row(_ symbol: String, _ title: String, _ sub: String, _ go: @escaping () -> Void) -> some View {
+        Button { open = false; go() } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: symbol).frame(width: 18).padding(.top, 2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(Theme.bodyStrong)
+                    Text(sub).font(Theme.small).foregroundStyle(Theme.sub).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel(title + ". " + sub)
+    }
+}
+
 struct ToolbarView: View {
     @ObservedObject var store: MailStore
     var body: some View {
@@ -258,6 +291,7 @@ struct ToolbarView: View {
                 if let m = store.openMail { store.todoMail = m } }
             IconButton(symbol: "doc.text", label: "Save as note", enabled: canAct && !store.savingNote) {
                 if let m = store.openMail { Task { await store.saveAsNote(m) } } }
+            LinkMenuButton(store: store, enabled: canAct)
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             CheckNowButton(store: store)
             if store.loading { Text("Checking...").font(Theme.small).foregroundStyle(Theme.sub).padding(.leading, 4) }

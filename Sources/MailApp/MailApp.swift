@@ -98,7 +98,7 @@ struct MailApp: App {
                 .modifier(RegisterOpenWindow())
                 .frame(minWidth: 980, minHeight: 620)
                 .task { if !Keychain.testMode { await app.signIn.restore() }; AppSettings.shared.applyTheme() }
-                .onOpenURL { url in if url.scheme?.lowercased() == "audreymail" { app.store.handleShare(url) } else { app.store.handleMailto(url) } }
+                .onOpenURL { url in if let id = MailLink.id(from: url) { Task { await app.store.openLinked(id) } } else if url.scheme?.lowercased() == "audreymail" { app.store.handleShare(url) } else { app.store.handleMailto(url) } }
         }
         .defaultSize(width: 1280, height: 800)
         .commands {

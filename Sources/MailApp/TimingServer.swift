@@ -11,6 +11,7 @@ struct TimingServer: Sendable {
     let auth: GoogleAuth
     var session: URLSession = .shared
     var base = URL(string: "https://audreypka.com/api/mail-timing")!
+    var shareBase = URL(string: "https://audreypka.com/api/mail-share")!   // same droplet, same key (server/mail-share/README.md)
 
     /// Registers once per sign-in; the key lives in the private sign-in file next to the sign-in (never the Keychain).
     private func key() async throws -> String {
@@ -23,8 +24,8 @@ struct TimingServer: Sendable {
     }
 
     /// Server trouble (no answer, 5xx, an answer that is not JSON) is "unreachable": the Mac carries on as before.
-    private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true, retry: Bool = true) async throws -> (Int, [String: Any]) {
-        var req = URLRequest(url: base.appendingPathComponent(path))
+    private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true, retry: Bool = true, root: URL? = nil) async throws -> (Int, [String: Any]) {
+        var req = URLRequest(url: (root ?? base).appendingPathComponent(path))
         req.httpMethod = method; req.timeoutInterval = 15
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body); req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if keyed { req.setValue("Bearer " + (try await key()), forHTTPHeaderField: "Authorization") }
@@ -33,7 +34,7 @@ struct TimingServer: Sendable {
         catch let e as URLError where e.code == .timedOut || e.code == .networkConnectionLost { throw TimingServerError.timedOut }
         catch { throw TimingServerError.unreachable }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 401 && keyed && retry { await auth.setTimingKey(nil); return try await call(method, path, body, retry: false) }   // key replaced: register again once
+        if code == 401 && keyed && retry { await auth.setTimingKey(nil); return try await call(method, path, body, retry: false, root: root) }   // key replaced: register again once
         guard code > 0, code < 500 else { throw TimingServerError.unreachable }
         guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TimingServerError.unreachable }
         return (code, o)
@@ -61,6 +62,13 @@ struct TimingServer: Sendable {
             return ServerJob(draftID: id, status: st, sentID: j["sent_id"] as? String ?? "", threadID: j["thread_id"] as? String ?? "", note: j["note"] as? String ?? "")
         }
         return (o["signin_ok"] as? Bool ?? true, list)
+    }
+
+    /// Makes a shared-page link for one email (fields already cut to the service's limits). Any answer but 200 throws refused(code).
+    func makeLink(_ fields: [String: String]) async throws -> URL {
+        let (c, o) = try await call("POST", "links", fields, root: shareBase)
+        guard c == 200, let s = o["url"] as? String, let u = URL(string: s), u.scheme == "https" else { throw TimingServerError.refused(c) }
+        return u
     }
 
     func forgetKey() async { await auth.setTimingKey(nil) }
