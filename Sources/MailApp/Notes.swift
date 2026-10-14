@@ -94,7 +94,7 @@ struct NoteStrip: View {
                 if editing {
                     TextField("Private note, only you see this", text: Binding(get: { draft.v }, set: { draft.v = $0; notes.set($0, for: mail) }), axis: .vertical)
                         .textFieldStyle(.plain).font(Theme.body).lineLimit(1...4).onSubmit { store.noteEdit = nil }
-                        .onKeyPress(.return) { if $0.modifiers.contains(.shift) { return .ignored }; store.noteEdit = nil; return .handled }   // Return closes, Shift-Return is a new line
+                        .onKeyPress(keys: [.return], phases: .down) { if $0.modifiers.contains(.shift) { return .ignored }; store.noteEdit = nil; return .handled }   // Return closes, Shift-Return is a new line
                         .focused($focused).onAppear { draft.v = notes.text(t); focused = true }.accessibilityLabel("Private note")
                     Button("Done") { store.noteEdit = nil }.buttonStyle(LinkButtonStyle())
                 } else {
