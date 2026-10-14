@@ -974,6 +974,12 @@ enum SelfTest {
               EmailNote.fileName(fw.subject) == "Your flight is booked HZLENL to Los Angeles on 11-12-2026" && fwn.contains("title: \"Your flight is booked: HZLENL to Los Angeles on 11/12/2026\"")
               && fwn.contains("Seat 12A confirmed") && !fwn.contains("\n>") && fhn.contains("Seat 12A confirmed") && fhn.contains("Airline"))
 
+        // real iPhone forward of an airline email: the header and the body are two SIBLING blockquotes; the body must survive
+        var fs = fw; fs.text = nil
+        fs.html = "<body><div>Sent from my iPhone</div><div><br>Begin forwarded message:<br><br></div><blockquote type=\"cite\"><div><b>From:</b> Airline<br></div></blockquote><blockquote type=\"cite\"><div><title>Airline</title><table><tr><td><p>Your flight is booked</p><p>Seat 12A confirmed</p></td></tr></table></div></blockquote></body>"
+        check("save as note: forward whose header and body are two sibling blockquotes keeps both",
+              EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Seat 12A confirmed") && EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Your flight is booked\n\nSeat"))
+
         // a reply to a forward keeps none of the quoted chain; a sentence mentioning "forwarded message" does not open the door; Spanish forward kept
         var rp = Mail(id: "f2", from: Address(name: "Dana", email: "d@x.example"), subject: "Re: Fwd: Your flight", snippet: "", date: dt(13, 9, 0))
         rp.text = "Thanks, got it.\n\nOn Mon, Oct 13, 2026 at 9:00 AM Shelly <s@x.example> wrote:\n> Begin forwarded message:\n>\n> > Seat 12A confirmed\n> ---------- Forwarded message ---------\n> Old chain"

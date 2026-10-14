@@ -134,7 +134,7 @@ enum EmailNote {
     }
 
     /// Removes <blockquote> blocks (the quoted copies Gmail and Apple Mail add), nested ones included.
-    /// Exception: the first block after a forward's own marker outside any quote is the forwarded message itself, so it stays.
+    /// Exception: the blocks after a forward's own marker outside any quote are the forwarded message itself (header, then body, as siblings), so they stay.
     static func dropBlockquotes(_ h: String) -> String {
         guard let rx = try? NSRegularExpression(pattern: #"<(/?)blockquote\b[^<>]*>|(?<=>)\s*"# + fwdMarker + #"\s*(?=<)"#, options: .caseInsensitive) else { return h }
         let ns = h as NSString
@@ -145,8 +145,7 @@ enum EmailNote {
             if depth == 0 || keeping { out += seg }
             if armed && seg.range(of: #"(wrote|escribió):"#, options: .regularExpression) != nil { armed = false }   // a reply's quote, not the forward
             if m.range(at: 1).length > 0 {
-                depth = max(0, depth - 1)
-                if depth == 0 { keeping = false }
+                depth = max(0, depth - 1)   // keeping stays on: Apple Mail puts the forward's header and its body in sibling blockquotes
             } else {
                 if depth == 0 && armed { keeping = true; armed = false }
                 depth += 1
