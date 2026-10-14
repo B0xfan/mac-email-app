@@ -1362,6 +1362,10 @@ enum SelfTest {
         await MainActor.run { nb2.set("kept", for: ppl) }
         let nb3 = await MainActor.run { NotesBook(url: nurl) }
         check("private notes: still there after Mail restarts (file on this Mac)", await MainActor.run { nb3.text(ppl.threadID) } == "kept")
+        check("email header: Note button only when the email has a note or one is being written; the strip needs it open or being edited",
+              !NoteHeader.buttonShown(has: false, editing: false) && NoteHeader.buttonShown(has: true, editing: false) && NoteHeader.buttonShown(has: false, editing: true)
+              && !NoteHeader.stripShown(has: true, open: false, editing: false) && NoteHeader.stripShown(has: true, open: true, editing: false)
+              && NoteHeader.stripShown(has: false, open: false, editing: true) && !NoteHeader.stripShown(has: false, open: true, editing: false))
         // round 1 safety fixes
         check("send is never retried; reads still are", !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/send") && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/drafts/send")
               && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/settings/filters") && GmailClient.retriesAfterUncertainFailure(method: "GET", path: "/messages") && GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/batchModify"))

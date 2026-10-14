@@ -61,6 +61,8 @@ final class MailStore: ObservableObject {
     @Published var searchPeek = false   // strip temporarily opened for search; never saved
     // Phase 4
     @Published var commandCenterOpen = false
+    @Published var noteOpen: String?        // conversation whose private-note strip is showing
+    @Published var noteEdit: String?        // conversation whose private note is being typed
     @Published var todoMail: Mail?          // the to-do box is open for this email
     @Published var savingNote = false       // "Save as note" is running (no double notes from a double click)
     @Published var printAsk: Mail?          // "this email or the whole conversation?"

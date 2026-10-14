@@ -51,6 +51,7 @@ extension MailStore {
                 add("snooze", "Snooze this email", key: "Z") { self.picker = .snooze([m.id]) }
                 add("pin", "Pin or unpin this email", key: "P") { Task { await self.togglePin(m) } }
             }
+            add("note", NotesBook.shared.has(m.threadID) ? "Edit private note" : "Add private note") { self.noteOpen = m.threadID; self.noteEdit = m.threadID }
             add("todo", "Add to to-do", key: "T") { self.todoMail = m }
             add("print", "Print", key: "\u{2318}P") { self.startPrint(m) }
         }

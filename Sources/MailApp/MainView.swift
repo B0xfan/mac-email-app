@@ -665,7 +665,7 @@ struct ReadingContent: View {
         let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers)
         let sender = mail.from.email.lowercased()
         let loadImgs = HTMLSafety.shouldLoadImages(auto: store.settings.loadImages, senderAllowed: store.settings.imageSenders.contains(sender), loadedThisEmail: store.imagesLoaded.contains(mail.id))
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             if store.selectedIsNewSender {
                 Card(padding: 12) {
                     HStack(spacing: 16) {
@@ -676,15 +676,17 @@ struct ReadingContent: View {
                 }
             }
             HStack(spacing: 12) {
-                Avatar(text: mail.from.initials)
-                VStack(alignment: .leading, spacing: 0) {
+                Avatar(text: mail.from.initials, size: 36)
+                VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 8) {
-                        Text(mail.from.display).font(Theme.bodyStrong)
+                        Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)
                         ForEach(store.senderWarnings(mail), id: \.label) { SenderWarningLabel(warning: $0) }
+                        Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
                     }.id(mail.id)   // a bubble left open does not carry over to the next email
-                    Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).textSelection(.enabled)
+                    if store.mailbox != .recent { Text(Fmt.long(mail.date)).font(Theme.small).foregroundStyle(Theme.sub) }
                 }
                 Spacer()
+                NoteButton(store: store, mail: mail)
                 if mail.unsubscribe != nil, !store.selectedIsNewSender, store.unsubStage == .idle {
                     HStack(spacing: 8) {
                         Button("Unsubscribe") { Task { await store.unsubscribe(mail) } }
@@ -693,17 +695,12 @@ struct ReadingContent: View {
                             .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Block \(mail.from.display)")
                             .popover(isPresented: Binding(get: { store.blockMenuFor == "read" }, set: { if !$0 { store.blockMenuFor = nil } })) { BlockMenu(store: store, addr: mail.from) }
                     }
-                } else if store.mailbox != .recent {
-                    Text(Fmt.long(mail.date)).font(Theme.body).foregroundStyle(Theme.sub)
                 }
             }
             .zIndex(1)   // a warning's bubble draws over the subject below it
-            Text(mail.subject).font(Theme.title).tracking(-0.2).textSelection(.enabled)
-            HStack(spacing: 12) {
-                PrivateNoteView(mail: mail).id(mail.threadID)
-                if store.isInTodo(mail) { Label("In your to-do list", systemImage: "checkmark.circle").font(Theme.small).foregroundStyle(Theme.acc) }
-                Spacer(minLength: 0)
-            }
+            Text(mail.subject).font(.system(size: 22, weight: .bold)).tracking(-0.2).textSelection(.enabled)
+            NoteStrip(store: store, mail: mail).id(mail.threadID)
+            if store.isInTodo(mail) { Label("In your to-do list", systemImage: "checkmark.circle").font(Theme.small).foregroundStyle(Theme.acc) }
             if store.mailbox == .recent, let at = store.openedAt(mail.id) {
                 Text("Received \(RecentGroups.lower(Fmt.long(mail.date))). You opened it \(RecentGroups.lower(Fmt.long(at))).").font(Theme.small).foregroundStyle(Theme.sub)
             }
@@ -736,7 +733,7 @@ struct ReadingContent: View {
                 }
             }
             if store.settings.blockTrackers, report.trackers > 0 {
-                HStack(spacing: 6) { Image(systemName: "circle.dotted"); Text(report.line).font(Theme.small) }.foregroundStyle(Theme.sub)
+                HStack(spacing: 6) { Image(systemName: "circle.dotted"); Text(report.line).font(.system(size: 12, weight: .medium)) }.foregroundStyle(Theme.sub)
             }
             if let html = cleanHTML, !html.isEmpty {
                 HTMLMessageView(html: html, blockRemote: !loadImgs)

@@ -50,32 +50,57 @@ final class NotesBook: ObservableObject {
     }
 }
 
-/// Under the subject: "Add note", or the note itself, edited in place and saved as you type.
-struct PrivateNoteView: View {
-    let mail: Mail
+/// Approved header (2026-10-13): a small "Note" button beside Unsubscribe/Block, only on an email that has a note
+/// (or while one is being written); it opens a slim strip under the subject. A new note starts from Command Center.
+enum NoteHeader {
+    static func buttonShown(has: Bool, editing: Bool) -> Bool { has || editing }
+    static func stripShown(has: Bool, open: Bool, editing: Bool) -> Bool { editing || (has && open) }
+}
+
+struct NoteButton: View {
+    @ObservedObject var store: MailStore
     @ObservedObject var notes = NotesBook.shared
-    @StateObject private var editing = Box(false)
+    let mail: Mail
+    var body: some View {
+        let t = mail.threadID
+        if NoteHeader.buttonShown(has: notes.has(t), editing: store.noteEdit == t) {
+            Button { if store.noteOpen == t { store.noteOpen = nil; store.noteEdit = nil } else { store.noteOpen = t } } label: {
+                Label("Note", systemImage: "note.text").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accInk)
+                    .padding(.horizontal, 10).frame(minHeight: 28)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Theme.pinBg))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
+            }
+            .buttonStyle(.plain).accessibilityLabel("Show private note").tip("Show or hide your private note on this email")
+        }
+    }
+}
+
+/// Under the subject: the note on one slim line with Edit and Remove; edited in place and saved as you type.
+struct NoteStrip: View {
+    @ObservedObject var store: MailStore
+    @ObservedObject var notes = NotesBook.shared
+    let mail: Mail
     @StateObject private var draft = Box("")
     var body: some View {
-        if notes.has(mail.threadID) || editing.v {
-            Card(padding: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "note.text").foregroundStyle(Theme.dot)
-                        Text("Private note, only you see this").font(Theme.label).foregroundStyle(Theme.accInk)
-                        Spacer()
-                        Button("Remove") { notes.set("", for: mail); draft.v = ""; editing.v = false }.buttonStyle(LinkButtonStyle())
-                    }
-                    TextEditor(text: Binding(get: { editing.v ? draft.v : notes.text(mail.threadID) }, set: { draft.v = $0; notes.set($0, for: mail) }))
-                        .font(Theme.body).scrollContentBackground(.hidden).frame(minHeight: 40, maxHeight: 80)
-                        .onAppear { draft.v = notes.text(mail.threadID); editing.v = true }
-                        .accessibilityLabel("Private note")
+        let t = mail.threadID
+        let editing = store.noteEdit == t
+        if NoteHeader.stripShown(has: notes.has(t), open: store.noteOpen == t, editing: editing) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "note.text").foregroundStyle(Theme.dot).padding(.top, 2)
+                if editing {
+                    TextField("Private note, only you see this", text: Binding(get: { draft.v }, set: { draft.v = $0; notes.set($0, for: mail) }), axis: .vertical)
+                        .textFieldStyle(.plain).font(Theme.body).lineLimit(1...4).onSubmit { store.noteEdit = nil }
+                        .onAppear { draft.v = notes.text(t) }.accessibilityLabel("Private note")
+                    Button("Done") { store.noteEdit = nil }.buttonStyle(LinkButtonStyle())
+                } else {
+                    Text(notes.text(t)).font(Theme.body).foregroundStyle(Theme.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Edit") { draft.v = notes.text(t); store.noteEdit = t }.buttonStyle(LinkButtonStyle())
                 }
+                Button("Remove") { notes.set("", for: mail); draft.v = ""; store.noteEdit = nil; store.noteOpen = nil }.buttonStyle(LinkButtonStyle())
             }
-            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.pinBg))
-        } else {
-            Button { draft.v = ""; editing.v = true } label: { Label("Add note", systemImage: "note.text.badge.plus") }
-                .buttonStyle(LinkButtonStyle()).help("Write a private note about this email. Only you see it, and it stays on this Mac.")
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.pinBg))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
         }
     }
 }
