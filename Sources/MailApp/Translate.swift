@@ -97,7 +97,7 @@ final class Translator: ObservableObject {
     private let timeout: Double
     init(timeout: Double = 180) { self.timeout = timeout }
 
-    static var available: Bool { if #available(macOS 15.0, *) { return true } else { return false } }
+    nonisolated static var available: Bool { if #available(macOS 15.0, *) { return true } else { return false } }
 
     /// nil = it did not work (language not available, download refused, window closed, took too long).
     func translate(_ texts: [String], from source: String?, to target: String) async -> [String]? {
