@@ -238,6 +238,12 @@ extension SelfTest {
         var long = Self.mk("7f3a91c2e0", "priya@x.example"); long.text = String(repeating: "\u{E9}", count: 150_001)
         let (lf, cut) = MailLink.fields(long)
         check("link to share: every field is cut to the service's limit and the cut is reported", cut && lf["body"]?.unicodeScalars.count == 150_000 && lf["subject"] != nil && lf["date"]?.isEmpty == false)
+        var hm = Self.mk("7f3a91c2e1", "priya@x.example"); hm.text = nil
+        hm.html = "<html><body><p>Floor plan at 10.</p><img src=\"https://track.example/p.gif\"><blockquote>On Mon, Dana wrote: old quoted words</blockquote></body></html>"
+        let hb = MailLink.fields(hm).fields["body"] ?? ""
+        check("link to share: an HTML-only email becomes plain text, no picture address, no quoted history", hb.contains("Floor plan at 10.") && !hb.contains("track.example") && !hb.contains("old quoted words"))
+        hm = Mail(id: "7f3a91c2e2", from: Address(name: "", email: "priya@x.example"), subject: "  ", snippet: "s", date: Date())
+        check("link: an empty subject becomes (no subject)", MailLink.fields(hm).fields["subject"] == "(no subject)")
         let u = try? await srv3.makeLink(lf)
         let sent = fake.shareBodies.last.flatMap { String(data: $0, encoding: .utf8) } ?? ""
         let urlOK: Bool = u?.absoluteString == "https://audreypka.com/e/T"
