@@ -1366,6 +1366,8 @@ enum SelfTest {
               !NoteHeader.buttonShown(has: false, editing: false) && NoteHeader.buttonShown(has: true, editing: false) && NoteHeader.buttonShown(has: false, editing: true)
               && !NoteHeader.stripShown(has: true, open: false, editing: false) && NoteHeader.stripShown(has: true, open: true, editing: false)
               && NoteHeader.stripShown(has: false, open: false, editing: true) && !NoteHeader.stripShown(has: false, open: true, editing: false))
+        check("email header: open/edit note state is dropped when another email opens, kept for the same one",
+              !NoteHeader.keepsState(from: "a", to: "b") && !NoteHeader.keepsState(from: "a", to: nil) && NoteHeader.keepsState(from: "a", to: "a"))
         // round 1 safety fixes
         check("send is never retried; reads still are", !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/send") && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/drafts/send")
               && !GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/settings/filters") && GmailClient.retriesAfterUncertainFailure(method: "GET", path: "/messages") && GmailClient.retriesAfterUncertainFailure(method: "POST", path: "/messages/batchModify"))

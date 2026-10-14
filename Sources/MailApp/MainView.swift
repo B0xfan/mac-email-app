@@ -694,7 +694,7 @@ struct ReadingContent: View {
                         Button("Block") { store.blockMenuFor = store.blockMenuFor == "read" ? nil : "read" }
                             .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Block \(mail.from.display)")
                             .popover(isPresented: Binding(get: { store.blockMenuFor == "read" }, set: { if !$0 { store.blockMenuFor = nil } })) { BlockMenu(store: store, addr: mail.from) }
-                    }
+                    }.fixedSize()   // only the sender text truncates
                 }
             }
             .zIndex(1)   // a warning's bubble draws over the subject below it

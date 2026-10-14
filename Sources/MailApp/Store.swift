@@ -26,7 +26,9 @@ final class MailStore: ObservableObject {
     @Published var other: [Mail] = []          // sent / drafts / archive / search
     @Published var blocked: [BlockedEntry] = []
     @Published var selectedID: String?
-    @Published var openMail: Mail?
+    @Published var openMail: Mail? {
+        didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
+    }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
     @Published var search = ""
     @Published var status = ""                 // spoken-style status line

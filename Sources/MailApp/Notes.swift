@@ -55,6 +55,8 @@ final class NotesBook: ObservableObject {
 enum NoteHeader {
     static func buttonShown(has: Bool, editing: Bool) -> Bool { has || editing }
     static func stripShown(has: Bool, open: Bool, editing: Bool) -> Bool { editing || (has && open) }
+    /// Open/edit state belongs to one conversation; moving to another email (or none) drops it.
+    static func keepsState(from old: String?, to new: String?) -> Bool { old == new }
 }
 
 struct NoteButton: View {
@@ -64,13 +66,14 @@ struct NoteButton: View {
     var body: some View {
         let t = mail.threadID
         if NoteHeader.buttonShown(has: notes.has(t), editing: store.noteEdit == t) {
-            Button { if store.noteOpen == t { store.noteOpen = nil; store.noteEdit = nil } else { store.noteOpen = t } } label: {
+            let shown = store.noteOpen == t
+            Button { if shown { store.noteOpen = nil; store.noteEdit = nil } else { store.noteOpen = t } } label: {
                 Label("Note", systemImage: "note.text").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accInk)
                     .padding(.horizontal, 10).frame(minHeight: 28)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.pinBg))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
             }
-            .buttonStyle(.plain).accessibilityLabel("Show private note").tip("Show or hide your private note on this email")
+            .buttonStyle(.plain).accessibilityLabel(shown ? "Hide private note" : "Show private note").tip("Show or hide your private note on this email")
         }
     }
 }
@@ -81,6 +84,7 @@ struct NoteStrip: View {
     @ObservedObject var notes = NotesBook.shared
     let mail: Mail
     @StateObject private var draft = Box("")
+    @FocusState private var focused: Bool
     var body: some View {
         let t = mail.threadID
         let editing = store.noteEdit == t
@@ -90,7 +94,8 @@ struct NoteStrip: View {
                 if editing {
                     TextField("Private note, only you see this", text: Binding(get: { draft.v }, set: { draft.v = $0; notes.set($0, for: mail) }), axis: .vertical)
                         .textFieldStyle(.plain).font(Theme.body).lineLimit(1...4).onSubmit { store.noteEdit = nil }
-                        .onAppear { draft.v = notes.text(t) }.accessibilityLabel("Private note")
+                        .onKeyPress(.return) { if $0.modifiers.contains(.shift) { return .ignored }; store.noteEdit = nil; return .handled }   // Return closes, Shift-Return is a new line
+                        .focused($focused).onAppear { draft.v = notes.text(t); focused = true }.accessibilityLabel("Private note")
                     Button("Done") { store.noteEdit = nil }.buttonStyle(LinkButtonStyle())
                 } else {
                     Text(notes.text(t)).font(Theme.body).foregroundStyle(Theme.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
