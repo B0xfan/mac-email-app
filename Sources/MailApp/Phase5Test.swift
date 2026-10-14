@@ -264,6 +264,19 @@ extension SelfTest {
         check("claude: a block rule that lists several senders (OR, quotes, braces) hides each of them, and a bare domain hides the whole company",
               ["a@x.example", "b@y.example", "c@z.example", "d@w.example", "e@w.example", "who@co.example", "me@plain.org"].allSatisfy { lst.hides(f($0)) } && !lst.hides(f("other@x.example")) && !lst.hides(f("a@x.example.evil")))
 
+        // hide more: subdomains, odd punctuation, several addresses in From, trailing dots
+        let more = ClaudeBlockList(labelID: nil, senders: ["@co.example", "plain.org", "<n@x.example>;", "-neg@y.example", "dot.example."])
+        func ff(_ e: String) -> Mail { Mail(id: "q", from: Address(name: "", email: e), subject: "s", snippet: "p", date: Date(), labels: []) }
+        check("claude hide more: a blocked company also hides its subdomains, but not a lookalike domain",
+              more.hides(ff("a@mail.co.example")) && more.hides(ff("a@x.y.plain.org")) && !more.hides(ff("a@notco.example")) && !more.hides(ff("a@co.example.evil.com")) && !more.hides(ff("a@xplain.org")))
+        check("claude hide more: <>; are stripped from a rule's sender and a leading minus is dropped", more.hides(ff("n@x.example")) && more.hides(ff("neg@y.example")) && !more.hides(ff("other@y.example")))
+        check("claude hide more: a trailing dot on the sender's or the rule's domain is ignored", more.hides(ff("a@co.example.")) && more.hides(ff("a@dot.example")) && more.hides(ff("a@sub.dot.example.")))
+        check("claude hide more: every address anywhere in a From header is found", Address.allEmails(in: "Good <ok@good.example>, \"Pay <fake@pp.example>\" <Bad@Evil.example>") == ["ok@good.example", "fake@pp.example", "bad@evil.example"])
+        let g2 = try? JSONDecoder().decode(GMessage.self, from: Data(#"{"id":"m1","labelIds":["INBOX"],"payload":{"headers":[{"name":"From","value":"Fine <ok@good.example> <b@co.example>"},{"name":"From","value":"x@second.example"}]}}"#.utf8))
+        let multi = g2.map { Mail($0) }
+        check("claude hide more: a message with several addresses (or several From headers) is hidden if any of them is blocked",
+              multi.map { more.hides($0) } == true && multi?.fromAll?.contains("x@second.example") == true && !more.hides(ff("ok@good.example")) && ClaudeBlockList(labelID: nil, senders: ["x@second.example"]).hides(multi!))
+
         // what stays hidden
         let sr = await be.search("hello", max: 10)
         check("claude: Spam, Trash and Blocked mail are asked away from Gmail and dropped again if they come back; the rest is listed, unread marked",

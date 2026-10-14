@@ -9,14 +9,25 @@ struct ClaudeBlockList: Equatable {
         self.labelID = labelID
         // a rule's "from" can be a list: a@x OR b@y, "a@x", {a@x b@y}
         self.senders = senders.flatMap { raw in
-            raw.lowercased().replacingOccurrences(of: "[{}()\",]", with: " ", options: .regularExpression).split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { $0 != "or" }
+            raw.lowercased().replacingOccurrences(of: "[{}()<>;\",]", with: " ", options: .regularExpression).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+                .map { Self.clean($0.hasPrefix("-") ? String($0.dropFirst()) : $0) }   // "-x" (not x) in a rule is hidden too: more hidden is safer
+                .filter { $0 != "or" && !$0.isEmpty }
         }
     }
     func hides(_ m: Mail) -> Bool {
         if let labelID, m.labels.contains(labelID) { return true }
-        let e = m.from.email.lowercased()
-        return senders.contains { s in s.hasPrefix("@") ? e.hasSuffix(s) : (e == s || (!s.contains("@") && e.hasSuffix("@" + s))) }
+        // every address in the From header counts, so a second address cannot slip a blocked sender through
+        return ([m.from.email] + (m.fromAll ?? [])).contains { raw in
+            let e = Self.clean(raw)
+            return senders.contains { s in
+                if s.hasPrefix("@") { return e.hasSuffix(s) || e.hasSuffix("." + s.dropFirst()) }   // the company and its subdomains
+                if s.contains("@") { return e == s }
+                return e.hasSuffix("@" + s) || e.hasSuffix("." + s)
+            }
+        }
     }
+    /// Lower case, no trailing dot ("x@co.example." is the same place as "x@co.example").
+    static func clean(_ s: String) -> String { var t = s.lowercased(); while t.hasSuffix(".") { t.removeLast() }; return t }
 }
 
 /// What Claude's two read-only tools are allowed to use. There is deliberately no method here that changes anything in the mailbox.

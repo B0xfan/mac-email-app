@@ -1,6 +1,10 @@
 import Foundation
 
 struct Address: Hashable, Codable {
+    /// Every address written anywhere in a header (also inside quoted names and comments), lower case. For safety checks, where more is better.
+    static func allEmails(in raw: String) -> [String] {
+        raw.matches(of: /[A-Za-z0-9._%+'\-]+@[A-Za-z0-9.\-]+/).map { String($0.output).lowercased() }
+    }
     var name: String
     var email: String
     var domain: String { email.split(separator: "@").last.map(String.init)?.lowercased() ?? "" }
@@ -121,6 +125,7 @@ struct Mail: Identifiable, Hashable, Codable {
     var replyTo: String?        // the Reply-To header, when the sender set one
     var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
     var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
+    var fromAll: [String]?      // every address found anywhere in the From header(s), for the "hidden from Claude" check
 
     var unread: Bool { labels.contains("UNREAD") }
     var inInbox: Bool { labels.contains("INBOX") }
@@ -135,6 +140,7 @@ struct Mail: Identifiable, Hashable, Codable {
         var h: [String: String] = [:]
         for x in g.payload?.headers ?? [] { h[x.name.lowercased()] = h[x.name.lowercased()] ?? x.value }
         from = Address.parse(h["from"] ?? "")
+        fromAll = (g.payload?.headers ?? []).filter { $0.name.lowercased() == "from" }.flatMap { Address.allEmails(in: $0.value) }
         to = h["to"] ?? ""
         cc = h["cc"] ?? ""
         bcc = h["bcc"]
