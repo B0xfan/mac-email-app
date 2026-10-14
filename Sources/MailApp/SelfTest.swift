@@ -976,7 +976,7 @@ enum SelfTest {
         var rh = rp; rh.text = nil
         var mn = rp; mn.text = "I forwarded message 3 to Bob.\n\n> Old chain"; mn.html = "<div>I forwarded message 3 to Bob.</div><blockquote>Old chain</blockquote>"
         var mh = mn; mh.text = nil
-        var es = fw; es.subject = "RV: Vuelo"; es.text = "Enviado desde mi iPhone\n\nInicio del mensaje reenviado:\n\n> Asiento 12A confirmado"; es.html = "<div>Inicio del mensaje reenviado:</div><blockquote>Asiento 12A confirmado</blockquote>"
+        var es = Mail(id: "f3", from: Address(name: "Shelly", email: "s@x.example"), subject: "RV: Vuelo", snippet: "", date: dt(13, 9, 0)); es.text = "Enviado desde mi iPhone\n\nInicio del mensaje reenviado:\n\n> Asiento 12A confirmado"; es.html = "<div>Inicio del mensaje reenviado:</div><blockquote>Asiento 12A confirmado</blockquote>"
         var eh = es; eh.text = nil
         let nn = { (m: Mail) in EmailNote.content([m], link: link, now: dt(13, 9, 0), tz: tz) }
         check("save as note: reply to a forward drops the quoted chain; a sentence mentioning a forwarded message keeps no history (plain and HTML); Spanish forward kept",
