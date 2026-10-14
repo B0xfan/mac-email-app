@@ -959,10 +959,20 @@ enum SelfTest {
         check("save as note: a conversation lists each message once, in order, quoted copies removed",
               a != nil && b != nil && a!.lowerBound < b!.lowerBound && !th.contains("**From:**") && th.components(separatedBy: "The venue can walk us").count == 2 && !th.contains("title:"))
 
+        // a forwarded email (iPhone shape): title loses Fwd:, the date keeps its dashes, the forwarded content is kept
+        var fw = Mail(id: "f1", from: Address(name: "Shelly", email: "s@x.example"), subject: "Fwd: Your flight is booked: HZLENL to Los Angeles on 11/12/2026", snippet: "", date: dt(13, 9, 0))
+        fw.text = "Sent from my iPhone\n\nBegin forwarded message:\n\n> From: Airline <a@x.example>\n> Subject: Your flight is booked\n>\n> Seat 12A confirmed"
+        fw.html = "<div>Sent from my iPhone</div><div>Begin forwarded message:</div><blockquote type=\"cite\"><div><b>From:</b> Airline</div><div>Seat 12A confirmed</div></blockquote>"
+        var fh = fw; fh.text = nil
+        let fwn = EmailNote.content([fw], link: link, now: dt(13, 9, 0), tz: tz), fhn = EmailNote.content([fh], link: link, now: dt(13, 9, 0), tz: tz)
+        check("save as note: forwarded email, Fwd: dropped from file name and title, date kept as 11-12-2026, forwarded content kept (plain and HTML)",
+              EmailNote.fileName(fw.subject) == "Your flight is booked HZLENL to Los Angeles on 11-12-2026" && fwn.contains("title: \"Your flight is booked: HZLENL to Los Angeles on 11/12/2026\"")
+              && fwn.contains("Seat 12A confirmed") && !fwn.contains("\n>") && fhn.contains("Seat 12A confirmed") && fhn.contains("Airline"))
+
         // file naming and writing, in a temporary vault only
         check("save as note: file name from the subject, unsafe characters dropped, very long subjects cut, subject kept as title",
-              EmailNote.fileName("Re: Q&A #5 [draft]") == "Re Q&A 5 draft" && EmailNote.fileName(String(repeating: "a", count: 300)).count == 120 && EmailNote.fileName("...") == "untitled"
-              && EmailNote.content([Mail(id: "q", from: Address(name: "", email: "q@x.example"), subject: "Re: Q&A #5", snippet: "", date: dt(13, 9, 0))], link: link, now: dt(13, 9, 0), tz: tz).contains("type: capture\ntitle: \"Re: Q&A #5\"\ncreated:"))
+              EmailNote.fileName("Re: Q&A #5 [draft]") == "Q&A 5 draft" && EmailNote.fileName(String(repeating: "a", count: 300)).count == 120 && EmailNote.fileName("...") == "untitled"
+              && EmailNote.content([Mail(id: "q", from: Address(name: "", email: "q@x.example"), subject: "Re: Q&A #5", snippet: "", date: dt(13, 9, 0))], link: link, now: dt(13, 9, 0), tz: tz).contains("type: capture\ntitle: \"Q&A #5\"\ncreated:"))
         let vault = FileManager.default.temporaryDirectory.appendingPathComponent("note-vault-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: vault) }
         let noFolder = (try? EmailNote.write([marta], link: link, vault: vault)) == nil

@@ -26,10 +26,16 @@ enum EmailNote {
     /// File name from the subject, the task engine's clean-up, kept well under the file system's name limit.
     /// ObsidianTask.fileTitle drops / \\ : and leading dots, so the name can never leave 01 Inbox; control and direction characters go too.
     static func fileName(_ subject: String) -> String {
-        var t = String(ObsidianTask.fileTitle(oneLine(subject)).replacingOccurrences(of: "^", with: "").prefix(120))
+        var t = String(ObsidianTask.fileTitle(subjectLine(subject).replacingOccurrences(of: #"(?<=\d)/(?=\d)"#, with: "-", options: .regularExpression))   // 11/12/2026 keeps its date as 11-12-2026
+.replacingOccurrences(of: "^", with: "").prefix(120))
         while t.utf8.count > 180 { t.removeLast() }   // the Mac allows 255 bytes per name; room left for "-2.md"
         t = t.trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespaces))
         return t.isEmpty ? "untitled" : t
+    }
+
+    /// The subject on one line without its Fwd:/Fw:/Re: prefixes (the note is about the content, not the mail trail).
+    static func subjectLine(_ s: String) -> String {
+        oneLine(s).replacingOccurrences(of: #"^((re|fwd?|aw|wg)\s*:\s*)+"#, with: "", options: [.regularExpression, .caseInsensitive])
     }
 
     /// Subject or name on one line: control characters become spaces, invisible format characters go, spaces collapse.
@@ -96,7 +102,9 @@ enum EmailNote {
     static func htmlText(_ h: String) -> String {
         var s = re(h, #"\s+"#, " ")   // the source's own line breaks mean nothing in HTML
         for (o, c) in [("<!--", "-->"), ("<head", "</head>"), ("<style", "</style>"), ("<script", "</script>"), ("<title", "</title>")] { s = dropBetween(s, o, c) }
-        s = links(dropBlockquotes(s))
+        // a forward's content sits in a blockquote after "Begin forwarded message:"; it is the message itself, so only quotes before that line are dropped
+        let fwd = s.range(of: "forwarded message", options: .caseInsensitive)
+        s = links(fwd.map { dropBlockquotes(String(s[..<$0.lowerBound])) + s[$0.lowerBound...] } ?? dropBlockquotes(s))
         s = re(s, #"</(p|h[1-6]|table|ul|ol)\s*>"#, "\n\n")
         s = re(s, #"<br\s*/?>|</(div|tr|li)\s*>"#, "\n")
         s = re(s, #"<li\b[^<>]*>"#, "\n- ")
@@ -202,9 +210,11 @@ enum EmailNote {
         var lines: [String] = []
         let all = s.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }   // leading spaces would turn into code blocks in Obsidian
         func wrote(_ a: String) -> Bool { a.count <= 400 && (a.hasSuffix(" wrote:") || a.hasSuffix(" escribió:")) }
-        var i = 0
+        var i = 0, forwarded = false
         while i < all.count {
-            let l = all[i]; i += 1
+            var l = all[i]; i += 1
+            if l.count <= 60, l.range(of: "forwarded message", options: .caseInsensitive) != nil { forwarded = true }   // Apple Mail quotes the forwarded text with ">"; that is the content, so keep it
+            if forwarded, l.hasPrefix(">") { l = l.replacingOccurrences(of: #"^(>\s*)+"#, with: "", options: .regularExpression) }
             if l.hasPrefix("On ") || l.hasPrefix("El ") {   // "On ... wrote:", which Gmail may wrap onto a second line; Spanish "El ... escribió:"
                 if wrote(l) { continue }
                 if i < all.count, l.count <= 400, wrote(l + " " + all[i]) { i += 1; continue }
@@ -236,7 +246,7 @@ enum EmailNote {
     static func content(_ mails: [Mail], link: URL, now: Date = Date(), tz: TimeZone = .current) -> String {
         let ms = mails.sorted { $0.date < $1.date }
         let subject = ms.first?.subject ?? "(no subject)"
-        let clean = oneLine(subject)   // one line: a subject can never end the properties block or add a property
+        let clean = subjectLine(subject)   // one line: a subject can never end the properties block or add a property
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.timeZone = tz
         f.dateFormat = "yyyy-MM-dd"; let day = f.string(from: now)
         f.dateFormat = "yyyy-MM-dd'T'HH:mm"; let at = f.string(from: now)
