@@ -38,8 +38,10 @@ final class AppSettings: ObservableObject {
     /// How often Mail looks for new messages, in minutes. Allowed: see checkChoices.
     @Published var checkMinutes: Int { didSet { d.set(checkMinutes, forKey: "checkMinutes") } }
     @Published var inboxView: InboxView { didSet { d.set(inboxView.rawValue, forKey: "inboxView") } }
-    /// Smart view groups John folded shut (Newsletters starts folded).
+    /// Folded groups: no longer used by Smart (tabs replaced folding); kept so the setting is not lost.
     @Published var foldedGroups: [String] { didSet { d.set(foldedGroups, forKey: "foldedGroups") } }
+    /// Smart view: the tab last selected (a MailCategory raw value).
+    @Published var smartTab: String { didSet { d.set(smartTab, forKey: "smartTab") } }
     @Published var swipeRight: SwipeAction { didSet { d.set(swipeRight.rawValue, forKey: "swipeRight") } }
     @Published var swipeLeft: SwipeAction { didSet { d.set(swipeLeft.rawValue, forKey: "swipeLeft") } }
     /// Short answers shown under each open email. Kept on this Mac (Gmail has no place for them).
@@ -79,6 +81,7 @@ final class AppSettings: ObservableObject {
         recentDays = d.object(forKey: "recentDays") as? Int ?? 2
         inboxView = InboxView(rawValue: d.string(forKey: "inboxView") ?? "") ?? .smart
         foldedGroups = d.stringArray(forKey: "foldedGroups") ?? ["newsletters"]
+        smartTab = d.string(forKey: "smartTab") ?? MailCategory.people.rawValue
         swipeRight = SwipeAction(rawValue: d.string(forKey: "swipeRight") ?? "") ?? .archive
         swipeLeft = SwipeAction(rawValue: d.string(forKey: "swipeLeft") ?? "") ?? .aside
         quickReplies = d.stringArray(forKey: "quickReplies") ?? AppSettings.defaultQuickReplies

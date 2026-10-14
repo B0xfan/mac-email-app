@@ -148,12 +148,13 @@ extension MailStore {
 struct SenderWarningLabel: View {
     let warning: SenderWarning
     @StateObject private var open = Box(false)
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        // the mockup's colors; it shows light mode only, so the same colors are used in dark mode (open question for John)
-        let bg = warning.red ? Color("#FDECEC", "#FDECEC") : Color("#FFF3DC", "#FFF3DC")
-        let ibg = warning.red ? Color("#FEF5F5", "#FEF5F5") : Color("#FFF9EE", "#FFF9EE")
-        let border = warning.red ? Color("#E9A5A5", "#E9A5A5") : Color("#E2C48F", "#E2C48F")
-        let fg = warning.red ? Color("#9B1C1C", "#9B1C1C") : Color("#7A4106", "#7A4106")
+        // light and dark values as approved by John (2026-10-14)
+        let bg = warning.red ? Color("#FDECEC", "#4A1D1F") : Color("#FFF3DC", "#3F2E10")
+        let ibg = warning.red ? Color("#FEF5F5", "#3A1618") : Color("#FFF9EE", "#33250C")
+        let border = warning.red ? Color("#E9A5A5", "#8A3B3E") : Color("#E2C48F", "#7A5A22")
+        let fg = warning.red ? Color("#9B1C1C", "#FFB4B4") : Color("#7A4106", "#F5D08A")
         HStack(spacing: 6) {
             Text(warning.label)
             Button { open.v.toggle() } label: {
@@ -171,12 +172,12 @@ struct SenderWarningLabel: View {
         .fixedSize()
         .overlay(alignment: .topLeading) {
             if open.v {
-                Text(warning.message).font(.system(size: 13)).foregroundStyle(Color("#13282B", "#13282B")).lineSpacing(2)
+                Text(warning.message).font(.system(size: 13)).foregroundStyle(Color("#13282B", "#e8f3f3")).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(width: 296, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color("#FFFFFF", "#FFFFFF")))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color("#FFFFFF", "#152a2d")))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
-                    .shadow(color: Color("#13282B", "#13282B").opacity(0.14), radius: 9, y: 6)
+                    .shadow(color: Color("#13282B", "#000000").opacity(scheme == .dark ? 0.5 : 0.14), radius: 9, y: 6)
                     .offset(y: 34)
                     .accessibilityAddTraits(.isStaticText)
             }

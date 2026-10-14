@@ -92,6 +92,31 @@ struct InboxViewSwitch: View {
     }
 }
 
+/// One Smart tab: icon, name, unread number (blank at zero); the selected one is bold with a 2pt underline.
+struct SmartTabButton: View {
+    let category: MailCategory, unread: Int, selected: Bool, action: () -> Void
+    @StateObject private var hover = Box(false)
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: category.symbol).font(.system(size: 13))
+                Text(category.title).font(.system(size: 13, weight: selected ? .bold : .medium)).lineLimit(1)
+                if unread > 0 {
+                    Text("\(unread)").font(Theme.label).foregroundStyle(selected ? Theme.accText : Theme.bg)
+                        .padding(.horizontal, 7).padding(.vertical, 1).background(Capsule().fill(selected ? Theme.acc : Theme.sub))
+                }
+            }
+            .foregroundStyle(selected ? Theme.acc : Theme.sub)
+            .padding(.horizontal, 4).padding(.vertical, 10).frame(maxWidth: .infinity)
+            .background(hover.v ? Theme.hovBg : Color.clear)
+            .overlay(alignment: .bottom) { Rectangle().fill(selected ? Theme.acc : Color.clear).frame(height: 2) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).onHover { hover.v = $0 }
+        .accessibilityLabel("\(category.title), \(unread) unread").accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
 /// The inbox rows in the chosen view.
 struct InboxBody: View {
     @ObservedObject var store: MailStore
@@ -113,20 +138,23 @@ struct InboxBody: View {
         case .classic:
             ForEach(store.unpinnedInbox.sorted { $0.date > $1.date }) { row($0) }
         case .smart:
-            ForEach(SmartInbox.groups(store.unpinnedInbox, category: store.category(of:))) { g in
-                let folded = settings.foldedGroups.contains(g.id)
-                Button { toggle(g.id) } label: {
-                    HStack(spacing: 6) {
-                        if let s = g.symbol { Image(systemName: s).font(.system(size: 13)) }
-                        Text(g.title.uppercased()).font(Theme.label).tracking(0.7)
-                        Spacer()
-                        Text(g.countText).font(Theme.small)
+            let groups = SmartInbox.groups(store.unpinnedInbox, category: store.category(of:))
+            let tab = MailCategory(rawValue: settings.smartTab) ?? .people
+            // pinned header: the tab bar stays at the top of the list while the rows scroll
+            LazyVStack(spacing: 8, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    let shown = groups.first { $0.id == tab.rawValue }?.mails ?? []
+                    ForEach(shown) { row($0) }
+                    if shown.isEmpty { Text("Nothing here").font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 24) }
+                } header: {
+                    HStack(spacing: 0) {
+                        ForEach(MailCategory.allCases, id: \.self) { c in
+                            SmartTabButton(category: c, unread: groups.first { $0.id == c.rawValue }?.unread ?? 0, selected: c == tab) { settings.smartTab = c.rawValue }
+                        }
                     }
-                    .foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(minHeight: 32).contentShape(Rectangle())
+                    .background(Theme.bg).overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+                    .accessibilityElement(children: .contain).accessibilityLabel("Inbox tabs")
                 }
-                .buttonStyle(.plain).accessibilityAddTraits(.isHeader)
-                .accessibilityLabel("\(g.title), \(folded ? "folded" : "open"), \(g.mails.count) emails, \(g.unread) unread").accessibilityHint("Click to \(folded ? "open" : "fold")")
-                if !folded { ForEach(g.mails) { row($0) } }
             }
         case .unreadFirst:
             ForEach(SmartInbox.unreadFirst(store.unpinnedInbox)) { g in
@@ -144,9 +172,6 @@ struct InboxBody: View {
             Button(store.loadingMore ? "Loading..." : "Show older emails") { Task { await store.loadMoreInbox() } }
                 .buttonStyle(LinkButtonStyle()).disabled(store.loadingMore).padding(12)
         }
-    }
-    private func toggle(_ id: String) {
-        if let i = settings.foldedGroups.firstIndex(of: id) { settings.foldedGroups.remove(at: i) } else { settings.foldedGroups.append(id) }
     }
     private func row(_ m: Mail) -> some View {
         let pinned = store.isPinned(m)
