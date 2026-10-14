@@ -686,7 +686,7 @@ struct ReadingContent: View {
                     if store.mailbox != .recent { Text(Fmt.long(mail.date)).font(Theme.small).foregroundStyle(Theme.sub) }
                 }
                 Spacer()
-                NoteButton(store: store, mail: mail)
+                NoteButton(store: store, mail: mail).fixedSize()
                 if mail.unsubscribe != nil, !store.selectedIsNewSender, store.unsubStage == .idle {
                     HStack(spacing: 8) {
                         Button("Unsubscribe") { Task { await store.unsubscribe(mail) } }
