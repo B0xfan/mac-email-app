@@ -40,6 +40,7 @@ extension SelfTest {
         let ty = PlainSearch.parse("today", now: lateCR, calendar: cr)
         check("search: days follow the Mac's time zone (Costa Rica, 10:30 pm on the 14th is still the 14th)", ty.gmail == "after:\(Int(cr.date(from: DateComponents(year: 2026, month: 10, day: 14))!.timeIntervalSince1970)) before:\(Int(cr.date(from: DateComponents(year: 2026, month: 10, day: 15))!.timeIntervalSince1970))" && ty.chips.map(\.label) == ["Date: 14 Oct"])
         if !(await searchPagingChecks()) { ok = false }
+        if !(await inboxBudgetChecks()) { ok = false }
         check("search: an address after 'from' is used whole", p("from tomas@x.example").gmail == "from:\"tomas@x.example\"")
         check("search: 'from' alone, or only filler words, leaves nothing to send (the store then sends the typed text)", p("from").gmail == "" && p("emails").gmail == "")
         let e = p("from Amazon last month")
@@ -85,6 +86,42 @@ extension SelfTest {
         check("paging: both pages ask for the same search; the second carries the page token", qs.count == 2 && qs[1].contains("pageToken=T2") && qs[0].contains("from:") && !qs[0].contains("pageToken"))
         await st.loadMoreOther()
         check("paging: nothing more is asked once the last page is in", log.all.count == 2)
+        return ok
+    }
+
+    /// An endless inbox where the open tab never fills: the bottom row may fetch only a few pages by itself, the button always works.
+    static func inboxBudgetChecks() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let lists = Lines()
+        StubProtocol.handler = { req in
+            let u = req.url!, p = u.path, q = u.query ?? ""
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            if p.hasSuffix("/threads") {
+                lists.add(q)
+                let n = lists.all.count
+                return (200, #"{"threads":[{"id":"q\#(n)a","historyId":"1"},{"id":"q\#(n)b","historyId":"1"}],"nextPageToken":"P\#(n)"}"#)   // never ends
+            }
+            if p.contains("/threads/") {
+                let id = String(p.split(separator: "/").last ?? "")
+                return (200, #"{"id":"\#(id)","historyId":"1","messages":[{"id":"m\#(id)","threadId":"\#(id)","labelIds":["INBOX"],"snippet":"x","internalDate":"1600000000000","payload":{"headers":[{"name":"From","value":"A <a@x.example>"},{"name":"Subject","value":"S"}]}}]}"#)
+            }
+            return (200, "{}")
+        }
+        defer { StubProtocol.handler = nil }
+        let st: MailStore = await MainActor.run {
+            let s = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("qb")),
+                              seen: SeenBook(url: cbURL.appendingPathExtension("qs")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+            s.settings.screenNewSenders = false; s.inboxNext = "P0"; return s
+        }
+        for _ in 0..<12 { await st.autoMoreInbox() }   // the bottom row firing again and again
+        let afterAuto = await MainActor.run { (st.inbox.count, st.inboxNext, st.loadingMore) }
+        check("page row: by itself it fetches only 3 pages, however long the mailbox", lists.all.count == 3 && afterAuto.0 == 6 && afterAuto.1 == "P3" && !afterAuto.2)
+        await st.loadMoreInbox()
+        check("page row: the Show older emails button still fetches one more", lists.all.count == 4)
+        await MainActor.run { st.resetAutoPages() }
+        for _ in 0..<12 { await st.autoMoreInbox() }
+        check("page row: a new tab, a scroll away or the button gives 3 more pages", lists.all.count == 7)
         return ok
     }
 

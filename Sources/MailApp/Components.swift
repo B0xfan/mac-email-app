@@ -304,10 +304,15 @@ struct ListStack<Content: View>: View {
 struct MoreRow: View {
     let loading: Bool
     let page: String?
-    let load: () async -> Void
+    let resetKey: String        // a new value (another Smart tab) gives the row its pages back
+    let auto: () async -> Void  // spends one of the few pages allowed per user action
+    let manual: () async -> Void
+    let reset: () -> Void
     var body: some View {
-        Button(loading ? "Loading..." : "Show older emails") { Task { await load() } }
+        Button(loading ? "Loading..." : "Show older emails") { Task { await manual() } }
             .buttonStyle(LinkButtonStyle()).disabled(loading).padding(12)
-            .task(id: page) { await load() }
+            .task(id: (page ?? "") + resetKey) { await auto() }
+            .onChange(of: resetKey) { _, _ in reset() }
+            .onDisappear { reset() }   // scrolled away: the next time it comes into view it may load again
     }
 }

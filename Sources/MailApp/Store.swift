@@ -36,6 +36,7 @@ final class MailStore: ObservableObject {
     @Published var loadingOtherMore = false
     var otherSource: OtherSource?
     var otherGen = 0
+    var autoPagesLeft = MailStore.autoPages
     @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
     @Published var status = ""                 // spoken-style status line
     @Published var toast: ToastInfo?
@@ -239,7 +240,9 @@ final class MailStore: ObservableObject {
             var page = try await pageR
             // older conversations the user already loaded ("Show older emails") stay loaded: walk as many pages as were showing
             let depth = inbox.count
-            while page.refs.count < depth, let tok = page.next {
+            var walked = 1
+            while page.refs.count < depth, walked < Self.refreshPages, let tok = page.next {
+                walked += 1
                 guard let more = try? await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok) else { break }
                 page = (refs: page.refs + more.refs, next: more.next)
             }
@@ -259,13 +262,16 @@ final class MailStore: ObservableObject {
             await aside; await snz
             // a conversation that failed to load keeps its old row instead of vanishing
             let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
-            inbox = applySurfaced(all).sorted { $0.date > $1.date }
-            inboxNext = page.next
+            // pages deeper than the few walked above stay as they were; the next-page token then still points past them
+            let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
+            let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
+            inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
+            if deeper.isEmpty { inboxNext = page.next }
             pruneSurfaced()
             saveCache()
             error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
-            async let oth: Void = loadOther()
+            async let oth: Void = other.count > Self.otherPage && mailbox != .inbox ? () : loadOther()   // a list paged in deeper keeps its rows
             let smartDue = lastSmartAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
             async let smt: Void = smartDue ? refreshSmartCounts() : ()
             await cls; await oth; await smt
@@ -284,10 +290,10 @@ final class MailStore: ObservableObject {
             let have = Set(inbox.map(\.threadID))
             let got = await gmail.threads(page.refs.map(\.id).filter { !have.contains($0) })
             inbox = applySurfaced(inbox + page.refs.compactMap { got.mails[$0.id] }).sorted { $0.date > $1.date }
-            inboxNext = page.next
             if !got.failed.isEmpty { error = "Some older conversations could not be loaded. Try \"Show older emails\" again." }
             saveCache()
-            await classifySenders()
+            inboxNext = page.next   // last: the page row reacts to this, and a cancelled task must not cut off the steps above
+            Task { await classifySenders() }
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load older mail." }
     }
 
@@ -316,6 +322,13 @@ final class MailStore: ObservableObject {
         objectWillChange.send()
     }
 
+    /// The page row at the bottom of a list asks for more by itself, but only a few pages per user action; the button always works.
+    static let autoPages = 3
+    static let refreshPages = 5
+    func resetAutoPages() { autoPagesLeft = Self.autoPages }
+    func autoMoreInbox() async { guard autoPagesLeft > 0, inboxNext != nil else { return }; autoPagesLeft -= 1; await loadMoreInbox() }
+    func autoMoreOther() async { guard autoPagesLeft > 0, otherNext != nil else { return }; autoPagesLeft -= 1; await loadMoreOther() }
+
     /// Where the current "other" list (search, Sent, folder, Smart Folder, saved search, Archive) comes from, so more of it can be fetched.
     enum OtherSource { case query(String), labels([String]) }
     static let otherPage = 50
@@ -328,7 +341,7 @@ final class MailStore: ObservableObject {
     }
 
     func loadOther() async {
-        otherGen += 1; let gen = otherGen   // an older, slower call must never overwrite newer results
+        otherGen += 1; loadingOtherMore = false; let gen = otherGen   // an older, slower call must never overwrite newer results
         otherNext = nil; otherSource = nil
         let q = search.trimmingCharacters(in: .whitespaces)
         do {
@@ -400,7 +413,7 @@ final class MailStore: ObservableObject {
     }
 
     func select(_ box: Mailbox) async {
-        otherGen += 1; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
+        otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
@@ -408,6 +421,7 @@ final class MailStore: ObservableObject {
     }
 
     func runSearch() async {
+        autoPagesLeft = Self.autoPages
         homeShown = false
         selectedID = nil; openMail = nil
         if isSearching { mailbox = .search }

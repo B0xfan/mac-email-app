@@ -168,7 +168,7 @@ struct InboxBody: View {
                 ForEach(g.mails) { row($0) }
             }
         }
-        if store.inboxNext != nil { MoreRow(loading: store.loadingMore, page: store.inboxNext) { await store.loadMoreInbox() } }
+        if store.inboxNext != nil { MoreRow(loading: store.loadingMore, page: store.inboxNext, resetKey: settings.smartTab, auto: { await store.autoMoreInbox() }, manual: { store.resetAutoPages(); await store.loadMoreInbox() }, reset: { store.resetAutoPages() }) }
     }
     private func row(_ m: Mail) -> some View {
         let pinned = store.isPinned(m)
