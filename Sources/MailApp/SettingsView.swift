@@ -3,13 +3,13 @@ import AppKit
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
-    case appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy"
+    case claude = "Claude access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .accounts: return "person.crop.circle"; case .signatures: return "signature"; case .quickReplies: return "bolt"; case .away: return "paperplane.circle"; case .rules: return "line.3.horizontal.decrease"; case .sending: return "paperplane"
         case .keyboard: return "keyboard"; case .layout: return "rectangle.split.2x1"; case .menuBar: return "menubar.rectangle"; case .todo: return "checklist"; case .swipe: return "hand.draw"; case .inbox: return "tray"; case .home: return "house"; case .recent: return "clock"
-        case .appearance: return "circle.lefthalf.filled"; case .defaultApp: return "envelope"
+        case .appearance: return "circle.lefthalf.filled"; case .claude: return "sparkles"; case .defaultApp: return "envelope"
         case .senders: return "person.badge.shield.checkmark"; case .privacy: return "shield"
         }
     }
@@ -20,6 +20,7 @@ struct SettingsView: View {
     @ObservedObject private var store: MailStore   // watched so the Accounts card follows sign-out and sign-in
     @ObservedObject private var signIn: SignInModel
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject private var claude = ClaudeAccess.shared
     @StateObject private var sec: Box<SettingsSection>
     @StateObject private var note = Box("")
     var openBlocked: () -> Void
@@ -167,6 +168,33 @@ struct SettingsView: View {
             head("Keyboard", "Shortcuts that work when you press a single key.")
             switchCard("Keyboard shortcuts", "Press one key to write a new email, reply, forward or archive. Turn this off if you sometimes press keys by accident.", $settings.shortcuts)
             Text(settings.shortcuts ? "Keyboard shortcuts are on." : "Keyboard shortcuts are off. Use the buttons at the top of the inbox instead.").font(Theme.small).foregroundStyle(Theme.sub)
+        case .claude:
+            head("Claude access", "Lets Claude, the AI assistant, work with your mail when you ask it to from the Claude app on this Mac.")
+            Card { HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) { Text("Allow Claude to use my mail").font(Theme.bodyStrong); Text("Off means Claude cannot see anything.").font(Theme.small).foregroundStyle(Theme.sub) }
+                Spacer()
+                Toggle("Allow Claude to use my mail", isOn: Binding(get: { settings.claudeEnabled }, set: { settings.claudeEnabled = $0; claude.apply(store: app.store, userChange: true) })).labelsHidden().toggleStyle(.switch)
+            } }
+            if let m = claude.message { Text(m).font(Theme.small).foregroundStyle(Theme.sub) }
+            Card { VStack(alignment: .leading, spacing: 8) {
+                Text("What Claude may do").font(Theme.bodyStrong)
+                RadioRow(label: "Read only", tag: "Recommended", on: true) {}
+                RadioRow(label: "Read, and do things when I approve each one", tag: "Not available yet", on: false) {}.disabled(true).opacity(0.5)
+                Text("Claude can search and read your mail. It cannot send, delete, archive or change anything.").font(Theme.small).foregroundStyle(Theme.sub)
+            }.frame(maxWidth: .infinity, alignment: .leading) }
+            switchCard("Never visible to Claude", "Blocked senders, Spam and Trash are always hidden from Claude.", $settings.claudeHideBlocked)
+            Card { VStack(alignment: .leading, spacing: 0) {
+                Text("Recent Claude activity").font(Theme.bodyStrong)
+                Text("What Claude looked at, newest first.").font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 6)
+                if claude.activity.isEmpty { Text("Nothing yet.").font(Theme.small).foregroundStyle(Theme.sub).padding(.vertical, 8) }
+                ForEach(claude.activity.prefix(8)) { e in
+                    HStack(spacing: 12) {
+                        Text(e.text).font(Theme.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                        Text(Fmt.long(e.at)).font(Theme.small).foregroundStyle(Theme.sub)
+                    }
+                    .padding(.vertical, 10).overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading) }
         case .appearance:
             head("Appearance", "How the app looks on your Mac.")
             Card { VStack(alignment: .leading, spacing: 8) {

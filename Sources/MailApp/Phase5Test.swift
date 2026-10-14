@@ -98,6 +98,7 @@ extension SelfTest {
         check("translate: nothing to translate answers at once", nothing == nil)
         if !(await searchPagingChecks()) { ok = false }
         if !(await inboxBudgetChecks()) { ok = false }
+        if !(await claudeChecks()) { ok = false }
         check("search: an address after 'from' is used whole", p("from tomas@x.example").gmail == "from:\"tomas@x.example\"")
         check("search: 'from' alone, or only filler words, leaves nothing to send (the store then sends the typed text)", p("from").gmail == "" && p("emails").gmail == "")
         let e = p("from Amazon last month")
@@ -179,6 +180,136 @@ extension SelfTest {
         await MainActor.run { st.resetAutoPages() }
         for _ in 0..<12 { await st.autoMoreInbox() }
         check("page row: a new tab, a scroll away or the button gives 3 more pages", lists.all.count == 7)
+        return ok
+    }
+
+    final class StubClaudeSource: ClaudeSource, @unchecked Sendable {
+        var mails: [Mail] = [], full: [String: Mail] = [:], blocked: String? = "Label_B"
+        private(set) var queries: [String] = [], reads: [String] = []
+        private let l = NSLock()
+        func search(_ q: String, max: Int) async throws -> [Mail] { l.lock(); queries.append(q); l.unlock(); return mails }
+        func message(_ id: String) async throws -> Mail { l.lock(); reads.append(id); l.unlock(); guard let m = full[id] else { throw GmailError.http(404, "gone") }; return m }
+        func blockedLabelID() async -> String? { blocked }
+    }
+
+    /// Claude access: the protocol, the two read-only tools, what stays hidden, the private socket, the Claude app's settings file. No network, no Keychain.
+    static func claudeChecks() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        func mail(_ id: String, _ labels: [String], subject: String = "Hello") -> Mail {
+            Mail(id: id, from: Address(name: id, email: "\(id)@x.example"), subject: subject, snippet: "preview", date: Date(), labels: labels, text: "Body of \(id)")
+        }
+        let src = StubClaudeSource()
+        src.mails = [mail("a1", ["INBOX"]), mail("a2", ["SPAM"]), mail("a3", ["TRASH"]), mail("a4", ["Label_B"]), mail("a5", ["INBOX", "UNREAD"])]
+        for m in src.mails { src.full[m.id] = m }
+        let logged = Lines()
+        let be = ClaudeBackend(source: src, blockLabelName: "Blocked", hideHidden: { true }, log: { logged.add($0) })
+        func rpc(_ o: [String: Any], _ b: MCPBackend) async -> [String: Any]? {
+            guard let d = try? JSONSerialization.data(withJSONObject: o), let r = await MCPProtocol.handle(d, backend: b) else { return nil }
+            return try? JSONSerialization.jsonObject(with: r) as? [String: Any]
+        }
+        let ini = await rpc(["jsonrpc": "2.0", "id": 1, "method": "initialize", "params": ["protocolVersion": "2025-03-26"]], be)
+        check("claude: initialize answers with the tools capability and echoes the protocol version", (ini?["result"] as? [String: Any])?["protocolVersion"] as? String == "2025-03-26" && ((ini?["result"] as? [String: Any])?["capabilities"] as? [String: Any])?["tools"] != nil)
+        let note = await rpc(["jsonrpc": "2.0", "method": "notifications/initialized"], be)
+        let bad = await MCPProtocol.handle(Data("nonsense".utf8), backend: be)
+        let unknown = await rpc(["jsonrpc": "2.0", "id": 2, "method": "resources/list"], be)
+        check("claude: notifications get no answer; bad JSON and unknown methods get a clean error", note == nil && bad != nil && ((unknown?["error"] as? [String: Any])?["code"] as? Int) == -32601)
+        let list = await rpc(["jsonrpc": "2.0", "id": 3, "method": "tools/list"], be)
+        let names = ((list?["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.compactMap { $0["name"] as? String }
+        check("claude: exactly two tools exist, both reading ones", names == ["search_mail", "read_mail"] && ClaudeTools.all.count == 2)
+
+        // read only: no other tool name does anything, and nothing reaches the mailbox
+        var refused = true
+        for n in ["archive_mail", "send_mail", "delete_mail", "trash_mail", "modify_labels", "mark_read", "create_filter", "SEARCH_MAIL", ""] {
+            let r = await be.call(name: n, arguments: ["id": "a1", "query": "x", "to": "x@y.example"])
+            if !r.isError { refused = false }
+        }
+        check("claude: any other tool name (archive, send, delete, label, filter...) is refused and touches nothing", refused && src.queries.isEmpty && src.reads.isEmpty)
+
+        // the same two tools against a pretend Gmail: every request that leaves is a read
+        let methods = Lines()
+        StubProtocol.handler = { req in
+            let u = req.url!, p = u.path
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            methods.add(req.httpMethod ?? "?")
+            if p.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_B","name":"Blocked"}]}"#) }
+            if p.hasSuffix("/messages") { return (200, #"{"messages":[{"id":"abc1"}]}"#) }
+            if p.hasSuffix("/messages/abc1") { return (200, #"{"id":"abc1","threadId":"tabc1","labelIds":["INBOX"],"snippet":"s","internalDate":"1700000000000","payload":{"mimeType":"text/plain","headers":[{"name":"From","value":"A <a@x.example>"},{"name":"Subject","value":"Real"}],"body":{"data":"SGVsbG8"}}}"#) }
+            return (200, "{}")
+        }
+        defer { StubProtocol.handler = nil }
+        let live = ClaudeBackend(source: GmailClaudeSource(gmail: GmailClient(auth: pauth, session: session), blockLabelName: "Blocked"), blockLabelName: "Blocked", hideHidden: { true }, log: { _ in })
+        let s1 = await live.call(name: "search_mail", arguments: ["query": "hello"]), r1 = await live.call(name: "read_mail", arguments: ["id": "abc1"])
+        let used = methods.all
+        check("claude: against Gmail, searching and reading send only GET requests (nothing is written, sent or labelled)", !used.isEmpty && used.allSatisfy { $0 == "GET" } && !s1.isError && !r1.isError && r1.text.contains("Hello") && r1.text.contains("subject: Real"))
+
+        // what stays hidden
+        let sr = await be.search("hello", max: 10)
+        check("claude: Spam, Trash and Blocked mail are asked away from Gmail and dropped again if they come back; the rest is listed, unread marked",
+              src.queries.last?.hasSuffix("-in:spam -in:trash -label:\"Blocked\"") == true && sr.text.contains("id: a1") && sr.text.contains("id: a5") && !sr.text.contains("id: a2") && !sr.text.contains("id: a3") && !sr.text.contains("id: a4") && sr.text.contains("unread"))
+        let hiddenRead = await be.read("a4"), hiddenSpam = await be.read("a2"), okRead = await be.read("a1")
+        check("claude: reading a hidden email is refused; a normal one reads", hiddenRead.isError && hiddenSpam.isError && !okRead.isError && okRead.text.contains("Body of a1"))
+        let open = ClaudeBackend(source: src, blockLabelName: "Blocked", hideHidden: { false }, log: { _ in })
+        let all = await open.search("hello", max: 10), openRead = await open.read("a2")
+        check("claude: with 'Never visible' switched off, those emails can be found and read", src.queries.last?.contains("-in:spam") == false && all.text.contains("id: a2") && all.text.contains("id: a4") && !openRead.isError)
+        let word = await be.search("from Amazon last month", max: 3)
+        check("claude: plain-words searches are understood like in Mail's own search box", word.isError == false && src.queries.last?.hasPrefix("from:\"Amazon\" after:") == true)
+        for bad in ["", "../labels", "a1/../x", "zz", String(repeating: "a", count: 41)] { _ = await be.read(bad) }
+        check("claude: an id that is not an email id never reaches Gmail", src.reads.filter { !["a4", "a2", "a1"].contains($0) }.isEmpty)
+        src.full["b16"] = { var m = mail("b16", ["INBOX"]); m.text = String(repeating: "word ", count: 10_000); return m }()
+        let bigOK = await be.read("b16")
+        check("claude: a very long email is cut at 20,000 characters and says so", !bigOK.isError && bigOK.text.contains("The rest of this long email was left out") && bigOK.text.count < 20_500)
+        check("claude: what Claude does is logged in plain words", logged.all.contains { $0.hasPrefix("Searched for") } && logged.all.contains { $0.hasPrefix("Read") })
+
+        // the private socket
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("ca-\(Int.random(in: 1000...9999)).sock").path
+        let server = MCPSocket.Server(path: path) { await MCPProtocol.handle($0, backend: be) }
+        let started = server.start()
+        let mode = ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? Int) ?? 0
+        let ans = await Task.detached { MCPSocket.request(Data(#"{"jsonrpc":"2.0","id":9,"method":"tools/list"}"#.utf8), path: path, timeout: 10) }.value
+        let ansText = ans.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let call = await Task.detached { MCPSocket.request(Data(#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"search_mail","arguments":{"query":"hello"}}}"#.utf8), path: path, timeout: 10) }.value
+        check("claude socket: only the owner can open it; a request over it gets the tool list and a real search", started && mode == 0o600 && ansText.contains("search_mail") && ansText.contains("read_mail") && (call.flatMap { String(data: $0, encoding: .utf8) } ?? "").contains("id: a1"))
+        server.stop()
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        let after = await Task.detached { MCPSocket.request(Data(#"{"jsonrpc":"2.0","id":11,"method":"ping"}"#.utf8), path: path, timeout: 3) }.value
+        check("claude socket: once stopped, nobody is listening and the file is gone", after == nil && !FileManager.default.fileExists(atPath: path))
+        let off = await rpc(["jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": ["name": "search_mail", "arguments": ["query": "x"]]], MCPOfflineBackend())
+        let offText = (((off?["result"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        check("claude helper: with Mail closed, the helper still lists the tools and explains why a call did nothing", offText.contains("not open") && ((off?["result"] as? [String: Any])?["isError"] as? Bool) == true)
+
+        // the Claude app's settings file
+        let cfg = #"{"preferences":{"a":1},"mcpServers":{"other":{"command":"/x"}}}"#
+        let on = ClaudeConfig.updated(Data(cfg.utf8), command: "/H")
+        let onObj = on.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let servers = onObj?["mcpServers"] as? [String: Any]
+        check("claude settings: turning on adds only Mail's entry; the Claude app's other settings and servers stay", (servers?["audrey-mail"] as? [String: Any])?["command"] as? String == "/H" && servers?["other"] != nil && onObj?["preferences"] != nil)
+        let offData = ClaudeConfig.updated(on, command: nil)
+        let offObj = offData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        check("claude settings: turning off removes only Mail's entry", (offObj?["mcpServers"] as? [String: Any])?["audrey-mail"] == nil && (offObj?["mcpServers"] as? [String: Any])?["other"] != nil)
+        let untouched = Data(cfg.utf8)
+        check("claude settings: nothing to remove, or already set up, leaves the file byte for byte; an unreadable file is never overwritten",
+              ClaudeConfig.updated(untouched, command: nil) == untouched && ClaudeConfig.updated(on, command: "/H") == on && ClaudeConfig.updated(Data("{oops".utf8), command: "/H") == nil && ClaudeConfig.updated(nil, command: "/H") != nil)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("claude-cfg-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("claude_desktop_config.json")
+        try? untouched.write(to: f)
+        let r1x = await MainActor.run { ClaudeAccess.register(true, file: f, command: "/H") }
+        let backupKept = (try? Data(contentsOf: f.appendingPathExtension("before-audrey-mail"))) == untouched
+        let r2x = await MainActor.run { ClaudeAccess.register(false, file: f, command: "/H") }
+        let missing = await MainActor.run { ClaudeAccess.register(true, file: dir.appendingPathComponent("nope/c.json"), command: "/H") }
+        let backAgain = (try? JSONSerialization.jsonObject(with: Data(contentsOf: f)) as? [String: Any])?["mcpServers"] as? [String: Any]
+        check("claude settings: on and off in a real file keep the original beside it; no Claude app means 'not found'", r1x == .done && backupKept && r2x == .done && backAgain?["audrey-mail"] == nil && backAgain?["other"] != nil && missing == .noClaude)
+
+        // activity list
+        let actFile = dir.appendingPathComponent("act.json")
+        let (count, first, reloaded) = await MainActor.run { () -> (Int, String?, Int) in
+            let c = ClaudeAccess(file: actFile)
+            for i in 0..<60 { c.add("Read \(i)") }
+            return (c.activity.count, c.activity.first?.text, ClaudeAccess(file: actFile).activity.count)
+        }
+        check("claude activity: the newest first, the last 50 kept, remembered between launches", count == 50 && first == "Read 59" && reloaded == 50)
         return ok
     }
 

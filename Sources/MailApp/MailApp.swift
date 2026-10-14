@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MailStore.clearAttachmentTemp()
+        MainActor.assumeIsolated { ClaudeAccess.shared.stop() }
         MainActor.assumeIsolated { AppModel.current?.store.flushPendingSendsOnQuit() }
     }
 

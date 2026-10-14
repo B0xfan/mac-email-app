@@ -53,6 +53,7 @@ struct MailRoot: View {
         .foregroundStyle(Theme.text)
         .background(Theme.bg)
         .task { await store.start() }
+        .task { if !Keychain.testMode { ClaudeAccess.shared.apply(store: store) } }   // Claude access, if it was left on
         .task {
             store.installKeyMonitor()
             while !Task.isCancelled {

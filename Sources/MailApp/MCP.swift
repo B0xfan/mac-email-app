@@ -188,8 +188,10 @@ enum ClaudeConfig {
             root = o
         }
         var servers = root["mcpServers"] as? [String: Any] ?? [:]
+        let had = servers[key] as? [String: Any]
+        if command == nil && had == nil { return existing }                       // nothing of Mail's to remove: the file is not touched
+        if let command, had?["command"] as? String == command { return existing } // already set up
         if let command { servers[key] = ["command": command] } else { servers.removeValue(forKey: key) }
-        if servers.isEmpty && command == nil && root["mcpServers"] == nil { return existing ?? Data() }
         root["mcpServers"] = servers
         return try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
     }

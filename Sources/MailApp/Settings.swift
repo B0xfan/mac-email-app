@@ -53,6 +53,9 @@ final class AppSettings: ObservableObject {
     @Published var compactSidebar: Bool { didSet { d.set(compactSidebar, forKey: "compactSidebar") } }
     @Published var menuBarShow: Bool { didSet { d.set(menuBarShow, forKey: "menuBarShow") } }
     @Published var menuBarAll: Bool { didSet { d.set(menuBarAll, forKey: "menuBarAll") } }
+    // Claude access: off until turned on; Blocked senders, Spam and Trash stay hidden from Claude unless this is switched off
+    @Published var claudeEnabled: Bool { didSet { d.set(claudeEnabled, forKey: "claudeEnabled") } }
+    @Published var claudeHideBlocked: Bool { didSet { d.set(claudeHideBlocked, forKey: "claudeHideBlocked") } }
     @Published var todoList: TodoList { didSet { d.set(todoList.rawValue, forKey: "todoList") } }
     @Published var vaultPath: String { didSet { d.set(vaultPath, forKey: "vaultPath") } }
     /// Conversations already sent to the to-do list (the small check mark on the email).
@@ -91,6 +94,8 @@ final class AppSettings: ObservableObject {
         compactSidebar = d.object(forKey: "compactSidebar") as? Bool ?? false
         menuBarShow = d.object(forKey: "menuBarShow") as? Bool ?? true
         menuBarAll = d.object(forKey: "menuBarAll") as? Bool ?? false
+        claudeEnabled = d.object(forKey: "claudeEnabled") as? Bool ?? false
+        claudeHideBlocked = d.object(forKey: "claudeHideBlocked") as? Bool ?? true
         todoList = TodoList(rawValue: d.string(forKey: "todoList") ?? "") ?? .obsidian
         vaultPath = d.string(forKey: "vaultPath") ?? ObsidianTask.defaultVault().path
         todoMarks = Self.cappedMarks(d.stringArray(forKey: "todoMarks") ?? [])
