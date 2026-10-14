@@ -215,7 +215,7 @@ extension MailStore {
                 case "replied", "gone": timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }; return
                 default: timing.change { t in if let i = t.followUps.firstIndex(where: { $0.messageID == f.messageID }) { t.followUps[i].server = "off" } }   // it holds nothing now
                 }
-            } catch TimingServerError.unreachable { offline = true }   // no answer at all: Mail does it itself
+            } catch TimingServerError.unreachable { markOffline() }   // no answer at all: Mail does it itself
             catch TimingServerError.refused(400) {}   // the service does not know this reminder: Mail does it itself
             catch { return }   // timed out (it may have acted), busy, 401/403/429: look again next time; acting now could bring back an email archived on the phone
         }

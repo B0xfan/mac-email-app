@@ -61,7 +61,7 @@ extension MailStore {
                     if s.problem != nil { markScheduled(s.draftID) { $0.problem = nil } }
                 }
             }
-        } catch TimingServerError.unreachable { offline = true }
+        } catch TimingServerError.unreachable { markOffline() }
         catch {}   // refused or timed out: nothing to do now, the next check tries again
     }
 
@@ -69,13 +69,13 @@ extension MailStore {
     /// keyed call registers by itself; a key the service no longer knows is replaced). Until now only an actual Send Later
     /// made that call, so a Mac that never scheduled anything was never registered.
     /// Only inside a timer pass: a direct call (Send Later, Change time) must still try the service.
-    func markOffline() { if timersBusy { offline = true } }
+    func markOffline() { if timersBusy { markOffline() } }
 
     func registerWithServer() async {
         guard let srv = timingServer, !registerDone, !offline else { return }
         do { _ = try await srv.reminders(); registerDone = true }
         catch TimingServerError.refused(let c) where c == 400 || c == 403 { registerDone = true }   // not on the list: do not ask again this launch
-        catch TimingServerError.unreachable { offline = true }
+        catch TimingServerError.unreachable { markOffline() }
         catch {}   // no sign-in yet: the next check tries again
     }
 
@@ -106,7 +106,7 @@ extension MailStore {
                 timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }
                 _ = try? await srv.cancel(f.messageID, reminder: true)   // acknowledge
             }
-        } catch TimingServerError.unreachable { offline = true }
+        } catch TimingServerError.unreachable { markOffline() }
         catch {}   // refused: the Mac's own check still works
     }
 
