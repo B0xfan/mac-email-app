@@ -73,7 +73,12 @@ extension MailStore {
             let all = try await gmail.filters()
             let fs = all.filter { labelID != nil && ($0.action?.addLabelIds ?? []).contains(labelID!) && $0.criteria?.from != nil }
             // Spark's blocks are plain "from X, send to Trash" filters; list them too so John manages every block in one place
-            let old = all.filter { ($0.action?.addLabelIds ?? []).contains("TRASH") && $0.criteria?.from != nil && $0.criteria?.subject == nil && $0.criteria?.query == nil && $0.criteria?.to == nil && $0.action?.forward == nil }
+            // only filters whose sole criterion is "from"; anything narrower (attachment, size, not-words, chats) is a rule, not a block
+            let old = all.filter { f in
+                guard let c = f.criteria else { return false }
+                return (f.action?.addLabelIds ?? []).contains("TRASH") && c.from != nil && c.subject == nil && c.query == nil && c.to == nil
+                    && c.negatedQuery == nil && c.hasAttachment == nil && c.size == nil && c.sizeComparison == nil && c.excludeChats == nil && f.action?.forward == nil
+            }
             let g = gmail, name = blockLabelName
             let mine = await mapLimited(fs, limit: 4) { f in
                 let from = f.criteria!.from!
@@ -92,19 +97,19 @@ extension MailStore {
     }
 
     func unblock(_ e: BlockedEntry) async {
-        var lifted = false, covered = false
+        var lifted = false
+        // another block (a different filter, same sender) keeps them blocked, so nothing is moved back or approved
+        let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
         do {
             do { try await gmail.deleteFilter(id: e.id) }
-            catch GmailError.http(404, _) {   // already gone (an earlier try): carry on, unless another filter still blocks this sender
-                covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
-            }
+            catch GmailError.http(404, _) {}   // already gone (an earlier try): carry on
             lifted = true
             if !covered, !e.toTrash, let label = try await ensureLabelIfExists() {   // old Spark blocks: just the filter goes; their emails stay where they are
                 let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
                 try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
             }
             if !e.isCompany && !covered { book.approve(e.from) }
-            status = covered ? "That block was already gone, but another block still covers \(e.title), so their emails stay in Blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
+            status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
             await refresh()
         } catch {

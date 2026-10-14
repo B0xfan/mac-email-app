@@ -422,7 +422,7 @@ enum SelfTest {
             check("rules: size, forwarding, categories and a folder that keeps the inbox stay read-only", odd.allSatisfy { MailRule(filter($0), userLabels: user) == nil })
             check("rules: no condition or no action is refused", MailRule().problem != nil && MailRule(from: "a@b.c").problem != nil && r?.problem == nil)
             nonisolated(unsafe) var seen: [String] = []
-            nonisolated(unsafe) var failCreate = false, create500 = false, create429 = 0, failDelete = false, blockRule = false, del404 = false, dupBlock = false, failList = false
+            nonisolated(unsafe) var failCreate = false, create500 = false, create429 = 0, failDelete = false, blockRule = false, del404 = false, dupBlock = false, twin = false, failList = false
             nonisolated(unsafe) var created: [String: Any]?   // the last filter the stub accepted, listed back afterwards
             StubProtocol.handler = { req in
                 let u = req.url!.absoluteString
@@ -437,7 +437,7 @@ enum SelfTest {
                 if u.hasSuffix("/labels") { return (200, #"{"labels":[{"id":"Label_1","name":"Shopping","type":"user"},{"id":"Label_2","name":"Blocked","type":"user"}]}"#) }
                 if u.hasSuffix("/settings/filters") && req.httpMethod == "GET" {
                     let extra = created.flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) }.map { "," + $0 } ?? ""
-                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# + (dupBlock ? #",{"id":"b2","criteria":{"from":"Spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# : "") + #",{"id":"t1","criteria":{"from":"old@spark.example"},"action":{"addLabelIds":["TRASH"]}},{"id":"t2","criteria":{"from":"x@y.example","subject":"s"},"action":{"addLabelIds":["TRASH"]}}"# + "]}" : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
+                    return (200, blockRule ? #"{"filter":[{"id":"b1","criteria":{"from":"spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# + (dupBlock ? #",{"id":"b2","criteria":{"from":"Spam@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}}"# : "") + #",{"id":"t1","criteria":{"from":"old@spark.example"},"action":{"addLabelIds":["TRASH"]}},{"id":"t2","criteria":{"from":"x@y.example","subject":"s"},"action":{"addLabelIds":["TRASH"]}},{"id":"t3","criteria":{"from":"x@y.example","hasAttachment":true},"action":{"addLabelIds":["TRASH"]}}"# + (twin ? #",{"id":"tw1","criteria":{"from":"twin@x.biz"},"action":{"addLabelIds":["Label_2"],"removeLabelIds":["INBOX"]}},{"id":"tw2","criteria":{"from":"Twin@x.biz"},"action":{"addLabelIds":["TRASH"]}}"# : "") + "]}" : #"{"filter":[{"id":"f1","criteria":{"from":"news@shop.com"},"action":{"removeLabelIds":["INBOX"]}}"# + extra + "]}")
                 }
                 if u.contains("/messages") && req.httpMethod == "GET" { return (200, #"{"messages":[{"id":"m1"}]}"#) }
                 if req.httpMethod == "POST" && u.hasSuffix("/settings/filters") {
@@ -490,7 +490,7 @@ enum SelfTest {
             // Spark's old blocks (send to Trash) are listed too; Unblock removes only the filter
             await st.loadBlocked()
             let bl = await MainActor.run { st.blocked }
-            check("blocking: Spark's send-to-Trash filters are listed (a Trash filter with a subject is not)", bl.contains { $0.id == "t1" && $0.toTrash } && !bl.contains { $0.id == "t2" } && bl.first?.toTrash == false)
+            check("blocking: Spark's send-to-Trash filters are listed (a Trash filter with a subject or an attachment condition is not)", bl.contains { $0.id == "t1" && $0.toTrash } && !bl.contains { $0.id == "t2" || $0.id == "t3" } && bl.contains { $0.id == "b1" && !$0.toTrash })
             seen = []
             await st.unblock(bl.first { $0.id == "t1" }!)
             check("blocking: unblocking an old Trash block deletes the filter and moves no emails", seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/t1") } && !seen.contains { $0.contains("batchModify") })
@@ -503,7 +503,19 @@ enum SelfTest {
             dupBlock = true; await st.loadBlocked(); seen = []
             await st.unblock(be)
             check("blocking: a 404 while another filter still blocks the sender moves nothing back", !seen.contains { $0.contains("batchModify") })
-            dupBlock = false; del404 = false
+            dupBlock = false
+            // an old Trash block that is already gone (404) is not an error and moves nothing
+            await st.loadBlocked(); seen = []
+            await st.unblock(bl.first { $0.id == "t1" }!)
+            let errT = await MainActor.run { st.error }
+            check("blocking: a 404 on an old Trash block's delete is fine and moves nothing", errT == nil && seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/t1") } && !seen.contains { $0.contains("batchModify") })
+            del404 = false
+            // twin: another filter (here a Trash one, other letter case) still blocks the sender: delete only, no move back, no approve
+            twin = true; await st.loadBlocked(); seen = []
+            await st.unblock(await MainActor.run { st.blocked.first { $0.id == "tw1" }! })
+            let twinState = await MainActor.run { (st.book.isApproved("twin@x.biz"), st.status) }
+            check("blocking: Unblock while another filter still blocks the sender only deletes, approves no one, and says so", seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/tw1") } && !seen.contains { $0.contains("batchModify") } && !twinState.0 && twinState.1.contains("still blocked by another rule"))
+            twin = false
             // half-failed Unblock refreshes the lists; a failed delete (nothing changed) makes no extra calls
             failList = true; seen = []
             await st.unblock(be)
