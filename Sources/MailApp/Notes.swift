@@ -53,7 +53,8 @@ final class NotesBook: ObservableObject {
 /// Approved header (2026-10-13): a small "Note" button beside Unsubscribe/Block, only on an email that has a note
 /// (or while one is being written); it opens a slim strip under the subject. A new note starts from Command Center.
 enum NoteHeader {
-    static func buttonShown(has: Bool, editing: Bool) -> Bool { has || editing }
+    static func buttonShown(has: Bool, editing: Bool) -> Bool { has && !editing }
+    static func addShown(has: Bool, editing: Bool) -> Bool { !has && !editing }   // neither shows while typing, as drawn
     static func stripShown(has: Bool, open: Bool, editing: Bool) -> Bool { editing || (has && open) }
     /// Open/edit state belongs to one conversation; moving to another email (or none) drops it.
     static func keepsState(from old: String?, to new: String?) -> Bool { old == new }
@@ -74,7 +75,7 @@ struct NoteButton: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
             }
             .buttonStyle(.plain).accessibilityLabel(shown ? "Hide private note" : "Show private note").tip("Show or hide your private note on this email")
-        } else {   // approved 2026-10-14: a sticky note with a plus, same size as the other icons
+        } else if NoteHeader.addShown(has: notes.has(t), editing: store.noteEdit == t) {   // approved 2026-10-14: a sticky note with a plus, same size as the other icons
             IconButton(symbol: "note.text.badge.plus", label: "Add note") { store.noteOpen = t; store.noteEdit = t }
         }
     }

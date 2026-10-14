@@ -1396,8 +1396,9 @@ enum SelfTest {
         await MainActor.run { nb2.set("kept", for: ppl) }
         let nb3 = await MainActor.run { NotesBook(url: nurl) }
         check("private notes: still there after Mail restarts (file on this Mac)", await MainActor.run { nb3.text(ppl.threadID) } == "kept")
-        check("email header: Note button only when the email has a note or one is being written; the strip needs it open or being edited",
-              !NoteHeader.buttonShown(has: false, editing: false) && NoteHeader.buttonShown(has: true, editing: false) && NoteHeader.buttonShown(has: false, editing: true)
+        check("email header: Note pill only on an email with a note and not while editing, Add note icon only with no note and not editing; the strip needs it open or being edited",
+              !NoteHeader.buttonShown(has: false, editing: false) && NoteHeader.buttonShown(has: true, editing: false) && !NoteHeader.buttonShown(has: false, editing: true) && !NoteHeader.buttonShown(has: true, editing: true)
+              && NoteHeader.addShown(has: false, editing: false) && !NoteHeader.addShown(has: true, editing: false) && !NoteHeader.addShown(has: false, editing: true)
               && !NoteHeader.stripShown(has: true, open: false, editing: false) && NoteHeader.stripShown(has: true, open: true, editing: false)
               && NoteHeader.stripShown(has: false, open: false, editing: true) && !NoteHeader.stripShown(has: false, open: true, editing: false))
         check("email header: open/edit note state is dropped when another email opens, kept for the same one",
