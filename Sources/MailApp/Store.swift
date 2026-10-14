@@ -271,7 +271,8 @@ final class MailStore: ObservableObject {
             saveCache()
             error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
-            async let oth: Void = other.count > Self.otherPage && mailbox != .inbox ? () : loadOther()   // a list paged in deeper keeps its rows
+            let keepPaged = other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
+            async let oth: Void = keepPaged ? () : loadOther()
             let smartDue = lastSmartAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
             async let smt: Void = smartDue ? refreshSmartCounts() : ()
             await cls; await oth; await smt
