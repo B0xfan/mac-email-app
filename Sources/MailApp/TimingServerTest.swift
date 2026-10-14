@@ -5,7 +5,7 @@ import Foundation
 extension SelfTest {
     /// The pretend timing server's state.
     final class FakeTiming: @unchecked Sendable {
-        var down = false, registerStatus = 200, signinOK = true, registered = 0, keyN = 0
+        var down = false, registerStatus = 200, signinOK = true, registered = 0, keyN = 0, timeout = false, putStatus = 200
         var jobs: [String: (at: Int, status: String, sentID: String, thread: String, note: String)] = [:]
         var log: [String] = []   // timing-server calls and Gmail sends, in order
         var gmailSendStatus = 200
@@ -26,6 +26,8 @@ extension SelfTest {
                     return (200, #"{"signin_ok":\#(signinOK),"jobs":[\#(js.joined(separator: ","))]}"#)
                 }
                 let id = String(p.split(separator: "/").last ?? "")
+                if m == "PUT" && putStatus != 200 { log.append("put \(id) refused"); return (putStatus, "{}") }
+                if m == "PUT" && timeout { jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (-1, "") }   // stored, but the answer never came
                 if m == "PUT" { log.append("put \(id) \(body["send_at"] as? Int ?? 0)"); jobs[id] = (body["send_at"] as? Int ?? 0, "pending", "", "", ""); return (200, #"{"status":"pending"}"#) }
                 if m == "DELETE" { log.append("delete \(id)"); let had = jobs.removeValue(forKey: id) != nil; return (200, #"{"status":"\#(had ? "pending" : "none")"}"#) }
                 return (404, "{}")
@@ -144,6 +146,70 @@ extension SelfTest {
         try? await Task.sleep(nanoseconds: 2_600_000_000)
         check("draft send gives 404: treated as already sent, not an error", sched().isEmpty && st.error == nil && (st.toast?.text ?? "").contains("already sent"))
         fake.gmailSendStatus = 200
+
+        // 11. Finding 1: Gmail fails after the service let go -> the service is told again next time
+        fake.jobs = [:]; st.timing.change { $0.scheduled.removeAll() }
+        seed("d11", at: Date().addingTimeInterval(-60)); await st.syncServer()
+        fake.gmailSendStatus = 403; fake.log = []
+        await st.sendScheduledNow("d11")
+        try? await Task.sleep(nanoseconds: 2_600_000_000)
+        check("send fails after the service let go: server state reset so the next check puts it again",
+              sched().first?.server == nil && fake.jobs["d11"] == nil && fake.log == ["delete d11", "gmail send"])
+        fake.gmailSendStatus = 200; st.error = nil; fake.log = []
+        await st.syncServer()
+        check("...and the next check does put it again", fake.log.contains { $0.hasPrefix("put d11") } && sched().first?.server == "on")
+
+        // 12. Finding 2: the release could not reach the service; Undo cancels it again, or is refused while it is still down
+        st.timing.change { $0.scheduled.removeAll() }; fake.jobs = [:]
+        seed("d12", at: Date().addingTimeInterval(-60)); await st.syncServer()
+        fake.down = true; await st.sendScheduledNow("d12")
+        check("release unreachable: the service is still thought to hold the job", sched().first?.server == "on")
+        st.undoPendingSend(); try? await Task.sleep(nanoseconds: 500_000_000)
+        check("Undo while the service is unreachable: refused, the email stays in Scheduled with a clear message",
+              sched().contains { $0.draftID == "d12" } && st.error == MailStore.cannotCancelText && st.pendingScheduled == nil)
+        st.error = nil; fake.down = false; fake.jobs["d12"] = (sec, "pending", "", "", ""); fake.log = []
+        st.timing.change { $0.scheduled.removeAll() }; seed("d13", at: Date().addingTimeInterval(-60), on: true); fake.jobs["d13"] = (sec, "pending", "", "", "")
+        fake.down = true; await st.sendScheduledNow("d13"); fake.down = false
+        st.undoPendingSend(); try? await Task.sleep(nanoseconds: 500_000_000)
+        check("Undo once the service is back: it cancels the job there, nothing is sent", sched().isEmpty && fake.jobs["d13"] == nil && !fake.log.contains("gmail send"))
+        fake.jobs = [:]
+
+        // 13. Finding 3: a put that timed out may be stored ("maybe"); a new time on a held email stays held
+        seed("d14", at: at); fake.timeout = true
+        await st.syncServer(); fake.timeout = false
+        check("put timed out: treated as possibly on the service", sched().first(where: { $0.draftID == "d14" })?.server == "maybe")
+        fake.down = true; await st.unschedule("d14")
+        check("possibly-on and unreachable: Keep as draft is refused", sched().contains { $0.draftID == "d14" } && st.error == MailStore.cannotCancelText)
+        st.error = nil; fake.down = false
+        await st.syncServer()
+        check("service back: the maybe becomes a real on", sched().first(where: { $0.draftID == "d14" })?.server == "on")
+        st.picker = TimePickerKind.changeScheduled("d14"); await st.pickedTime(later)
+        check("change time keeps it marked on after the put", sched().first(where: { $0.draftID == "d14" })?.server == "on")
+        st.timing.change { $0.scheduled.removeAll() }; fake.jobs = [:]
+        seed("dNEW", at: at, on: true); fake.jobs["dNEW"] = (sec, "pending", "", "", "")
+        fake.down = true
+        await st.sendLater(ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new), bodyHTML: "hi", at: later)
+        check("new time on an email the service held, service unreachable: still maybe-held, so Keep as draft refuses",
+              sched().first?.server == "maybe")
+        await st.unschedule("dNEW")
+        check("...Keep as draft is refused", sched().contains { $0.draftID == "dNEW" } && st.error == MailStore.cannotCancelText)
+        st.error = nil; fake.down = false; st.timing.change { $0.scheduled.removeAll() }; fake.jobs = [:]
+
+        // 14. Finding 6: 429 retries, 400 shows the tag; Finding 5: the re-sign-in retry is available again after the sign-in is good
+        seed("d15", at: at); fake.putStatus = 429; await st.syncServer()
+        check("429: stays to retry, no tag", sched().first?.server == nil && sched().first?.problem == nil)
+        fake.putStatus = 400; await st.syncServer()
+        check("400: Mail sends it itself, tagged so John sees the Mac must be open", sched().first?.server == "off" && sched().first?.problem == MailStore.macMustBeOpenTag)
+        fake.putStatus = 200; st.timing.change { $0.scheduled.removeAll() }; fake.jobs = [:]
+        seed("d16", at: at); fake.signinOK = false; await st.syncServer(); fake.signinOK = true; await st.syncServer()
+        check("sign-in good again: the one silent retry is available again", !st.signinRetried)
+        st.timing.change { $0.scheduled.removeAll() }; fake.jobs = [:]
+
+        // 15. Finding 4: Remove account cancels the jobs at the service first
+        seed("d17", at: at); await st.syncServer(); fake.log = []
+        await st.removeAccount()
+        check("remove account: each job is cancelled at the service before sign-out", fake.log.contains("delete d17") && fake.jobs["d17"] == nil)
+        st.timing.change { $0.scheduled.removeAll() }
 
         // 10. Not on the list (403): the Mac keeps the email itself, and does not ask again and again
         let file2 = signedFile("ts2-\(UUID().uuidString).json", "RT2")

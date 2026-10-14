@@ -5,7 +5,7 @@ import Foundation
 /// whoever sends first consumes the draft, so nothing goes out twice.
 struct ServerJob: Equatable { let draftID: String, status: String, sentID: String, threadID: String, note: String }
 
-enum TimingServerError: Error, Equatable { case unreachable, busy, refused(Int) }
+enum TimingServerError: Error, Equatable { case unreachable, timedOut, busy, refused(Int)   // timedOut: the request may have reached the service }
 
 struct TimingServer: Sendable {
     let auth: GoogleAuth
@@ -29,7 +29,9 @@ struct TimingServer: Sendable {
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body); req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         if keyed { req.setValue("Bearer " + (try await key()), forHTTPHeaderField: "Authorization") }
         let data: Data, resp: URLResponse
-        do { (data, resp) = try await session.data(for: req) } catch { throw TimingServerError.unreachable }
+        do { (data, resp) = try await session.data(for: req) }
+        catch let e as URLError where e.code == .timedOut || e.code == .networkConnectionLost { throw TimingServerError.timedOut }
+        catch { throw TimingServerError.unreachable }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if code == 401 && keyed && retry { await auth.setTimingKey(nil); return try await call(method, path, body, retry: false) }   // key replaced: register again once
         guard code > 0, code < 500 else { throw TimingServerError.unreachable }
@@ -61,6 +63,5 @@ struct TimingServer: Sendable {
         return (o["signin_ok"] as? Bool ?? true, list)
     }
 
-    func hasKey() async -> Bool { await auth.timingKey() != nil }
     func forgetKey() async { await auth.setTimingKey(nil) }
 }

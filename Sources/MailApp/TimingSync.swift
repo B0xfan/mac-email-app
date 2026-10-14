@@ -8,6 +8,7 @@ extension MailStore {
     }
     private func dropScheduled(_ id: String) { timing.change { $0.scheduled.removeAll { $0.draftID == id } }; objectWillChange.send() }
 
+    static let macMustBeOpenTag = "Mac must be open"
     static let cannotCancelText = "Could not reach the timing service, so Mail cannot be sure this email will stay unsent. Please try again in a moment."
 
     /// One pass: tell the service about new or changed emails, then read back what it did.
@@ -15,9 +16,13 @@ extension MailStore {
         guard let srv = timingServer, !serverBusy, !timing.data.scheduled.isEmpty else { return }
         serverBusy = true; defer { serverBusy = false }
         do {
-            for s in timing.data.scheduled where s.server == nil {
+            for s in timing.data.scheduled where s.server == nil || s.server == "maybe" {
                 do { try await srv.put(s.draftID, at: s.at); markScheduled(s.draftID) { $0.server = "on" } }
-                catch TimingServerError.refused { markScheduled(s.draftID) { $0.server = "off" } }   // the service will not hold it: Mail sends it, as before
+                catch TimingServerError.timedOut { markScheduled(s.draftID) { $0.server = "maybe" }; throw TimingServerError.timedOut }   // it may have stored the job
+                catch TimingServerError.refused(429) { continue }   // too many at the service right now: try again next time
+                catch TimingServerError.refused {   // the service will not hold it: Mail sends it, but not while the Mac is off, and John should see that
+                    markScheduled(s.draftID) { $0.server = "off"; $0.problem = Self.macMustBeOpenTag }
+                }
             }
             guard timing.data.scheduled.contains(where: { $0.server != "off" }) else { return }   // the service holds none of them: do not ask it anything
             var res = try await srv.jobs()
@@ -29,7 +34,7 @@ extension MailStore {
                 signinWarned = true
                 error = "Scheduled emails will not go out while Mail is closed: Google no longer accepts the saved sign-in at the timing service. Remove the account and sign in again in Settings > Accounts."
             }
-            if res.signinOK { signinWarned = false }
+            if res.signinOK { signinWarned = false; signinRetried = false }
             for s in timing.data.scheduled where inFlight[s.draftID] == nil && pendingScheduled?.draftID != s.draftID {
                 guard let j = res.jobs.first(where: { $0.draftID == s.draftID }) else {
                     if s.server == "on" { markScheduled(s.draftID) { $0.server = nil } }   // the service lost it: tell it again next time
@@ -66,7 +71,7 @@ extension MailStore {
             if let t = newTime { try await srv.put(id, at: t) } else { try await cancelWithRetry(srv, id) }
             return true
         } catch TimingServerError.unreachable where s.server == nil { return true }   // it never reached the service
-        catch TimingServerError.unreachable, TimingServerError.busy { error = Self.cannotCancelText; return false }
+        catch TimingServerError.unreachable, TimingServerError.timedOut, TimingServerError.busy { error = Self.cannotCancelText; return false }
         catch { return true }   // the service refuses this one: it holds nothing
     }
 
@@ -77,9 +82,12 @@ extension MailStore {
 
     /// Just before Mac sends a draft itself (Send now, or its time came): ask the service to forget it. Best effort;
     /// if it cannot answer, Gmail's one-time draft send still stops a second email.
+    /// Only when the service answered is it marked "off"; unreachable keeps the state so Undo can cancel again.
     func releaseServer(_ id: String) async {
         guard let srv = timingServer else { return }
-        _ = try? await srv.cancel(id)
+        do { _ = try await srv.cancel(id) }
+        catch TimingServerError.refused {}   // it holds nothing for us
+        catch { return }
         markScheduled(id) { $0.server = "off" }
     }
 }

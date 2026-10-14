@@ -203,7 +203,11 @@ final class MailStore: ObservableObject {
     }
 
     /// Settings > Accounts "Remove": sign out and clear the account shown. Mail and the cache file stay as they are.
-    func removeAccount() async { await auth.signOut(); accountEmail = "" }
+    /// The service keeps its jobs when a new sign-in registers again (it only swaps the key), so cancel them first or they would still go out.
+    func removeAccount() async {
+        for s in timing.data.scheduled where s.server != "off" { await releaseServer(s.draftID) }
+        await auth.signOut(); accountEmail = ""
+    }
 
     func start() async {
         guard case .signedIn(let email) = auth.state else { return }

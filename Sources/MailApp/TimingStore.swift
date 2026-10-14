@@ -18,7 +18,7 @@ extension MailStore {
             showToast("Snoozed until \(TimeParser.short(d)).")
         case .changeScheduled(let id):
             guard await serverAgrees(id, newTime: d) else { return }   // an old time still held by the service could send it early
-            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; if t.scheduled[i].server == "on" { t.scheduled[i].server = nil } } }; objectWillChange.send()
+            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; t.scheduled[i].server = (t.scheduled[i].server == "on" || t.scheduled[i].server == "maybe") ? "on" : nil } }; objectWillChange.send()
             showToast("Will send \(TimeParser.short(d)).")
             await syncServer()
         default: break
@@ -93,7 +93,9 @@ extension MailStore {
         let raw = MIME.build(buildOutgoing(d, bodyHTML: bodyHTML))
         do {
             let id = try await gmail.saveDraft(raw, threadID: d.threadID, replacing: d.draftID)
-            timing.change { $0.scheduled.removeAll { $0.draftID == id }; $0.scheduled.append(ScheduledSend(draftID: id, at: at, to: d.to, subject: d.subject, remindAt: d.remindAt)) }
+            // an old time may still sit at the service: "maybe" makes it re-put and makes Keep as draft ask it first
+            let held = timing.data.scheduled.first { $0.draftID == id }.map { $0.server == "on" || $0.server == "maybe" } ?? false
+            timing.change { $0.scheduled.removeAll { $0.draftID == id }; $0.scheduled.append(ScheduledSend(draftID: id, at: at, to: d.to, subject: d.subject, remindAt: d.remindAt, server: held ? "maybe" : nil)) }
             compose = nil
             showToast("Will send \(TimeParser.short(at)). It is in Scheduled in the sidebar.")
             await syncServer()   // tells the timing service; if it cannot be reached, the next check does
@@ -163,16 +165,27 @@ extension MailStore {
             } catch GmailError.http(404, _) {   // the draft is gone: the timing service (or the phone) sent it first
                 self.timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }; self.objectWillChange.send()
                 if self.toast?.id == tid { self.showToast("\u{201C}\(s.subject)\u{201D} was already sent.", seconds: 6) }
-            } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "The scheduled email could not be sent. It is still in Scheduled." }
+            } catch {
+                // the service was told to let go, so tell it again next time (if its release failed, it still holds the job)
+                self.timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == s.draftID }), t.scheduled[i].server == "off" { t.scheduled[i].server = nil } }
+                self.error = (error as? LocalizedError)?.errorDescription ?? "The scheduled email could not be sent. It is still in Scheduled."
+            }
         }
     }
 
     /// Undo during a scheduled send: the timer stops and the email stays in Drafts.
     func undoScheduledSend() {
         guard let p = pendingScheduled else { return }
-        scheduledTask?.cancel(); scheduledTask = nil; pendingScheduled = nil
-        timing.change { $0.scheduled.removeAll { $0.draftID == p.draftID } }; objectWillChange.send()
-        if toast?.id == p.tid { showToast("Not sent. It is in Drafts.", seconds: 5) }
+        scheduledTask?.cancel(); scheduledTask = nil
+        Task {   // pendingScheduled stays set meanwhile: no second countdown starts
+            // the release before the countdown may have failed: the service must really let go now
+            let agreed = await serverAgrees(p.draftID)
+            pendingScheduled = nil
+            if agreed {
+                timing.change { $0.scheduled.removeAll { $0.draftID == p.draftID } }; objectWillChange.send()
+                if toast?.id == p.tid { showToast("Not sent. It is in Drafts.", seconds: 5) }
+            } else if toast?.id == p.tid { toast = nil }   // still in Scheduled; the message says why
+        }
     }
 
     // MARK: Follow-up reminders

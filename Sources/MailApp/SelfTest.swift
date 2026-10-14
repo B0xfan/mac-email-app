@@ -17,6 +17,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             req.httpBody = d
         }
         let (code, body) = Self.handler?(req) ?? (500, "{}")
+        if code == -1 { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }   // a request that timed out
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: Self.headers)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
