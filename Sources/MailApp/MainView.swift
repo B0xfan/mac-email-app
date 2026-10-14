@@ -390,6 +390,7 @@ struct ListPane: View {
             case "t": if let m = store.openMail, !store.selectedIsNewSender { store.todoMail = m; return .handled }; return .ignored
             case "r": if let m = store.openMail, !store.selectedIsNewSender { store.reply(m); return .handled }; return .ignored
             case "f": if let m = store.openMail, !store.selectedIsNewSender { store.forward(m); return .handled }; return .ignored
+            case "n": if let m = store.openMail, !store.selectedIsNewSender, !store.savingNote { Task { await store.saveAsNote(m) }; return .handled }; return .ignored
             default: return .ignored
             }
         }
