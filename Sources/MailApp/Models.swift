@@ -3,7 +3,9 @@ import Foundation
 struct Address: Hashable, Codable {
     /// Every address written anywhere in a header (also inside quoted names and comments), lower case. For safety checks, where more is better.
     static func allEmails(in raw: String) -> [String] {
-        raw.matches(of: /[A-Za-z0-9._%+'\-]+@[A-Za-z0-9.\-]+/).map { String($0.output).lowercased() }
+        guard let re = try? NSRegularExpression(pattern: "[A-Za-z0-9._%+'\\-]+@[A-Za-z0-9.\\-]+") else { return [] }
+        let ns = raw as NSString
+        return re.matches(in: raw, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range).lowercased() }
     }
     var name: String
     var email: String
