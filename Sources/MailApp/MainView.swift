@@ -6,6 +6,7 @@ struct MailRoot: View {
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
         ZStack(alignment: .bottom) {
+            TranslationHost()
             if store.homeShown { HomeScreenView(store: store, fixedNow: store.homeNowOverride) }
             else { HStack(spacing: 0) {
                 SidebarView(store: store)
@@ -292,6 +293,11 @@ struct ToolbarView: View {
             IconButton(symbol: "doc.text", label: "Save as note", enabled: canAct && !store.savingNote) {
                 if let m = store.openMail { Task { await store.saveAsNote(m) } } }
             LinkMenuButton(store: store, enabled: canAct)
+            if canAct, let m = store.openMail, store.foreignLanguage(m) != nil, !store.translationShown.contains(m.id) {
+                Button { Task { await store.translateOpen(m) } } label: { Label(store.translating.contains(m.id) ? "Translating..." : "Translate", systemImage: "globe") }
+                    .buttonStyle(MailButtonStyle(kind: .primary, compact: true)).disabled(store.translating.contains(m.id)).fixedSize()
+                    .help("Translate this email on this Mac. Nothing leaves the Mac.").accessibilityLabel("Translate this email")
+            }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             CheckNowButton(store: store)
             if store.loading { Text("Checking...").font(Theme.small).foregroundStyle(Theme.sub).padding(.leading, 4) }
@@ -700,6 +706,7 @@ struct ReadingContent: View {
         let sender = mail.from.email.lowercased()
         let loadImgs = HTMLSafety.shouldLoadImages(auto: store.settings.loadImages, senderAllowed: store.settings.imageSenders.contains(sender), loadedThisEmail: store.imagesLoaded.contains(mail.id))
         let warns = store.senderWarnings(mail)
+        let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
         VStack(alignment: .leading, spacing: 10) {
             if store.selectedIsNewSender {
                 Card(padding: 12) {
@@ -733,7 +740,8 @@ struct ReadingContent: View {
                 }
             }
             .zIndex(1)   // a warning's bubble draws over the subject below it
-            Text(mail.subject).font(.system(size: 22, weight: .bold)).tracking(-0.2).textSelection(.enabled)
+            if let tr { TranslatedBanner(store: store, mail: mail, tr: tr) }
+            Text(tr?.subject ?? mail.subject).font(.system(size: 22, weight: .bold)).tracking(-0.2).textSelection(.enabled)
             NoteStrip(store: store, mail: mail).id(mail.threadID)
             if store.isInTodo(mail) { Label("In your to-do list", systemImage: "checkmark.circle").font(Theme.small).foregroundStyle(Theme.acc) }
             if store.mailbox == .recent, let at = store.openedAt(mail.id) {
@@ -770,7 +778,12 @@ struct ReadingContent: View {
             if store.settings.blockTrackers, report.trackers > 0 {
                 HStack(spacing: 6) { Image(systemName: "circle.dotted"); Text(report.line).font(.system(size: 12, weight: .medium)) }.foregroundStyle(Theme.sub)
             }
-            if let html = cleanHTML, !html.isEmpty {
+            if let tr {
+                MaybeScroll {
+                    Text(tr.body).font(Theme.body).lineSpacing(4).textSelection(.enabled)
+                        .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else if let html = cleanHTML, !html.isEmpty {
                 HTMLMessageView(html: html, blockRemote: !loadImgs)
                     .background(RoundedRectangle(cornerRadius: 10).fill(.white))
                     .clipShape(RoundedRectangle(cornerRadius: 10))

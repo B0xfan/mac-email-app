@@ -39,6 +39,25 @@ extension SelfTest {
         let lateCR = cr.date(from: DateComponents(year: 2026, month: 10, day: 14, hour: 22, minute: 30))!   // already the 15th in UTC
         let ty = PlainSearch.parse("today", now: lateCR, calendar: cr)
         check("search: days follow the Mac's time zone (Costa Rica, 10:30 pm on the 14th is still the 14th)", ty.gmail == "after:\(Int(cr.date(from: DateComponents(year: 2026, month: 10, day: 14))!.timeIntervalSince1970)) before:\(Int(cr.date(from: DateComponents(year: 2026, month: 10, day: 15))!.timeIntervalSince1970))" && ty.chips.map(\.label) == ["Date: 14 Oct"])
+        let es = "Hola John, puedes venir a las diez para ver el salon el jueves? Llevo el plano y las fotos de la ultima reunion con el equipo."
+        let en = "Hello John, can you come at ten to see the room on Thursday? I will bring the plan and the photos from the last meeting with the team."
+        check("translate: a Spanish email is foreign to an English Mac; an English one, a short one and an empty one are not",
+              TranslateText.foreignLanguage(of: es, mine: ["en"]) == "es" && TranslateText.foreignLanguage(of: en, mine: ["en"]) == nil
+              && TranslateText.foreignLanguage(of: "Hola John", mine: ["en"]) == nil && TranslateText.foreignLanguage(of: "", mine: ["en"]) == nil && TranslateText.foreignLanguage(of: es, mine: ["es", "en"]) == nil)
+        check("translate: region codes count as the same language", TranslateText.base("es-CR") == "es" && TranslateText.base("zh_Hans") == "zh" && TranslateText.base("en") == "en")
+        check("translate: the language is judged from the text, or from HTML without its styles and tags",
+              TranslateText.sample(text: "plain", html: "<p>x</p>", snippet: "s") == "plain" && TranslateText.sample(text: nil, html: "<style>p{color:red}</style><p>Hola&nbsp;amigo</p>", snippet: "s").contains("Hola") && !TranslateText.sample(text: nil, html: "<style>p{color:red}</style><p>Hola</p>", snippet: "s").contains("color")
+              && TranslateText.sample(text: nil, html: nil, snippet: "snip") == "snip")
+        let long = (0..<10).map { _ in String(repeating: "a", count: 3000) }.joined(separator: "\n\n")
+        let pp = TranslateText.paragraphs("One.\r\n\r\nTwo.\n\n\n\nThree.")
+        check("translate: text is cut into paragraphs; a very long email is cut at 20,000 characters and says so", pp.parts == ["One.", "Two.", "Three."] && !pp.cut && TranslateText.paragraphs(long).cut && TranslateText.paragraphs(long).parts.count == 6)
+        let sp = TranslateText.splitSignature("Yes, I can.\n\nJohn\nCosta Rica", signature: "John\nCosta Rica")
+        check("translate: my signature is not translated and goes back as it was", sp.text == "Yes, I can." && sp.signature == "John\nCosta Rica" && TranslateText.splitSignature("Hi", signature: "John").signature == ""
+              && TranslateText.composeHTML(translation: "Si <b>", signature: "John") == "<div>Si &lt;b&gt;</div><div><br></div><div>John</div>" && TranslateText.composeHTML(translation: "Si", signature: "") == "<div>Si</div>")
+        let (jobs, none) = await MainActor.run { () -> (Bool, Bool) in
+            let t = Translator.shared; return (t.job == nil, !Translator.available || true) }
+        let nothing = await Translator.shared.translate([], from: "es", to: "en")
+        check("translate: nothing to translate answers at once with no job queued", jobs && none && nothing == nil)
         if !(await searchPagingChecks()) { ok = false }
         if !(await inboxBudgetChecks()) { ok = false }
         check("search: an address after 'from' is used whole", p("from tomas@x.example").gmail == "from:\"tomas@x.example\"")

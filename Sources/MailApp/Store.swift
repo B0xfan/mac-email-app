@@ -37,6 +37,11 @@ final class MailStore: ObservableObject {
     var otherSource: OtherSource?
     var otherGen = 0
     var autoPagesLeft = MailStore.autoPages
+    // Translate (in memory only; never saved or sent to Gmail)
+    @Published var translations: [String: MailTranslation] = [:]
+    @Published var translationShown: Set<String> = []
+    @Published var translating: Set<String> = []
+    var languageGuesses: [String: String] = [:]   // mail id -> language code, "" = not foreign
     @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
     @Published var status = ""                 // spoken-style status line
     @Published var toast: ToastInfo?
@@ -271,7 +276,7 @@ final class MailStore: ObservableObject {
             saveCache()
             error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
-            let keepPaged = other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
+            let keepPaged = otherSource != nil && other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
             async let oth: Void = keepPaged ? () : loadOther()
             let smartDue = lastSmartAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
             async let smt: Void = smartDue ? refreshSmartCounts() : ()

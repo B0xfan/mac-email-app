@@ -215,6 +215,17 @@ final class EditorController: ObservableObject {
         let esc = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
         run("document.execCommand('createLink', false, '\(esc)')")
     }
+    func text() async -> String {
+        guard let web else { return "" }
+        return await withCheckedContinuation { c in
+            web.evaluateJavaScript("document.getElementById('ed').innerText") { r, _ in c.resume(returning: (r as? String) ?? "") }
+        }
+    }
+    /// Replaces everything in the writing area.
+    func setHTML(_ html: String) {
+        guard let d = try? JSONEncoder().encode(html), let lit = String(data: d, encoding: .utf8) else { return }
+        run("document.getElementById('ed').innerHTML=\(lit)")
+    }
     func html() async -> String {
         guard let web else { return "" }
         return await withCheckedContinuation { c in

@@ -16,6 +16,7 @@ struct ComposeView: View {
     @StateObject private var uploading = Box(false)
     @StateObject private var showCc: Box<Bool>
     @StateObject private var showBcc: Box<Bool>
+    @StateObject private var translate: ComposeTranslate
     @FocusState private var focus: Line?
     private enum Line { case cc, bcc }
 
@@ -37,6 +38,7 @@ struct ComposeView: View {
         let d = store.compose ?? ComposeDraft(from: "", to: "", subject: "", mode: .new)
         _draft = StateObject(wrappedValue: Box(d))
         // a line that has addresses always shows; an empty one stays hidden until its button is pressed
+        _translate = StateObject(wrappedValue: ComposeTranslate(replyTo: { if case .reply = d.mode { return store.openMail.flatMap { store.foreignLanguage($0) } }; return nil }()))
         _showCc = StateObject(wrappedValue: Box(!d.cc.isEmpty))
         _showBcc = StateObject(wrappedValue: Box(!d.bcc.isEmpty))
     }
@@ -99,10 +101,12 @@ struct ComposeView: View {
                         fmt("list.bullet", "Bulleted list") { editor.bullets() }
                         fmt("paperclip", "Attach a file") { attach() }
                         Spacer()
+                        TranslateChip(model: translate, editor: editor, signature: store.settings.signature)
                     }
                     .padding(.vertical, 4).overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
                     EditorView(controller: editor, initialHTML: startHTML, placeholder: "Write your email")
                         .frame(minHeight: 220)
+                    TranslateResultBox(model: translate, editor: editor, signature: store.settings.signature)
                     if !draft.v.attachments.isEmpty {
                         HStack { ForEach(draft.v.attachments) { a in
                             Button { draft.v.attachments.removeAll { $0.id == a.id } } label: { Label("\(a.name)  \u{2715}", systemImage: "paperclip") }
