@@ -256,11 +256,8 @@ struct ToolbarView: View {
                 if let m = store.openMail { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: canAct ? "Add to to-do (T)" : "To-do, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.todoMail = m } }
-            Button { if let m = store.openMail { Task { await store.saveAsNote(m) } } } label: {
-                HStack(spacing: 6) { Image(systemName: "doc.text"); Text("Save as note") }
-            }
-            .buttonStyle(MailButtonStyle(kind: .primary, compact: true)).disabled(!canAct || store.savingNote)
-            .tip(canAct ? "Save as note in your Obsidian Inbox" : "Save as note, open an email first")
+            IconButton(symbol: "doc.text", label: "Save as note", enabled: canAct && !store.savingNote) {
+                if let m = store.openMail { Task { await store.saveAsNote(m) } } }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             CheckNowButton(store: store)
             if store.loading { Text("Checking...").font(Theme.small).foregroundStyle(Theme.sub).padding(.leading, 4) }
