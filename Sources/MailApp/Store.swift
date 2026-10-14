@@ -124,6 +124,7 @@ final class MailStore: ObservableObject {
          blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil) {
         self.cacheURL = cacheURL; self.pendingDir = pendingDir
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.blockLabelName = blockLabelName
+        SenderPictures.shared.contacts = contacts
     }
 
     func setKnown(_ email: String, _ known: Bool) { knownCache[email] = known }

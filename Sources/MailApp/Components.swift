@@ -105,9 +105,27 @@ extension View { func tip(_ text: String) -> some View { background(TipView(text
 struct Avatar: View {
     let text: String
     var size: CGFloat = 40
+    var email: String? = nil   // given: show the Contacts photo or company icon when there is one (only while "Sender pictures" is on)
+    @ObservedObject private var pics = SenderPictures.shared
+    @ObservedObject private var settings = AppSettings.shared
     var body: some View {
-        Text(text).font(.system(size: size * 0.35, weight: .semibold)).foregroundStyle(Theme.accInk)
-            .frame(width: size, height: size).background(Circle().fill(Theme.accSoft)).accessibilityHidden(true)
+        let on = settings.senderPictures && !SnapshotMode.on ? email : nil   // drawn test screens never go online
+        let pic = on.flatMap { pics.picture(for: $0) }
+        ZStack {
+            if let p = pic, p.icon {
+                // a small icon stays its own size, centered on white; it is never stretched
+                Circle().fill(Color.white)
+                Image(nsImage: p.image).resizable().interpolation(.high).frame(width: min(CGFloat(p.px), size * 0.62), height: min(CGFloat(p.px), size * 0.62) * p.image.size.height / max(p.image.size.width, 1))
+                Circle().stroke(Theme.line, lineWidth: 1)
+            } else if let p = pic {
+                Image(nsImage: p.image).resizable().scaledToFill().frame(width: size, height: size).clipShape(Circle())
+            } else {
+                Text(text).font(.system(size: size * 0.35, weight: .semibold)).foregroundStyle(Theme.accInk)
+                    .frame(width: size, height: size).background(Circle().fill(Theme.accSoft))
+            }
+        }
+        .frame(width: size, height: size).accessibilityHidden(true)
+        .task(id: "\(on ?? "")") { if let e = on { await pics.load(e) } }
     }
 }
 

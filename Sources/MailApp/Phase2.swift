@@ -60,6 +60,7 @@ final class SeenBook {
 
 final class ContactDirectory {
     private(set) var macContacts: [Address] = []
+    private(set) var photos: [String: Data] = [:]   // lowercase address -> the Contacts thumbnail
     private var asked = false
 
     /// Asks the Mac for permission the first time it is needed, then reads names and addresses (read only).
@@ -72,14 +73,15 @@ final class ContactDirectory {
         asked = true
         if status == .notDetermined { _ = try? await store.requestAccess(for: .contacts) }
         guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else { return }
-        let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey] as [CNKeyDescriptor]
+        let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey, CNContactThumbnailImageDataKey] as [CNKeyDescriptor]
         let req = CNContactFetchRequest(keysToFetch: keys)
-        var out: [Address] = []
+        var out: [Address] = [], pics: [String: Data] = [:]
         try? store.enumerateContacts(with: req) { c, _ in
             let name = [c.givenName, c.familyName].filter { !$0.isEmpty }.joined(separator: " ")
             for e in c.emailAddresses { out.append(Address(name: name.isEmpty ? c.nickname : name, email: (e.value as String).lowercased())) }
+            if let t = c.thumbnailImageData { for e in c.emailAddresses { pics[(e.value as String).lowercased()] = t } }
         }
-        macContacts = out
+        macContacts = out; photos = pics
     }
 
     /// The list closes once what is typed is already a complete address (picked, typed in full, or a reply's sender).

@@ -478,7 +478,7 @@ struct MessageRow: View {
     private var rowButton: some View {
         Button(action: tap) {
             HStack(alignment: .top, spacing: 10) {
-            if layout.senderPictures { Avatar(text: mail.from.initials, size: 34) }
+            if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
@@ -674,7 +674,7 @@ struct ReadingContent: View {
                 }
             }
             HStack(spacing: 12) {
-                Avatar(text: mail.from.initials, size: 36)
+                Avatar(text: mail.from.initials, size: 36, email: mail.from.email)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 8) {
                         Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)

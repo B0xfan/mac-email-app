@@ -11,7 +11,7 @@
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
-  <key>NSContactsUsageDescription</key><string>Audrey Mail suggests people from your Contacts when you type in the To field. It only reads names and email addresses.</string>
+  <key>NSContactsUsageDescription</key><string>Audrey Mail suggests people from your Contacts when you type in the To field. It reads names, email addresses and photos, and shows the photos beside senders when you turn on Sender pictures.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
   <key>NSRemindersUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>

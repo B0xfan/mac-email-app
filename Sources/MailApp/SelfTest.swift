@@ -1,5 +1,7 @@
 #if TESTHARNESS
 import Foundation
+import ImageIO
+import AppKit
 
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
@@ -202,6 +204,7 @@ enum SelfTest {
         if !(await partPhase4()) { ok = false }
         if !partSaveNote() { ok = false }
         if !(await partSenderWarnings()) { ok = false }
+        if !(await partSenderPictures()) { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
@@ -1084,6 +1087,67 @@ enum SelfTest {
               took < 5 && sb.contains("kept") && !sb.contains("<header") && sb2.hasPrefix("On a a"))
         let ou = ObsidianTask.openURL(URL(fileURLWithPath: "/v/01 Inbox/Q&A #5?.md"))?.absoluteString ?? ""
         check("Obsidian Open link encodes & # ? so the right note opens", ou == "obsidian://open?path=/v/01%20Inbox/Q%26A%20%235%3F.md")
+        return ok
+    }
+
+    /// Sender pictures: Contacts photo first, then the site icon (home page link, /favicon.ico, parent domain), then nothing (initials); misses are remembered.
+    @MainActor static func partSenderPictures() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        func png(_ w: Int) -> Data {
+            let c = CGContext(data: nil, width: w, height: w, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            c.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1)); c.fill(CGRect(x: 0, y: 0, width: w, height: w))
+            let out = NSMutableData(); let d = CGImageDestinationCreateWithData(out, "public.png" as CFString, 1, nil)!
+            CGImageDestinationAddImage(d, c.makeImage()!, nil); CGImageDestinationFinalize(d); return out as Data
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sp-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var web: [String: Data] = [:], asked: [String] = []
+        let fetch: (URL) async -> Data? = { u in asked.append(u.absoluteString); return web[u.absoluteString] }
+        let sp = SenderPictures(dir: dir, fetch: fetch)
+        var clock = Date(timeIntervalSince1970: 1_800_000_000); sp.now = { clock }
+
+        web["https://united.com/favicon.ico"] = png(16)
+        await sp.load("deals@e.united.com")
+        let u = sp.picture(for: "deals@e.united.com")
+        check("picture: a mail subdomain falls back to the parent domain's icon, asking the subdomain first",
+              u != nil && u!.icon && asked.first == "https://e.united.com/" && asked.contains("https://united.com/favicon.ico"))
+        check("picture: a 16 px icon is kept 16 px (never stretched)", u?.px == 16)
+
+        web["https://shop.example/"] = Data("<html><head><link rel=\"stylesheet\" href=\"/a.css\"><LINK REL='shortcut icon' HREF='/img/i.png'><link rel=\"apple-touch-icon\" href=\"/big.png\"></head>".utf8)
+        web["https://shop.example/big.png"] = png(180); web["https://shop.example/img/i.png"] = png(32)
+        asked = []
+        await sp.load("a@shop.example")
+        check("picture: the home page's icon link is used before /favicon.ico, large touch icon first, shrunk to 96",
+              sp.picture(for: "a@shop.example")?.px == 96 && !asked.contains("https://shop.example/favicon.ico"))
+
+        sp.contactPhotos["ann@united.com"] = png(300); asked = []
+        await sp.load("Ann@united.com")
+        let c = sp.picture(for: "ann@united.com")
+        check("picture: a Contacts photo wins over the site icon and asks no website; photos are square at 80 px", c != nil && !c!.icon && c!.px == 80 && asked.isEmpty)
+
+        asked = []
+        await sp.load("x@nothing.example")
+        check("picture: no photo and no icon gives nothing (initials)", sp.picture(for: "x@nothing.example") == nil && !asked.isEmpty)
+        asked = []
+        await sp.load("y@nothing.example"); await sp.load("x@nothing.example")
+        check("picture: a miss is remembered, not asked again", asked.isEmpty)
+        let again = SenderPictures(dir: dir, fetch: fetch); again.now = { clock }
+        await again.load("x@nothing.example")
+        check("picture: the remembered miss survives a restart", asked.isEmpty)
+        clock = clock.addingTimeInterval(8 * 86400); asked = []
+        await again.load("x@nothing.example")
+        check("picture: a miss is tried again after about a week", !asked.isEmpty)
+        asked = []
+        await again.load("a@shop.example")
+        check("picture: a found icon is kept about a month (still fresh at 8 days, from disk after restart)", asked.isEmpty && again.picture(for: "a@shop.example") != nil)
+        clock = clock.addingTimeInterval(23 * 86400); asked = []
+        await again.load("deals@e.united.com")
+        check("picture: a found icon is looked at again after about a month", !asked.isEmpty)
+
+        asked = []
+        await sp.load("me@gmail.com")
+        check("picture: free mail services are never asked (their logo is not the person)", asked.isEmpty && sp.picture(for: "me@gmail.com") == nil)
         return ok
     }
 

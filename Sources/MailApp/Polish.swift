@@ -481,7 +481,7 @@ extension SettingsView {
                 Button("Show 2 lines") { settings.previewLines = 2 }
             }
         } }
-        switchCard("Sender pictures", "Round initials beside each email.", $settings.senderPictures)
+        switchCard("Sender pictures", "Photos from your Contacts and company logos; initials when there is none.", $settings.senderPictures)
     }
 
     @ViewBuilder var menuBarPanel: some View {
