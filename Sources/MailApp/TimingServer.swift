@@ -5,7 +5,7 @@ import Foundation
 /// whoever sends first consumes the draft, so nothing goes out twice.
 struct ServerJob: Equatable { let draftID: String, status: String, sentID: String, threadID: String, note: String }
 
-enum TimingServerError: Error, Equatable { case unreachable, timedOut, busy, refused(Int)   // timedOut: the request may have reached the service }
+enum TimingServerError: Error, Equatable { case unreachable, timedOut, busy, refused(Int) }   // timedOut: the request may have reached the service
 
 struct TimingServer: Sendable {
     let auth: GoogleAuth
