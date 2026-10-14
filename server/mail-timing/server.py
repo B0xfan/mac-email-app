@@ -35,12 +35,15 @@ class Retry(Exception): pass               # network trouble, Google 5xx, rate l
 def call(url, data=None, headers=None, method=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=20) as r: return r.status, json.loads(r.read() or b"{}")
+        with urllib.request.urlopen(req, timeout=20) as r:
+            b = json.loads(r.read() or b"{}")
+            if not isinstance(b, dict): raise ValueError("not an object")
+            return r.status, b
     except urllib.error.HTTPError as e:
         try: body = json.loads(e.read() or b"{}")
         except ValueError: body = {}
-        return e.code, body
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        return e.code, body if isinstance(body, dict) else {}
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError) as e:
         raise Retry(str(e))
 
 def access_token(email, refresh):
@@ -52,7 +55,8 @@ def access_token(email, refresh):
     if s == 200 and "access_token" in b:
         with _lock: _tokens[email] = (b["access_token"], time.time() + int(b.get("expires_in", 3000)))
         return b["access_token"]
-    if s in (400, 401) and b.get("error") in ("invalid_grant", "invalid_client", "unauthorized_client"): raise SignInGone(b.get("error"))
+    if s in (400, 401) and b.get("error") == "invalid_grant": raise SignInGone("invalid_grant")
+    if b.get("error") in ("invalid_client", "unauthorized_client"): print("token config error:", b["error"], flush=True)   # our setup, not the user's sign-in
     raise Retry(f"token {s}")
 
 def gmail(email, refresh, method, path, body=None):
@@ -86,7 +90,7 @@ def process(c, job, now):
     except SignInGone:
         with c: c.execute("UPDATE users SET signin_ok=0 WHERE email=?", (email,))
         return finish(c, email, did, "failed", now, "signin")
-    except Retry:
+    except Exception as e:   # Retry, or anything odd: the attempt cap below still applies
         s, b = 599, {}
     if s == 200: return finish(c, email, did, "sent", now, None, b.get("id"), b.get("threadId"))
     if s == 404: return finish(c, email, did, "gone", now, "sent or deleted elsewhere")   # the safe outcome of every double-send race
@@ -99,13 +103,16 @@ def process(c, job, now):
 
 def tick(now=None):
     now = int(now or time.time()); c = db()
+    try: _tick(c, now)
+    finally: c.close()
+
+def _tick(c, now):
     with c:   # a crash mid-send leaves "sending": put it back; Gmail's 404 makes a resend harmless
         c.execute("UPDATE jobs SET status='pending' WHERE status='sending' AND claimed_at < ?", (now - 300,))
         c.execute("DELETE FROM jobs WHERE status IN ('sent','gone','failed') AND updated < ?", (now - 14 * 86400,))
     for j in c.execute("SELECT * FROM jobs WHERE status='pending' AND send_at + ? <= ? AND retry_at <= ? ORDER BY send_at",
                        (GRACE(), now, now)).fetchall():
         process(c, j, now)
-    c.close()
 
 def worker():
     while True:
@@ -118,19 +125,21 @@ def worker():
 def jrow(r): return {k: r[k] for k in ("draft_id", "send_at", "status", "sent_id", "thread_id", "note")}
 
 class H(BaseHTTPRequestHandler):
+    timeout = 30   # socket timeout: a stalled client cannot hold a thread forever
     def log_message(self, *a): pass
     def out(self, code, obj):
         b = json.dumps(obj).encode(); self.send_response(code)
         self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 8192: raise ValueError("too big")
+        if not 0 <= n <= 8192: raise ValueError("too big")
         try: d = json.loads(self.rfile.read(n) or b"{}")
         except ValueError: raise ValueError("bad json")
         if not isinstance(d, dict): raise ValueError("bad json")
         return d
     def user(self, c):
-        k = (self.headers.get("Authorization") or "")[7:]
+        a = self.headers.get("Authorization") or ""
+        k = a[7:] if a.startswith("Bearer ") else ""
         return c.execute("SELECT * FROM users WHERE key_hash=?", (hashlib.sha256(k.encode()).hexdigest(),)).fetchone() if k else None
     def handle_any(self, method):
         try:
@@ -139,15 +148,17 @@ class H(BaseHTTPRequestHandler):
             parts = [p for p in path[len(PREFIX):].split("/") if p]
             data = self.body() if method in ("POST", "PUT") else {}
             c = db()
-            if method == "POST" and parts == ["register"]: return self.register(c, data)
-            u = self.user(c)
-            if not u: return self.out(401, {"error": "bad key"})
-            if method == "GET" and parts == ["jobs"]:
-                return self.out(200, {"signin_ok": bool(u["signin_ok"]), "jobs": [jrow(r) for r in c.execute("SELECT * FROM jobs WHERE email=? ORDER BY send_at", (u["email"],))]})
-            if len(parts) == 2 and parts[0] == "jobs" and DRAFT_RE.match(parts[1]):
-                if method == "PUT": return self.put_job(c, u, parts[1], data)
-                if method == "DELETE": return self.del_job(c, u, parts[1])
-            self.out(404, {})
+            try:
+                if method == "POST" and parts == ["register"]: return self.register(c, data)
+                u = self.user(c)
+                if not u: return self.out(401, {"error": "bad key"})
+                if method == "GET" and parts == ["jobs"]:
+                    return self.out(200, {"signin_ok": bool(u["signin_ok"]), "jobs": [jrow(r) for r in c.execute("SELECT * FROM jobs WHERE email=? ORDER BY send_at", (u["email"],))]})
+                if len(parts) == 2 and parts[0] == "jobs" and DRAFT_RE.match(parts[1]):
+                    if method == "PUT": return self.put_job(c, u, parts[1], data)
+                    if method == "DELETE": return self.del_job(c, u, parts[1])
+                self.out(404, {})
+            finally: c.close()
         except ValueError as e: self.out(400, {"error": str(e)})
         except Exception as e:
             print("request error:", type(e).__name__, flush=True); self.out(500, {})
@@ -174,7 +185,7 @@ class H(BaseHTTPRequestHandler):
 
     def put_job(self, c, u, did, d):
         at, now = d.get("send_at"), int(time.time())
-        if not isinstance(at, int) or isinstance(at, bool) or not 0 < at < now + 400 * 86400: raise ValueError("send_at must be a time within a year")
+        if not isinstance(at, int) or isinstance(at, bool) or not now - 3600 <= at < now + 400 * 86400: raise ValueError("send_at must be within the last hour or the next 400 days")
         with c:   # one transaction: no gap between the check and the write
             c.execute("BEGIN IMMEDIATE")
             r = c.execute("SELECT status FROM jobs WHERE email=? AND draft_id=?", (u["email"], did)).fetchone()
@@ -195,7 +206,8 @@ class H(BaseHTTPRequestHandler):
         self.out(200, {"status": r["status"]})   # "pending" = cancelled; sent/gone/failed = result acknowledged
 
 def main():
-    os.makedirs(os.path.dirname(E("DB_PATH", "data/timing.db")) or ".", exist_ok=True)
+    os.umask(0o077)   # the DB holds refresh tokens: owner-only files and folders
+    os.makedirs(os.path.dirname(E("DB_PATH", "data/timing.db")) or ".", exist_ok=True, mode=0o700)
     threading.Thread(target=worker, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", int(E("PORT", "8093"))), H).serve_forever()
 
