@@ -138,6 +138,11 @@ enum SelfTest {
         await auth.signOut()
         let gone = await auth.stored()
         check("sign out clears keychain", gone == nil)
+        // Settings > Accounts Remove: the card's account clears, the sign-in file goes, the saved inbox file stays
+        let rmFile = signedFile("remove.json", "RM"), rmCache = tdir.appendingPathComponent("remove-cache.json")
+        try? Data("{}".utf8).write(to: rmCache)
+        let rmCleared = await removeAccountCheck(rmFile, rmCache)
+        check("Remove clears the account on the card, deletes the sign-in file, keeps the saved inbox file", rmCleared && !FileManager.default.fileExists(atPath: rmFile.path) && FileManager.default.fileExists(atPath: rmCache.path))
 
         // inbox cache: round trip, bodies dropped, corrupt file ignored, other account ignored
         let cacheOK: Bool = await MainActor.run {
@@ -1811,6 +1816,13 @@ enum SelfTest {
     static let session: URLSession = { let c = URLSessionConfiguration.ephemeral; c.protocolClasses = [StubProtocol.self]; return URLSession(configuration: c) }()
     static let tdir = FileManager.default.temporaryDirectory.appendingPathComponent("signin-test-\(UUID().uuidString)/Audrey Mail")
     static let creds: @Sendable () throws -> ClientCredentials = { ClientCredentials(clientID: "id", clientSecret: "secret") }
+    @MainActor static func removeAccountCheck(_ file: URL, _ cache: URL) async -> Bool {
+        let m = SignInModel(auth: GoogleAuth(session: session, credentials: creds, file: file, legacy: noKeychain))
+        let st = MailStore(auth: m, gmail: GmailClient(auth: m.auth), cacheURL: cache)
+        st.accountEmail = "me@x.example"; m.state = .signedIn("me@x.example")
+        await st.removeAccount()
+        return st.accountEmail.isEmpty && m.state == .signedOut
+    }
     static let noKeychain: @Sendable () -> Data? = { nil }
     static func signedFile(_ name: String, _ token: String) -> URL {
         let u = tdir.appendingPathComponent(name)

@@ -198,6 +198,9 @@ final class MailStore: ObservableObject {
         if let d = try? JSONEncoder().encode(InboxCache(account: accountEmail, mails: slim)) { try? d.write(to: url, options: .atomic) }
     }
 
+    /// Settings > Accounts "Remove": sign out and clear the account shown. Mail and the cache file stay as they are.
+    func removeAccount() async { await auth.signOut(); accountEmail = "" }
+
     func start() async {
         guard case .signedIn(let email) = auth.state else { return }
         accountEmail = email ?? ""

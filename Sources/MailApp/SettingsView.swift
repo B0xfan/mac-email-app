@@ -17,12 +17,14 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var app: AppModel
+    @ObservedObject private var store: MailStore   // watched so the Accounts card follows sign-out and sign-in
+    @ObservedObject private var signIn: SignInModel
     @ObservedObject var settings = AppSettings.shared
     @StateObject private var sec: Box<SettingsSection>
     @StateObject private var note = Box("")
     var openBlocked: () -> Void
     init(app: AppModel, openBlocked: @escaping () -> Void, start: SettingsSection = .accounts) {
-        self.app = app; self.openBlocked = openBlocked; _sec = StateObject(wrappedValue: Box(start))
+        self.app = app; store = app.store; signIn = app.signIn; self.openBlocked = openBlocked; _sec = StateObject(wrappedValue: Box(start))
     }
 
     var body: some View {
@@ -59,11 +61,14 @@ struct SettingsView: View {
                     VStack(alignment: .leading) { Text(app.store.accountEmail.isEmpty ? "Not signed in" : app.store.accountEmail).font(Theme.bodyStrong); Text(app.store.accountEmail.isEmpty ? "" : "Connected (Gmail)").foregroundStyle(Theme.sub).font(Theme.small) }
                     Spacer()
                     if !app.store.accountEmail.isEmpty {
-                        Button("Remove") { Task { await app.signIn.signOut(); note.v = "Signed out. Your emails stay with Gmail." } }.buttonStyle(MailButtonStyle(kind: .block))
+                        Button("Remove") { Task { await app.store.removeAccount(); note.v = "Signed out. Your emails stay with Gmail." } }.buttonStyle(MailButtonStyle(kind: .block))
+                    } else {
+                        Button("Sign in with Google") { note.v = ""; Task { await app.signIn.signIn(); if case .signedIn(let e) = app.signIn.state { app.store.accountEmail = e ?? "" } } }
+                            .buttonStyle(MailButtonStyle(kind: .primary)).disabled(signIn.state == .signingIn)
                     }
                 }
             }
-            Text(note.v.isEmpty ? "Gmail only for now. More providers come later." : note.v).font(Theme.small).foregroundStyle(Theme.sub)
+            Text(note.v.isEmpty ? (signIn.message ?? "Gmail only for now. More providers come later.") : note.v).font(Theme.small).foregroundStyle(Theme.sub)
         case .signatures:
             head("Signatures", "Your signature is added to the bottom of new emails.")
             Card { VStack(alignment: .leading, spacing: 8) {
