@@ -239,8 +239,8 @@ extension MailStore {
     /// Runs every 30 seconds while Mail is open, and once right after it opens (times missed while closed).
     func runTimers(now: Date = Date()) async {
         guard !timersBusy else { return }
-        timersBusy = true; defer { timersBusy = false }
-        offline = false   // the first "unreachable" in this pass skips the other service calls
+        timersBusy = true; offline = false   // the first "unreachable" in this pass skips the other service calls
+        defer { timersBusy = false; offline = false }
         await registerWithServer()   // first thing after launch, with the existing sign-in
         await syncServer()
         await syncReminders()
