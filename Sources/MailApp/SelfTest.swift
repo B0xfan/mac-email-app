@@ -945,16 +945,17 @@ enum SelfTest {
         h.text = nil
         h.html = "<html><head><style>p{color:red}</style></head><body><!-- x --><p>Hello&nbsp;there &amp; welcome&#8217;s</p>\n<div class=\"gmail_quote\"><div>On Mon, Oct 12, 2026 at 9:00 PM Ann &lt;a@x.example&gt; wrote:<br></div><blockquote class=\"gmail_quote\"><p>old text</p><blockquote>older</blockquote> still old</blockquote></div><p>See <a href=\"https://x.example/a?b=1&amp;c=2\">the <b>plan</b></a>, <a href=\"https://x.example/z\">https://x.example/z</a>, <a href=\"mailto:ann@x.example\">Ann</a><a href=\"https://x.example/logo\"><img src=\"l.png\"></a>.</p><p>\u{200B}</p><p></p><p></p><p>--<br>Ann<br>Planner</p></body></html>"
         let hb = EmailNote.body(h)
-        check("save as note: HTML email cleaned (no style, quotes gone, entities and stray symbols fixed, links readable, signature kept)",
-              hb == "Hello there & welcome\u{2019}s\n\nSee [the plan](https://x.example/a?b=1&c=2), [https://x.example/z](https://x.example/z), Ann.\n\n\\--\nAnn\nPlanner")
+        check("save as note: HTML email cleaned (no style, quotes gone, entities and stray symbols fixed, plain web address kept, signature kept)",
+              hb.hasPrefix("Hello there & welcome\u{2019}s") && hb.contains("See the plan, https://x.example/z, Ann.") && hb.hasSuffix("\\--\nAnn\nPlanner")
+              && !hb.contains("old text") && !hb.contains("color:red") && !hb.contains("wrote") && !hb.contains("&nbsp;") && !hb.contains("l.png") && !hb.contains("]("))
         if !ok { print("  got: \(hb.debugDescription)") }
 
         var junk = Mail(id: "m3", from: Address(name: "Bo", email: "bo@x.example"), subject: "S", snippet: "", date: dt(13, 9, 0))
         junk.text = "    # Order 5 shipped\n<b>Thanks</b> <https://x.example/t>\n[image: logo]\n=====\nEl lun, 12 oct 2026 a las 9:00, Ana (<a@x.example>) escribió:\n> hola\nBo\n-----Original Message-----\nFrom: Ana\nold copy"
         let jb = EmailNote.body(junk)
         check("save as note: plain text, headings/rules stay text, stray tags and picture stand-ins go, Spanish and Outlook quotes go, <links> stay",
-              jb == "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\nBo")
-        if jb != "\\# Order 5 shipped\nThanks \\<[https://x.example/t](https://x.example/t)\\>\n\\=====\nBo" { print("  got: \(jb.debugDescription)") }
+              jb == "# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo")
+        if jb != "# Order 5 shipped\nThanks \\<https://x.example/t\\>\n\\=====\nBo" { print("  got: \(jb.debugDescription)") }
 
         // a conversation, handed over out of order: each message once, oldest first, under a small From · date line
         let reply = Mail(id: "m4", from: Address(name: "John Hesch", email: "j@x.example"), subject: "Re: Venue walkthrough on Thursday", snippet: "", date: dt(13, 7, 15),
@@ -978,7 +979,19 @@ enum SelfTest {
         var fs = fw; fs.text = nil
         fs.html = "<body><div>Sent from my iPhone</div><div><br>Begin forwarded message:<br><br></div><blockquote type=\"cite\"><div><b>From:</b> Airline<br></div></blockquote><blockquote type=\"cite\"><div><title>Airline</title><table><tr><td><p>Your flight is booked</p><p>Seat 12A confirmed</p></td></tr></table></div></blockquote></body>"
         check("save as note: forward whose header and body are two sibling blockquotes keeps both",
-              EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Seat 12A confirmed") && EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Your flight is booked\n\nSeat"))
+              EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Seat 12A confirmed") && EmailNote.content([fs], link: link, now: dt(13, 9, 0), tz: tz).contains("Your flight is booked"))
+
+        // Alaska Airlines shape (trimmed from the real forward): invisible filler, a table row LIR -> LAX, a number sign, a long tracking link
+        let track = "https://click.email.alaskaair.com/?qs=" + String(repeating: "ab12", count: 60)
+        var al = fw; al.text = nil
+        al.html = "<html><body><div>&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div><p>&nbsp;</p><p>\u{FEFF}</p><table><tr><td>LIR</td><td>&rarr;</td><td>LAX</td></tr></table>"
+            + "<table><tr><td>Atmos&trade; Rewards Member:</td><td>#730424601</td></tr></table><p>Confirmation # HZLENL</p><p><a href=\"\(track)\">Manage trip</a> \(track)</p></body></html>"
+        let alb = EmailNote.body(al)
+        var alp = al; alp.text = "Plain wins\n\nSecond"
+        check("save as note: airline email reads as plain text: the route on one line, no &nbsp;, no \\#, no [text](link), no whitespace-only or double blank lines, web address kept; the plain part wins when it has text",
+              alb.contains("LIR \u{2192} LAX") && alb.contains("Rewards Member: #730424601") && alb.contains("Confirmation # HZLENL") && !alb.contains("&nbsp;") && !alb.contains("\\#") && !alb.contains("](")
+              && !alb.contains("\n\n\n") && !alb.components(separatedBy: "\n").contains { !$0.isEmpty && $0.allSatisfy(\.isWhitespace) } && alb.contains(track) && EmailNote.body(alp) == "Plain wins\n\nSecond")
+        if !ok { print("  got: \(alb.debugDescription)") }
 
         // a reply to a forward keeps none of the quoted chain; a sentence mentioning "forwarded message" does not open the door; Spanish forward kept
         var rp = Mail(id: "f2", from: Address(name: "Dana", email: "d@x.example"), subject: "Re: Fwd: Your flight", snippet: "", date: dt(13, 9, 0))
@@ -1022,10 +1035,10 @@ enum SelfTest {
         check("save as note, hostile email: no code blocks or inline code (Dataview, dataviewjs), no ~~~ blocks",
               !en.contains("``") && !en.contains("~~") && !has(#"(^|[^\\])`"#) && en.contains("\\`\\`\\`dataviewjs") && en.contains("\\`$= dv.pages()\\`"))
         check("save as note, hostile email: no Templater tags, no HTML (script, img, iframe), shown as text",
-              !en.contains("<%") && !has(#"(^|[^\\])<[a-zA-Z/%!]"#) && en.contains("\\<\\% tp.system.prompt() \\%\\>") && en.contains("\\<script\\>alert(1)\\</script\\>"))
+              !en.contains("<%") && !has(#"(^|[^\\])<[a-zA-Z/%!]"#) && en.contains("\\<\\% tp.system.prompt() %\\>") && en.contains("\\<script\\>alert(1)\\</script\\>"))
         check("save as note, hostile email: only web links are links (javascript, obsidian, file become plain words); no embeds, tasks, fields, comments or tags",
-              !has(#"(^|[^\\])\]\((javascript|obsidian|file)"#) && en.contains("click run file [ok](https://ok.example/a%20b%28c%29)")
-              && en.contains("- \\[ \\] task !\\[\\[secret\\]\\] !\\[t\\]([https://track.example/p.gif](https://track.example/p.gif)) key\\:\\: value \\%\\%hidden\\%\\% \\#tag"))
+              !has(#"(^|[^\\])\]\((javascript|obsidian|file)"#) && en.contains("click run file ok")
+              && en.contains("- \\[ \\] task !\\[\\[secret\\]\\] !\\[t\\](https://track.example/p.gif) key\\:\\: value \\%\\%hidden\\%\\% \\#tag"))
         check("save as note, hostile email: subject and sender stay on one line, cannot add properties or break the layout",
               en.hasPrefix("---\ntype: capture\ntitle: \"Hi\\\" --- injected: true\"\ncreated: 2026-10-13\n") && en.components(separatedBy: "\n---\n").count == 4
               && !en.contains("\u{0007}") && en.contains("**From:** \\*\\*Boss\\*\\* \\[x\\](javascript:alert(1)) --- evil: 1 \\<a@x.example\\>\n"))

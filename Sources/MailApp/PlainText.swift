@@ -19,16 +19,37 @@ enum PlainText {
     private static func fromHTML(_ h: String) -> String {
         let read = { () -> String in
             let o: [NSAttributedString.DocumentReadingOptionKey: Any] = [.documentType: NSAttributedString.DocumentType.html, .characterEncoding: String.Encoding.utf8.rawValue]
-            return (try? NSAttributedString(data: Data(h.utf8), options: o, documentAttributes: nil))?.string
-                ?? h.replacingOccurrences(of: "<[^<>]*>", with: "", options: .regularExpression)   // unreadable HTML: the text between the tags, never an empty note
+            guard let a = try? NSAttributedString(data: Data(h.utf8), options: o, documentAttributes: nil) else {
+                return h.replacingOccurrences(of: "<[^<>]*>", with: "", options: .regularExpression)   // unreadable HTML: the text between the tags, never an empty note
+            }
+            return rows(a)
         }
         return Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
+    }
+
+    /// The importer makes every table cell its own paragraph; cells that sit side by side in one table row are put back on one line (a flight's "LIR  LAX" row).
+    private static func rows(_ a: NSAttributedString) -> String {
+        let ns = a.string as NSString
+        var out = "", pos = 0, prev: (table: ObjectIdentifier, row: Int, col: Int)?
+        while pos < ns.length {
+            let r = ns.paragraphRange(for: NSRange(location: pos, length: 0)); pos = r.location + r.length
+            let text = ns.substring(with: r).trimmingCharacters(in: .newlines)
+            let block = (a.attribute(.paragraphStyle, at: r.location, effectiveRange: nil) as? NSParagraphStyle)?.textBlocks.last as? NSTextTableBlock
+            let here = block.map { (table: ObjectIdentifier($0.table), row: $0.startingRow, col: $0.startingColumn) }
+            if let p = prev, let b = here, p.table == b.table, p.row == b.row, p.col != b.col {
+                if !text.trimmingCharacters(in: .whitespaces).isEmpty { out += " " + text }   // empty neighbours (arrows that were pictures, spacers) add nothing
+            } else {
+                out += (out.isEmpty ? "" : "\n") + text
+            }
+            prev = here
+        }
+        return out
     }
 
     static func tidy(_ raw: String) -> String {
         var s = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "[\r\u{2028}\u{2029}\u{000B}\u{000C}]", with: "\n", options: .regularExpression)
         s = s.replacingOccurrences(of: "[\u{200B}-\u{200D}\u{2060}\u{FEFF}\u{00AD}\u{034F}\u{202A}-\u{202E}\u{2066}-\u{2069}\u{FFFC}]", with: "", options: .regularExpression)
-        s = s.replacingOccurrences(of: "[\u{00A0}\u{2007}\u{202F}\t]", with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"[\p{Zs}\t]"#, with: " ", options: .regularExpression)
         s = s.replacingOccurrences(of: "(?m)[ ]+$", with: "", options: .regularExpression)   // a line of only spaces is a blank line
         return s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
     }

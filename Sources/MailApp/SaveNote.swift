@@ -58,8 +58,8 @@ enum EmailNote {
     static func esc(_ t: String, strict: Bool = false) -> String {
         var s = t
         for c in ["\\", "`", "[", "]", "<", ">"] + (strict ? ["*", "_", "|", "="] : []) { s = s.replacingOccurrences(of: c, with: "\\" + c) }
-        // only where the character would act: ~~ and %% in pairs, # when it would make a tag (a number sign before digits or a space, or inside a word, stays as written, no stray backslash)
-        s = s.replacingOccurrences(of: #"~(?=~)|(?<=~)~|%(?=%)|(?<=%)%|(?<![\p{L}\p{N}])#(?=\S*[^\s\d])"#, with: "\\\\$0", options: .regularExpression)
+        // only where the character would act: ~~ and %% in pairs, % after < (Templater), # when it would make a tag (a number sign before digits or a space, or inside a word, stays as written, no stray backslash)
+        s = s.replacingOccurrences(of: #"~(?=~)|(?<=~)~|%(?=%)|(?<=%)%|(?<=<)%|(?<![\p{L}\p{N}])#(?=\S*[^\s\d])"#, with: "\\\\$0", options: .regularExpression)
         return s.replacingOccurrences(of: "(?<=:):|:(?=:)", with: "\\\\:", options: .regularExpression)
     }
 
