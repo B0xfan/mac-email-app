@@ -45,12 +45,15 @@ jobs:
           rc=0
           .build/debug/MailApp --tiptest || rc=1
           .build/debug/MailApp --helpshots help-shots || rc=1
+          .build/debug/MailApp --listtest list-shots || rc=1
           exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: help-shots
-          path: help-shots
+          path: |
+            help-shots
+            list-shots
           retention-days: 3
           if-no-files-found: ignore
       # For sharing with other people: Developer ID signed, notarized and stapled, after the tests pass. Runs only when the repo

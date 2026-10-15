@@ -64,7 +64,7 @@ struct MailApp: App {
         let args = CommandLine.arguments
         setvbuf(stdout, nil, _IOLBF, 0)
         #if TESTHARNESS
-        if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest", "--helpshots"].contains(where: args.contains) { Keychain.testMode = true }
+        if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest", "--helpshots", "--listtest"].contains(where: args.contains) { Keychain.testMode = true }
         if args.contains("--selftest") {
             Task { exit(await SelfTest.run() ? 0 : 1) }
         } else if let i = args.firstIndex(of: "--helpshots"), i + 1 < args.count {
@@ -72,6 +72,9 @@ struct MailApp: App {
             Task { @MainActor in exit(await HelpShots.run(into: dir) ? 0 : 1) }
         } else if args.contains("--helpshots") {
             print("--helpshots needs a folder to write the pictures into"); exit(2)
+        } else if let i = args.firstIndex(of: "--listtest"), i + 1 < args.count {
+            let dir = args[i + 1]
+            Task { @MainActor in exit(await ListTest.run(into: dir) ? 0 : 1) }
         } else if args.contains("--tiptest") {
             Task { @MainActor in exit(await TipTest.run() ? 0 : 1) }
         } else if args.contains("--print-auth-url") {
