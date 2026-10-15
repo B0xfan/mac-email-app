@@ -31,7 +31,10 @@ extension SelfTest {
 
         // search
         let off = HelpSearch.hits(sections, query: "mac is off").map(\.section.id)
-        check("help: 'mac is off' lists the sections about the Mac being off, the one named for it first", off.first == "what-works-when-your-mac-is-off" && off.contains("send-later") && off.contains("remind-me-if-no-reply"))
+        check("help: 'mac is off' lists the sections that say it, the one named for it first, and not sections that only share small words", off.first == "what-works-when-your-mac-is-off" && off.contains("send-later") && off.contains("remind-me-if-no-reply") && !off.contains("reading-an-email") && !off.contains("translate"))
+        check("help: words match where a word starts, not inside one", HelpSearch.has("Mac is off", "off") && HelpSearch.has("the office", "off") && !HelpSearch.has("this list", "is") && !HelpSearch.has("a coffee", "off"))
+        check("help: with no phrase match, sections holding every word are listed", HelpSearch.hits(sections, query: "off mac").map(\.section.id).contains("send-later"))
+        check("help: the first line shown for a result is not a table header", HelpSearch.hits(sections, query: "mac is off").first.map { !$0.snippet.hasPrefix("Feature") } ?? false)
         check("help: search ignores case", HelpSearch.hits(sections, query: "MAC IS OFF").map(\.section.id) == off)
         check("help: words with no match list nothing, and an empty box lists nothing", HelpSearch.hits(sections, query: "zzzqqq").isEmpty && HelpSearch.hits(sections, query: "   ").isEmpty)
         check("help: a result shows the line that matched", HelpSearch.hits(sections, query: "Show original").first.map { HelpManual.plain($0.snippet).lowercased().contains("show original") } ?? false)
@@ -43,6 +46,8 @@ extension SelfTest {
         let a = HelpText.markdown("Your **Mac** is off. mac again", ["mac"])
         let marked = a.runs.filter { $0.attributes[key] != nil }.map { String(a[$0.range].characters) }
         check("help: typed words are marked in the text, in any case, and nothing else", marked == ["Mac", "mac"] && HelpText.markdown("Plain words", []).runs.allSatisfy { $0.attributes[key] == nil })
+        let ph = HelpText.markdown("Even if your Mac is off, this is fine", ["mac", "is", "off"])
+        check("help: a typed phrase is marked as one piece, and no word is marked inside another", ph.runs.filter { $0.attributes[key] != nil }.map { String(ph[$0.range].characters) } == ["Mac is off"])
 
         // the window model
         let m = HelpModel(sections: sections)

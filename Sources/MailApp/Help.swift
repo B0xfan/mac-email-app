@@ -14,7 +14,7 @@ enum HelpBlock: Equatable {
     var lines: [String] {
         switch self {
         case .sub(let t), .para(let t), .item(_, let t): return [HelpManual.plain(t)]
-        case .table(let rows): return rows.map { $0.map(HelpManual.plain).joined(separator: " | ") }
+        case .table(let rows): return rows.dropFirst().map { $0.map(HelpManual.plain).joined(separator: ": ") }   // the header row ("Page | What it does") is not worth finding
         }
     }
 }
@@ -102,19 +102,24 @@ struct HelpHit: Identifiable, Equatable {
 
 enum HelpSearch {
     static func terms(_ q: String) -> [String] { q.split(whereSeparator: { $0.isWhitespace }).map(String.init) }
-    static func has(_ text: String, _ t: String) -> Bool { text.range(of: t, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+    /// A typed word matches where a word starts, any case ("off" finds "off" and "office", not the end of "this").
+    static func pattern(_ t: String) -> String { "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: t) }
+    static func has(_ text: String, _ t: String) -> Bool { text.range(of: pattern(t), options: [.regularExpression, .caseInsensitive]) != nil }
 
-    /// Sections that contain every typed word (any order, any case). The whole phrase in the title ranks first, then in the title, then in the text.
+    /// Sections with the typed words as a phrase; when none has the phrase, sections that contain every word (any order).
+    /// The phrase in the title ranks first, then every word in the title, then the rest in the manual's order.
     static func hits(_ sections: [HelpSection], query: String) -> [HelpHit] {
         let ts = terms(query)
         guard !ts.isEmpty else { return [] }
         let phrase = ts.joined(separator: " ")
+        let withPhrase = sections.filter { has($0.plain, phrase) }
+        let pool: [HelpSection] = withPhrase.isEmpty ? sections.filter { s in ts.allSatisfy { has(s.plain, $0) } } : withPhrase
         var found: [(hit: HelpHit, score: Int)] = []
-        for s in sections where ts.allSatisfy({ has(s.plain, $0) }) {
+        for s in pool {
             let phraseLine: String? = s.lines.first { has($0, phrase) }
             let allLine: String? = s.lines.first { l in ts.allSatisfy { has(l, $0) } }
             let anyLine: String? = s.lines.first { l in ts.contains { has(l, $0) } }
-            let line: String = phraseLine ?? allLine ?? anyLine ?? ""
+            let line: String = phraseLine ?? (has(s.title, phrase) ? s.lines.first : nil) ?? allLine ?? anyLine ?? ""
             var score: Int = phraseLine == nil ? 0 : 1
             if has(s.title, phrase) { score += 4 } else if ts.allSatisfy({ has(s.title, $0) }) { score += 2 }
             found.append((HelpHit(section: s, snippet: excerpt(line, around: ts)), score))
@@ -126,7 +131,7 @@ enum HelpSearch {
     /// A long line is cut to a window around the first match.
     static func excerpt(_ line: String, around ts: [String]) -> String {
         guard line.count > 150 else { return line }
-        let firsts: [String.Index] = ts.compactMap { line.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive])?.lowerBound }
+        let firsts: [String.Index] = ts.compactMap { line.range(of: pattern($0), options: [.regularExpression, .caseInsensitive])?.lowerBound }
         let start: String.Index = firsts.min() ?? line.startIndex
         let from: String.Index = line.index(start, offsetBy: -40, limitedBy: line.startIndex) ?? line.startIndex
         let to: String.Index = line.index(from, offsetBy: 150, limitedBy: line.endIndex) ?? line.endIndex
@@ -142,9 +147,11 @@ enum HelpText {
         var mark = AttributeContainer()   // by key, because AppKit and SwiftUI both define foregroundColor and a plain .foregroundColor is ambiguous
         mark[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] = Theme.accSoft
         mark[AttributeScopes.SwiftUIAttributes.ForegroundColorAttribute.self] = Theme.accInk
-        for t in terms where !t.isEmpty {
+        let phrase = terms.joined(separator: " ")
+        let marked: [String] = terms.count > 1 && HelpSearch.has(s, phrase) ? [phrase] : terms   // "mac is off" marks the phrase, not every "is"
+        for t in marked where !t.isEmpty {
             var from = s.startIndex
-            while from < s.endIndex, let r = s.range(of: t, options: [.caseInsensitive, .diacriticInsensitive], range: from..<s.endIndex) {
+            while from < s.endIndex, let r = s.range(of: HelpSearch.pattern(t), options: [.regularExpression, .caseInsensitive], range: from..<s.endIndex) {
                 let lo = a.characters.index(a.startIndex, offsetBy: s.distance(from: s.startIndex, to: r.lowerBound))
                 let hi = a.characters.index(lo, offsetBy: s.distance(from: r.lowerBound, to: r.upperBound))
                 a[lo..<hi].mergeAttributes(mark)
@@ -263,7 +270,7 @@ struct HelpView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(model.sections) { s in
-                    let on = s.id == model.current?.id
+                    let on = s.id == model.current?.id && !model.showResults   // while results are listed no section is "open"
                     let hit = matching.contains(s.id)
                     Button { model.show(s.id) } label: {
                         Text(s.title).font(.system(size: 14, weight: on || (hit && !ts.isEmpty) ? .bold : .regular))
