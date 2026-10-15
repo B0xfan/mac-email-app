@@ -11,9 +11,10 @@ enum ListTest {
     static func tealBands(_ path: String) -> [(Int, Int)] {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return [] }
         let scale = Double(rep.pixelsWide) / 1280
-        func isTeal(_ x: Int, _ y: Int) -> Bool {
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
-            return abs(Int((c.redComponent * 255).rounded()) - 168) <= 10 && abs(Int((c.greenComponent * 255).rounded()) - 212) <= 10 && abs(Int((c.blueComponent * 255).rounded()) - 215) <= 10
+        var px = [Int](repeating: 0, count: 5)
+        func isTeal(_ x: Int, _ y: Int) -> Bool {   // the picture's own stored values, no colour-space conversion
+            rep.getPixel(&px, atX: x, y: y)
+            return abs(px[0] - 168) <= 10 && abs(px[1] - 212) <= 10 && abs(px[2] - 215) <= 10
         }
         // the list column starts right of the 244 pt sidebar: find the left edge of the teal, then look 3 points inside it (inside the border, clear of the orange dot)
         var left: Int?
