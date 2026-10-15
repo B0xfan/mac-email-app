@@ -36,3 +36,19 @@ jobs:
         run: |
           swift build
           .build/debug/MailApp --selftest
+      # Pictures of the help window (drawn in a window that is never shown) and a check of the toolbar tips. Noor looks at the pictures; this step never blocks the build.
+      - name: Help screens and toolbar tips
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          rc=0
+          .build/debug/MailApp --tiptest || rc=1
+          .build/debug/MailApp --helpshots help-shots || rc=1
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: help-shots
+          path: help-shots
+          retention-days: 3
+          if-no-files-found: ignore

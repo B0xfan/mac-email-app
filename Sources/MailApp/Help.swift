@@ -225,7 +225,7 @@ struct HelpView: View {
             }
             .font(.system(size: 12)).foregroundStyle(Theme.sub).padding(.horizontal, 14).padding(.vertical, 6).background(Theme.side)
         }
-        .background(Theme.bg).foregroundStyle(Theme.text)
+        .background(Theme.bg).foregroundStyle(Theme.text).tint(Theme.acc)   // links in the text use Mail's teal
         .frame(minWidth: 680, minHeight: 440)
         .onExitCommand { model.clear() }
         .onAppear { takeFocusIfAsked() }

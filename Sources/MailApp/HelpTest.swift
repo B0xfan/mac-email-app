@@ -68,4 +68,39 @@ extension SelfTest {
         return ok
     }
 }
+
+/// `MailApp --helpshots <folder>`: draws the help window in an off-screen window (never shown), light and dark, so it can be looked at.
+/// Never signs in, never touches the Keychain, Gmail or John's files.
+@MainActor
+enum HelpShots {
+    static func run(into dir: String) async -> Bool {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.accessory)
+        SnapshotMode.on = false
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for dark in [false, true] {
+            let tag = dark ? "dark" : "light"
+            func shot(_ name: String, _ prepare: (HelpModel) -> Void) async {
+                let m = HelpModel()
+                prepare(m)
+                let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 860, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+                win.isReleasedWhenClosed = false
+                win.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                win.contentView = NSHostingView(rootView: HelpView(model: m))
+                win.setContentSize(NSSize(width: 860, height: 600))
+                win.orderFront(nil)
+                await LiveTest.pump(0.8)
+                LiveTest.grab(win, "\(dir)/help-\(name)-\(tag).png")
+                print("wrote help-\(name)-\(tag)")
+                win.close()
+            }
+            await shot("section") { $0.show("send-later") }
+            await shot("search") { $0.query = "mac is off" }
+            await shot("search-open") { $0.query = "mac is off"; $0.show("what-works-when-your-mac-is-off") }
+            await shot("table") { $0.show("settings-and-accounts") }
+            await shot("claude") { $0.show("claude-access") }
+        }
+        return true
+    }
+}
 #endif
