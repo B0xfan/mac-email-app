@@ -37,6 +37,7 @@ extension SelfTest {
                 }
                 return (200, "{\"id\":\"\(id)\",\"historyId\":\"\(hist[id] ?? "1")\",\"messages\":[\(ms.joined(separator: ","))]}")
             }
+            if path.contains("/messages/") && req.httpMethod == "GET" { return (200, msg(u.lastPathComponent, "C1", ["INBOX"], 1_700_000_000_000, from: "Priya <p@x.example>")) }
             return (200, "{}")
         }
         defer { StubProtocol.handler = nil }
@@ -67,6 +68,28 @@ extension SelfTest {
         check("switch on: the row shows the count (not for a single email) and the newest message's sender, subject and preview; same id, same unread state",
               on.1 == 3 && on.2 == nil && on.0.id == c1.id && on.0.from.email == "p@x.example" && on.0.snippet == "words of c1c" && on.0.unread && on.0.date >= c1.date)
         check("switch on or off: the same rows in the same order (the switch only changes how a row reads)", on.3 == off.2)
+        // the reading pane: stacked with the switch on, in the Inbox; one click opens an older message, a click on the newest's line brings it back
+        await MainActor.run { st.mailbox = .inbox; st.openMail = c1 }
+        let stackOn = await MainActor.run { (st.stackOpen, st.convoShown?.id) }
+        await st.showConvoMessage(c1.convo![0])
+        let older = await MainActor.run { (st.convoShown?.id, st.openMail?.id) }
+        await st.showConvoMessage(c1.convo![2])
+        let back = await MainActor.run { st.convoShown?.id }
+        await st.showConvoMessage(c1.convo![0])
+        await MainActor.run { st.openMail = c2 }
+        let other = await MainActor.run { st.convoShown?.id }
+        await MainActor.run { st.openMail = c3 }
+        let single = await MainActor.run { st.stackOpen }
+        await MainActor.run { st.openMail = c1; st.settings.groupConversations = false }
+        let offStack = await MainActor.run { st.stackOpen }
+        await MainActor.run { st.settings.groupConversations = true; st.mailbox = .sent }
+        let sentStack = await MainActor.run { st.stackOpen }
+        check("reading pane: stacked with the switch on (newest open, nothing else open); a click opens an older message and leaves the open email as it was",
+              stackOn.0 && stackOn.1 == nil && older.0 == "c1a" && older.1 == "c1c")
+        check("reading pane: a click on the newest message's own line, or opening another email, closes the older one",
+              back == nil && other == nil)
+        check("reading pane: not stacked for a single email, with the switch off, or outside the Inbox (Sent and other folders stay as they are)", !single && !offStack && !sentStack)
+        await MainActor.run { st.mailbox = .inbox; st.openMail = nil }
         UserDefaults.standard.removeObject(forKey: "groupConversations")
         await MainActor.run { st.settings.groupConversations = false }
         return ok

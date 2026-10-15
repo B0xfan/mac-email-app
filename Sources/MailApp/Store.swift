@@ -36,8 +36,10 @@ final class MailStore: ObservableObject {
     @Published var picked: Set<String> = []
     var pickAnchor: String?     // the last email clicked: where Shift-click starts
     var batching = false        // a group action is running: the single-email paths add to one undo step instead of making their own
+    /// Conversations on: an older message of the open conversation that was clicked open (full text). nil = the open email itself is shown.
+    @Published var convoShown: Mail?
     @Published var openMail: Mail? {
-        didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
+        didSet { if oldValue?.id != openMail?.id { convoShown = nil }; if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
     @Published var search = ""

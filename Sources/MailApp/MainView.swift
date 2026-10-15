@@ -722,7 +722,7 @@ struct ReadingPane: View {
     var body: some View {
         Group {
             if store.isMulti { MultiPanel(store: store) }
-            else if let m = store.openMail { ReadingContent(store: store, mail: m) }
+            else if let m = store.openMail { ReadingContent(store: store, mail: store.convoShown ?? m) }
             else {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 30)).foregroundStyle(Theme.sub)
@@ -745,6 +745,7 @@ struct ReadingContent: View {
         let warns = store.senderWarnings(mail)
         let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
         VStack(alignment: .leading, spacing: 10) {
+            if store.stackOpen { ConvoFolds(store: store, shown: mail.id, older: true) }
             if store.selectedIsNewSender {
                 Card(padding: 12) {
                     HStack(spacing: 16) {
@@ -834,7 +835,8 @@ struct ReadingContent: View {
                         .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: mail) }
+            if store.stackOpen { ConvoFolds(store: store, shown: mail.id, older: false) }
+            if !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: store.openMail ?? mail) }   // a reply answers the newest message
             if !mail.attachments.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(mail.attachments) { a in
