@@ -131,7 +131,9 @@ extension MailStore {
         for a in addrs { if await block(a, wholeCompany: wholeCompany, reload: false) { blocked += 1 } }
         picked = []
         await loadBlocked()
-        if blocked > 0 { status = wholeCompany ? "Blocked \(blocked) companies. They were not told." : "Blocked \(blocked) senders. They were not told."; await openNext(after: first) }
+        guard blocked > 0 else { return }
+        await openNext(after: first)   // opening an email clears the status line, so the words come after it
+        status = wholeCompany ? "Blocked \(blocked) companies. They were not told." : "Blocked \(blocked) senders. They were not told."
     }
 
     func addTodoBulk(line: String) async -> Bool {

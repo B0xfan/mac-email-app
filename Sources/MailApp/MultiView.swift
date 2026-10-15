@@ -5,7 +5,7 @@ import AppKit
 struct MultiPanel: View {
     @ObservedObject var store: MailStore
     /// "Priya Raman, Andrea Lopez, Shop Updates", each sender once, with "and N more" after eight.
-    static func names(_ ms: [Mail]) -> String {
+    nonisolated static func names(_ ms: [Mail]) -> String {
         var seen = Set<String>(), out: [String] = []
         for m in ms where seen.insert(m.from.email.lowercased()).inserted { out.append(m.from.display) }
         return out.count <= 8 ? out.joined(separator: ", ") : out.prefix(8).joined(separator: ", ") + ", and \(out.count - 8) more"
