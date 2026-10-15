@@ -122,7 +122,7 @@ extension SelfTest {
         wire = []
         await st.archiveOpen()
         check("pane: a reply that arrived while the pane was open is archived with the rest", touched(["c1d", "c1c", "c1a"], ["c1b"]))
-        check("pane: the pane moves on from the archived conversation even though a reply changed its newest message", await MainActor.run { st.openMail?.threadID != "C1" })
+        check("pane: the pane moves on from the archived conversation even though a reply changed its newest message", await MainActor.run { !["c1c", "c1d"].contains(st.openMail?.id) })   // the stub gives every fetched message thread C1, so compare ids
         c1Extra = false; hist["C1"] = "21"
         await st.undoLast()
         await st.refresh()
