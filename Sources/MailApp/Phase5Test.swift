@@ -163,7 +163,49 @@ extension SelfTest {
         }
         await st2.loadMoreOther()
         let real = await MainActor.run { st2.error }
-        check("paging: a real failure on the next page still shows its banner", real != nil)
+        check("paging: a real failure on the next page still shows its banner, with Gmail's own words", real == "Gmail said no (403): denied")
+
+        // Cancelled in the middle of fetching the page's messages (they answer slowly): nothing is added, the token stays, no banner.
+        func slowStore(_ tag: String) async -> MailStore {
+            await MainActor.run {
+                let s = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("pb" + tag)),
+                                  seen: SeenBook(url: cbURL.appendingPathExtension("ps" + tag)), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+                s.settings.screenNewSenders = false; s.search = "from Amazon"; s.mailbox = .search; return s
+            }
+        }
+        StubProtocol.handler = { req in
+            let u = req.url!, p = u.path, q = u.query ?? ""
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            if p.hasSuffix("/messages") { return q.contains("pageToken=T2") ? (200, #"{"messages":[{"id":"s3"},{"id":"s4"}]}"#) : (200, #"{"messages":[{"id":"s1"}],"nextPageToken":"T2"}"#) }
+            if p.hasSuffix("/messages/s1") { return (200, msg("s1", 1_700_000_300_000)) }
+            if p.hasSuffix("/messages/s3") { return (200, msg("s3", 1_420_000_000_000)) }
+            if p.hasSuffix("/messages/s4") { return (200, msg("s4", 1_410_000_000_000)) }
+            return (200, "{}")
+        }
+        StubProtocol.delay = { $0.url!.path.contains("/messages/s3") || $0.url!.path.contains("/messages/s4") ? 2.0 : 0 }
+        defer { StubProtocol.delay = nil }
+        let st3 = await slowStore("3")
+        await st3.loadOther()
+        let mid = Task { await st3.loadMoreOther() }
+        try? await Task.sleep(nanoseconds: 500_000_000)   // the page list has answered; the messages are still on their way
+        mid.cancel(); await mid.value
+        let midState = await MainActor.run { (st3.other.map(\.id), st3.otherNext, st3.error, st3.loadingOtherMore) }
+        check("paging: cancelled while the page's messages are on their way, the list and the token stay as they were and there is no banner", midState.0 == ["s1"] && midState.1 == "T2" && midState.2 == nil && !midState.3)
+
+        // The Gmail client itself: a cancelled call is a cancellation, not "could not reach Gmail" (a send is never retried, so it showed as offline).
+        StubProtocol.handler = { req in
+            let u = req.url!
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            return (200, #"{"id":"x","threadId":"y"}"#)
+        }
+        StubProtocol.delay = { $0.url!.path.hasSuffix("/messages/send") ? 2.0 : 0 }
+        let gc = GmailClient(auth: pauth, session: session)
+        let sending = Task { () -> Bool in
+            do { _ = try await gc.sendRaw(Data("x".utf8), threadID: nil); return false } catch is CancellationError { return true } catch { return false }
+        }
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        sending.cancel()
+        check("gmail client: a call cancelled in flight throws a cancellation, not 'Could not reach Gmail'", await sending.value)
         return ok
     }
 
@@ -200,6 +242,20 @@ extension SelfTest {
         await MainActor.run { st.resetAutoPages() }
         for _ in 0..<12 { await st.autoMoreInbox() }
         check("page row: a new tab, a scroll away or the button gives 3 more pages", lists.all.count == 7)
+
+        // Cancelled while the page's conversations are still being fetched: no false "could not be loaded" banner, no skipped conversations.
+        StubProtocol.delay = { $0.url!.path.contains("/threads/") ? 2.0 : 0 }
+        defer { StubProtocol.delay = nil }
+        let st2: MailStore = await MainActor.run {
+            let s = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("qb2")),
+                              seen: SeenBook(url: cbURL.appendingPathExtension("qs2")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+            s.settings.screenNewSenders = false; s.inboxNext = "P0"; return s
+        }
+        let mid = Task { await st2.loadMoreInbox() }
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        mid.cancel(); await mid.value
+        let midState = await MainActor.run { (st2.inbox.count, st2.inboxNext, st2.error, st2.loadingMore) }
+        check("page row: cancelled while the conversations are on their way, the token stays, nothing is skipped and there is no banner", midState.0 == 0 && midState.1 == "P0" && midState.2 == nil && !midState.3)
         return ok
     }
 

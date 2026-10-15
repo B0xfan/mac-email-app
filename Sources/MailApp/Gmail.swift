@@ -88,6 +88,7 @@ final class GmailClient: @unchecked Sendable {
         let canRetry = Self.retriesAfterUncertainFailure(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
         catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { throw CancellationError() }   // the caller gave up (scrolled away): not a network fault, nothing to retry
             if canRetry && retry < 2 { try await Task.sleep(nanoseconds: 600_000_000); return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1) }
             throw GmailError.offline
         }

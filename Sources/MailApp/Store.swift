@@ -295,6 +295,7 @@ final class MailStore: ObservableObject {
             let page = try await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok)
             let have = Set(inbox.map(\.threadID))
             let got = await gmail.threads(page.refs.map(\.id).filter { !have.contains($0) })
+            try Task.checkCancellation()   // a cancelled fetch fills `failed`: no false banner, and the token must not move past those threads
             inbox = applySurfaced(inbox + page.refs.compactMap { got.mails[$0.id] }).sorted { $0.date > $1.date }
             if !got.failed.isEmpty { error = "Some older conversations could not be loaded. Try \"Show older emails\" again." }
             saveCache()
@@ -411,6 +412,7 @@ final class MailStore: ObservableObject {
             let page = try await otherPage(src, token: tok)
             let have = Set(other.map(\.id))
             let more = await gmail.messages(ids: page.ids.filter { !have.contains($0) })
+            try Task.checkCancellation()   // messages() swallows errors: a cancelled fetch must not add a partial page or move the token past it
             guard gen == otherGen else { return }
             other += more
             if mailbox == .search { other.sort { $0.date > $1.date } }

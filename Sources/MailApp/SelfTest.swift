@@ -7,6 +7,9 @@ import AppKit
 final class StubProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var handler: ((URLRequest) -> (Int, String))?
     nonisolated(unsafe) static var headers: [String: String]?   // sent with every answer (e.g. an upload address)
+    nonisolated(unsafe) static var delay: ((URLRequest) -> Double)?   // seconds to wait before answering (a request that is still in flight can then be cancelled)
+    private let gate = NSLock()
+    private var stopped = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -17,12 +20,18 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
             req.httpBody = d
         }
         let (code, body) = Self.handler?(req) ?? (500, "{}")
-        if code == -1 { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }   // a request that timed out
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: Self.headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(body.utf8))
-        client?.urlProtocolDidFinishLoading(self)
+        let wait = Self.delay?(req) ?? 0
+        let answer = { [self] in
+            gate.lock(); let gone = stopped; gate.unlock()
+            if gone { return }   // cancelled while waiting
+            if code == -1 { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }   // a request that timed out
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: Self.headers)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        if wait > 0 { DispatchQueue.global().asyncAfter(deadline: .now() + wait, execute: answer) } else { answer() }
     }
-    override func stopLoading() {}
+    override func stopLoading() { gate.lock(); stopped = true; gate.unlock() }
 }
 
 enum SelfTest {
