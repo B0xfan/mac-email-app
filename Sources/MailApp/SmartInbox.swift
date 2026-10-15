@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Foundation
 
 enum InboxView: String, CaseIterable {
@@ -194,7 +195,7 @@ struct InboxBody: View {
         return MessageRow(mail: m, selected: store.selectedID == m.id, tag: noReply ? "No reply yet" : nil, warmTag: true,
                    fromText: noReply ? "You, to \(Address.parse(m.to).display)" : nil, pinned: pinned,
                    onPin: { Task { await store.togglePin(m) } }, onAside: { Task { await store.setAside(m) } }, onSnooze: { store.picker = .snooze([m.id]) }, onArchive: { Task { await store.archive(m) } },
-                   swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
+                   swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
             .contextMenu {
                 Button { Task { await store.togglePin(m) } } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
                 Button { Task { await store.setAside(m) } } label: { Label("Set Aside", systemImage: "rectangle.stack") }
