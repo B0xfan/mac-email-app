@@ -10,6 +10,7 @@ extension SelfTest {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         nonisolated(unsafe) var mcalls: [String] = []
+        nonisolated(unsafe) var failIDs: [String] = [], failFrom: [String] = []   // the pretend Gmail refuses these (an archive of the id, a filter on the address)
         StubProtocol.handler = { req in
             let u = req.url!.absoluteString, b = String(data: req.httpBody ?? Data(), encoding: .utf8) ?? ""
             if u.contains("oauth2") || u.contains("token") && !u.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
@@ -17,6 +18,8 @@ extension SelfTest {
             let name = ((try? JSONSerialization.jsonObject(with: Data(b.utf8)) as? [String: Any])?["name"] as? String) ?? ""
             if u.hasSuffix("/labels") && req.httpMethod == "POST" { return (200, "{\"id\":\"L_\(name)\",\"name\":\"\(name)\"}") }
             if u.hasSuffix("/labels") && req.httpMethod == "GET" { return (200, #"{"labels":[{"id":"L_Blocked","name":"Blocked"},{"id":"L_Snoozed","name":"Snoozed"}]}"#) }
+            if u.hasSuffix("/settings/filters") && req.httpMethod == "POST" && failFrom.contains(where: { b.contains($0) }) { return (400, #"{"error":{"message":"no"}}"#) }
+            if u.hasSuffix("batchModify") && failIDs.contains(where: { b.contains("\"\($0)\"") }) { return (400, #"{"error":{"message":"no"}}"#) }
             if u.hasSuffix("/settings/filters") && req.httpMethod == "POST" { return (200, #"{"id":"F1"}"#) }
             return (200, "{}")
         }
@@ -39,7 +42,7 @@ extension SelfTest {
         check("select several: Command-click adds emails (they need not touch), two or more make a group", s.picked == ["mu1", "mu3"] && s.open == nil && s.multi)
         await store.rowClicked(ms[0], command: true, shift: false)
         s = await state()
-        check("select several: Command-click on a selected email takes it out", s.picked == ["mu3"] && !s.multi)
+        check("select several: Command-click on a selected email takes it out, and when one is left that email opens", s.picked.isEmpty && s.open == "mu3" && !s.multi)
         await store.rowClicked(ms[4], command: false, shift: false)
         s = await state()
         check("select several: a plain click clears the selection and opens that email", s.picked.isEmpty && s.open == "mu5")
@@ -163,6 +166,101 @@ extension SelfTest {
               bl.0 == ["mu4", "mu5", "mu6"] && mcalls.filter { $0.hasPrefix("POST") && $0.contains("/settings/filters") }.count == 3 && bl.1 == "Blocked 3 senders. They were not told.")
         mcalls = []; await pick([3, 4]); await store.bulkBlock(wholeCompany: true)
         check("group action: Block everyone at their companies makes one filter per company", mcalls.filter { $0.hasPrefix("POST") && $0.contains("/settings/filters") }.count == 1 && mcalls.contains { $0.contains("@x.example") })
+
+
+        // ---- fix round 1
+        func pickIDs(_ ids: [String]) async { for id in ids { if let m = await MainActor.run(body: { store.inbox.first { $0.id == id } }) { await store.rowClicked(m, command: true, shift: false) } } }
+        func filterCalls() -> [String] { mcalls.filter { $0.hasPrefix("POST") && $0.contains("/settings/filters") } }
+        let own = mk("own1", "john@mine.example", h: 7), nr = mk("nr1", "john@mine.example", h: 8)
+        let gm = mk("gm1", "a@gmail.com", h: 9), yh = mk("yh1", "b@yahoo.co.uk", h: 10), co = mk("co1", "c@corp.example", h: 11)
+        defer { failIDs = []; failFrom = [] }
+
+        // 1. never block John's own address, nor a "No reply yet" row (its sender is John)
+        await reset()
+        await MainActor.run { store.accountEmail = "john@mine.example"; store.inbox = ms + [own, nr]; store.timing.change { $0.noReply.append("nr1") } }
+        await pickIDs(["mu1", "own1", "nr1"]); await store.bulkBlock(wholeCompany: false)
+        let sb = await MainActor.run { store.status }
+        check("block safety: a group block leaves out John's own address and 'No reply yet' rows", filterCalls().count == 1 && filterCalls()[0].contains("p1@x.example") && !mcalls.contains { $0.contains("john@mine.example") } && sb.contains("2 left alone"))
+        mcalls = []
+        let single1 = await store.block(own.from, wholeCompany: false), single2 = await store.block(Address(name: "", email: "boss@mine.example"), wholeCompany: true)
+        check("block safety: blocking one email gets the same guard (own address, own company)", !single1 && !single2 && filterCalls().isEmpty)
+
+        // 2. never block a whole free-mail service
+        await reset()
+        await MainActor.run { store.inbox = ms + [gm, yh, co] }
+        await pickIDs(["gm1", "yh1", "co1"])
+        let tg = await MainActor.run { (store.blockTargets(store.bulk, wholeCompany: true).count, store.blockTargets(store.bulk, wholeCompany: false).count) }
+        check("free mail: the company choice counts only real companies (1 of 3), the address choice counts all 3", tg == (1, 3))
+        mcalls = []; await store.bulkBlock(wholeCompany: true)
+        check("free mail: Block everyone at their companies skips gmail and yahoo", filterCalls().count == 1 && filterCalls()[0].contains("@corp.example") && !mcalls.contains { $0.contains("gmail.com") || $0.contains("yahoo") })
+        mcalls = []
+        let single3 = await store.block(gm.from, wholeCompany: true)
+        check("free mail: blocking one email's whole company is refused for gmail", !single3 && filterCalls().isEmpty)
+        await reset(); await MainActor.run { store.inbox = ms + [gm, yh, co] }; await pickIDs(["gm1", "yh1"])
+        let onlyFree = await MainActor.run { store.blockTargets(store.bulk, wholeCompany: true).count }
+        mcalls = []; await store.bulkBlock(wholeCompany: true)
+        let keep = await MainActor.run { store.picked.count }
+        check("free mail: with only free-mail senders the company option has nothing to block and the selection stays", onlyFree == 0 && filterCalls().isEmpty && keep == 2)
+        check("free mail: the list knows the country versions and not look-alikes", ["gmail.com", "Hotmail.co.uk", "outlook.es", "yahoo.com.br", "icloud.com"].allSatisfy(FreeMail.has) && !["corp.example", "livefree.com", "mine.example"].contains(where: FreeMail.has))
+        await MainActor.run { store.accountEmail = "" }
+
+        // 3. the selection belongs to the list it was made in
+        await reset(); await pickIDs(["mu1", "mu2"])
+        await MainActor.run { store.settings.smartTab = "zz-other" }
+        var st3 = await MainActor.run { (store.picked.count, store.pickAnchor) }
+        check("stale selection: changing the Smart tab clears the selection and the Shift-click start", st3.0 == 0 && st3.1 == nil)
+        await pickIDs(["mu1", "mu2"])
+        await MainActor.run { store.settings.inboxView = .unreadFirst }
+        st3 = await MainActor.run { (store.picked.count, store.pickAnchor) }
+        check("stale selection: changing the Inbox view clears it too", st3.0 == 0 && st3.1 == nil)
+        await MainActor.run { store.settings.inboxView = .classic; store.settings.smartTab = MailCategory.people.rawValue }
+        await reset(); await MainActor.run { store.picked = ["ghost"]; store.selectedID = "mu1" }
+        await store.rowClicked(ms[1], command: true, shift: false)
+        check("stale selection: a pick that is not in the list does not count, the open email still joins", await state().picked == ["mu1", "mu2"])
+
+        // 4, 5, 6. a group action that partly fails
+        await reset(); failIDs = ["mu2", "mu3"]; await pick([0, 1, 2, 3]); await store.bulkArchive()
+        let pf = await MainActor.run { (store.inbox.map(\.id), store.picked.sorted(), store.toast?.text, store.selectedID) }
+        check("partial failure: only the 2 emails that failed stay selected, one toast counts the 2 that went through", pf.0 == ["mu2", "mu3", "mu5", "mu6"] && pf.1 == ["mu2", "mu3"] && pf.2 == "Archived 2 emails." && pf.3 == nil)
+        await reset(); failIDs = ["mu2"]; await pick([0, 1, 2]); await store.bulkArchive()
+        let pf1 = await MainActor.run { (store.picked.count, store.selectedID) }
+        check("partial failure: when one failed email is left, it opens", pf1.0 == 0 && pf1.1 == "mu2")
+        await reset(); failIDs = ["mu1", "mu2"]
+        await MainActor.run { store.undoArchive = ["old"]; store.toast = ToastInfo(text: "earlier toast", action: "Undo", link: nil) }
+        await pick([0, 1]); await store.bulkArchive()
+        let nf = await MainActor.run { (store.undoArchive, store.toast?.text, store.picked.sorted()) }
+        check("nothing went through: the earlier undo and toast are kept and the selection stays", nf.0 == ["old"] && nf.1 == "earlier toast" && nf.2 == ["mu1", "mu2"])
+        failIDs = []
+        await reset(); failFrom = ["p2@x.example", "p3@x.example"]; await pick([0, 1, 2, 3]); await store.bulkBlock(wholeCompany: false)
+        let bf = await MainActor.run { (store.inbox.map(\.id), store.picked.sorted(), store.status) }
+        check("partial failure: Block senders leaves only the 2 that could not be blocked selected, and says so", bf.0 == ["mu2", "mu3", "mu5", "mu6"] && bf.1 == ["mu2", "mu3"] && bf.2.contains("Blocked 2 senders") && bf.2.contains("2 could not be blocked"))
+        await reset(); failFrom = ["p2@x.example"]; await pick([0, 1, 2]); await store.bulkBlock(wholeCompany: false)
+        let bf1 = await state()
+        check("partial failure: Block senders with one failure opens that email", bf1.picked.isEmpty && bf1.open == "mu2")
+        failFrom = []
+
+        // 7. Command-A and Esc only when the mail window is the key window
+        let wins: [Bool] = await MainActor.run {
+            func w(_ t: String) -> NSWindow { let x = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true); x.title = t; return x }
+            return [MailStore.isMainWindow(w("Audrey Mail")), MailStore.isMainWindow(w("Audrey Mail Help")), MailStore.isMainWindow(w("Settings")), MailStore.isMainWindow(nil)]
+        }
+        check("select several: Command-A and Esc act only in the mail window, not Help, Settings or no window", wins == [true, false, false, false])
+
+        // 8. to-do on a group that fails partway
+        let tdSaved = await MainActor.run { (AppSettings.shared.todoList, AppSettings.shared.vaultPath, AppSettings.shared.todoMarks) }
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("multi-vault-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: vault.appendingPathComponent(ObsidianTask.tasksFolder), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vault) }
+        await MainActor.run { AppSettings.shared.vaultPath = vault.path; AppSettings.shared.todoList = .obsidian; AppSettings.shared.todoMarks = [] }
+        let t1 = mk("t1", "t1@x.example"), t3 = mk("t3", "t3@x.example")
+        var t2 = mk("t2", "t2@x.example"); t2.subject = String(repeating: "a", count: 300)   // a file name that long cannot be written
+        await reset(); await MainActor.run { store.inbox = [t1, t2, t3]; store.picked = ["t1", "t2", "t3"]; store.todoMail = t1; store.todoBulk = [t1, t2, t3] }
+        let tdOK = await store.addTodoBulk(line: "")
+        let tdr = await MainActor.run { (store.picked.sorted(), store.toast?.text ?? "") }
+        check("to-do on a group: a failure partway says 'Added 1 of 3', names the missing emails, and keeps only them selected",
+              !tdOK && tdr.0 == ["t2", "t3"] && tdr.1.hasPrefix("Added 1 of 3 to to-do. Missing: t2: ") && tdr.1.contains("t3: s"))
+        check("to-do on a group: when all went through the words are the plain ones", MultiPanel.todoWords(added: 3, of: 3, missing: []) == "Added 3 emails to to-do.")
+        await MainActor.run { (AppSettings.shared.todoList, AppSettings.shared.vaultPath, AppSettings.shared.todoMarks) = tdSaved; store.todoMail = nil }
 
         let many = (1...10).map { mk("n\($0)", "n\($0)@x.example") } + [mk("dup", "n1@x.example")]
         check("panel: the sender line names each sender once, and 'and N more' after eight",

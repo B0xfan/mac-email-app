@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import Combine
 
 enum Mailbox: Hashable { case inbox, newSenders, blocked, sent, drafts, archive, search, recent, setAside, snoozed, scheduled, folder(String), smart(UUID), saved(UUID) }
 
@@ -122,6 +123,7 @@ final class MailStore: ObservableObject {
     let organizer: OrganizerBook
     let contacts = ContactDirectory()
     var keyMonitor: Any?
+    var pickWatch: [AnyCancellable] = []   // clears the selection when the Smart tab or the Inbox view changes
     private(set) var gmail: GmailClient
     var blockedLabelID: String?
     let blockLabelName: String
@@ -149,6 +151,9 @@ final class MailStore: ObservableObject {
         self.cacheURL = cacheURL; self.pendingDir = pendingDir
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.timingServer = timingServer; self.blockLabelName = blockLabelName
         SenderPictures.shared.contacts = contacts
+        // a selection belongs to the list it was made in; a different tab or view is a different list
+        pickWatch = [settings.$smartTab.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil },
+                     settings.$inboxView.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil }]
     }
 
     func setKnown(_ email: String, _ known: Bool) { knownCache[email] = known }

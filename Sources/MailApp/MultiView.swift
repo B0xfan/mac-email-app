@@ -10,6 +10,12 @@ struct MultiPanel: View {
         for m in ms where seen.insert(m.from.email.lowercased()).inserted { out.append(m.from.display) }
         return out.count <= 8 ? out.joined(separator: ", ") : out.prefix(8).joined(separator: ", ") + ", and \(out.count - 8) more"
     }
+    /// "Added 3 emails to to-do." or, after a failure partway, "Added 1 of 3 to to-do. Missing: ..." with who and what.
+    nonisolated static func todoWords(added: Int, of total: Int, missing: [Mail]) -> String {
+        if missing.isEmpty { return "Added \(added) emails to to-do." }
+        let who = missing.prefix(3).map { "\($0.from.display): \($0.subject.prefix(40))" }.joined(separator: "; ") + (missing.count > 3 ? "; and \(missing.count - 3) more" : "")
+        return "Added \(added) of \(total) to to-do. Missing: \(who). They stay selected."
+    }
     var body: some View {
         let ms = store.bulk, n = ms.count
         let allPinned = ms.allSatisfy { store.isPinned($0) }
@@ -51,10 +57,10 @@ struct BulkBlockMenu: View {
     @ObservedObject var store: MailStore
     let mails: [Mail]
     var body: some View {
-        let people = Set(mails.map { $0.from.email.lowercased() }).count, companies = Set(mails.map { $0.from.domain.lowercased() }).count
+        let people = store.blockTargets(mails, wholeCompany: false).count, companies = store.blockTargets(mails, wholeCompany: true).count   // after leaving out your own address and free email services
         VStack(alignment: .leading, spacing: 4) {
-            MenuItem(title: "Block these \(people) addresses", detail: MultiPanel.names(mails)) { Task { await store.bulkBlock(wholeCompany: false) } }
-            MenuItem(title: "Block everyone at their \(companies) companies", detail: "Every address at each company") { Task { await store.bulkBlock(wholeCompany: true) } }
+            MenuItem(title: "Block these \(people) addresses", detail: MultiPanel.names(mails)) { Task { await store.bulkBlock(wholeCompany: false) } }.disabled(people == 0).opacity(people == 0 ? 0.45 : 1)
+            MenuItem(title: "Block everyone at their \(companies) companies", detail: companies == 0 ? "Not for free email services like Gmail" : "Every address at each company") { Task { await store.bulkBlock(wholeCompany: true) } }.disabled(companies == 0).opacity(companies == 0 ? 0.45 : 1)
             Text("They won't be told.").font(Theme.small).foregroundStyle(Theme.sub)
                 .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }

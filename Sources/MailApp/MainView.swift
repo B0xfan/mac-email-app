@@ -687,8 +687,9 @@ struct BlockMenu: View {
     let addr: Address
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            MenuItem(title: "Block this address", detail: addr.email) { Task { await store.block(addr, wholeCompany: false) } }
-            MenuItem(title: "Block everyone at \(addr.domain)", detail: "Every address at this company") { Task { await store.block(addr, wholeCompany: true) } }
+            let own = store.blockRefusal(addr, wholeCompany: false) != nil, company = store.blockRefusal(addr, wholeCompany: true) != nil
+            MenuItem(title: "Block this address", detail: own ? "That is your own address" : addr.email) { Task { await store.block(addr, wholeCompany: false) } }.disabled(own).opacity(own ? 0.45 : 1)
+            MenuItem(title: "Block everyone at \(addr.domain)", detail: company ? "Not for free email services or your own company" : "Every address at this company") { Task { await store.block(addr, wholeCompany: true) } }.disabled(company).opacity(company ? 0.45 : 1)
             Text("They won't be told.").font(Theme.small).foregroundStyle(Theme.sub)
                 .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
                 .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }

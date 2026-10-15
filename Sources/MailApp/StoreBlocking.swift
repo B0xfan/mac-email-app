@@ -30,10 +30,28 @@ extension MailStore {
         return l.id
     }
 
+    /// Why this block must not happen, or nil. Never John's own address or company, never a whole free-mail service (a filter on @gmail.com would hide mail from millions of people).
+    func blockRefusal(_ a: Address, wholeCompany: Bool) -> String? {
+        let mine = myAddresses, own = "That is your own address, so it was not blocked."
+        if a.email.isEmpty || mine.contains(a.email.lowercased()) { return own }
+        guard wholeCompany else { return nil }
+        if mine.contains(where: { $0.hasSuffix("@" + a.domain) }) { return "That is your own company, so it was not blocked." }
+        if FreeMail.has(a.domain) { return "\(a.domain) is a free email service used by millions of people, so it was not blocked. Block the address instead." }
+        return nil
+    }
+
+    /// The addresses (or companies) a group block would really block: one each, without "No reply yet" rows (their sender is John) and anything `blockRefusal` stops.
+    func blockTargets(_ ms: [Mail], wholeCompany: Bool) -> [Address] {
+        var seen = Set<String>(), out: [Address] = []
+        for m in ms where !isNoReply(m) && blockRefusal(m.from, wholeCompany: wholeCompany) == nil && seen.insert((wholeCompany ? m.from.domain : m.from.email).lowercased()).inserted { out.append(m.from) }
+        return out
+    }
+
     /// Always a Gmail filter plus label, so the block also holds on John's phone.
     /// `wholeCompany` blocks every address at the domain. Existing mail is moved as a second step.
     @discardableResult
     func block(_ addr: Address, wholeCompany: Bool, reload: Bool = true) async -> Bool {
+        if let why = blockRefusal(addr, wholeCompany: wholeCompany) { self.error = why; return false }
         do {
             let label = try await ensureBlockedLabel()
             let from = wholeCompany ? "@\(addr.domain)" : addr.email
@@ -152,5 +170,19 @@ extension MailStore {
         } else {
             unsubStage = .done("Done. Their old emails stay where they are.")
         }
+    }
+}
+
+
+/// Free email services: a block on the whole domain would hide mail from millions of people, so only single addresses can be blocked there.
+enum FreeMail {
+    static let domains: Set<String> = ["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+        "yahoo.com", "ymail.com", "aol.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "mail.com", "zoho.com", "fastmail.com",
+        "hey.com", "web.de", "yandex.com", "mail.ru", "qq.com", "163.com", "126.com"]
+    /// Country versions (hotmail.co.uk, yahoo.com.br, outlook.es).
+    static let brands: Set<String> = ["gmail", "hotmail", "outlook", "live", "yahoo", "icloud", "aol", "msn"]
+    static func has(_ domain: String) -> Bool {
+        let d = domain.lowercased(), parts = d.split(separator: ".")
+        return domains.contains(d) || (parts.count <= 3 && parts.first.map { brands.contains(String($0)) } == true)
     }
 }

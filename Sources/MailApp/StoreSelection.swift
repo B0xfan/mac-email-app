@@ -21,11 +21,15 @@ extension MailStore {
     func rowClicked(_ m: Mail, command: Bool, shift: Bool) async {
         guard mailbox == .inbox, command || shift else { await open(m); return }
         let anchor = pickAnchor ?? selectedID
-        if picked.isEmpty, let s = selectedID, listMails.contains(where: { $0.id == s }) { picked = [s] }   // the open email joins the group
+        let ids = listMails.map(\.id), here = Set(ids)
+        picked.formIntersection(here)   // a pick that is not in this list any more does not count
+        if picked.isEmpty, let s = selectedID, here.contains(s) { picked = [s] }   // the open email joins the group
         closeForPicking()
-        if shift { picked.formUnion(Picking.range(listMails.map(\.id), from: anchor, to: m.id)) }
-        else if picked.contains(m.id) { picked.remove(m.id) } else { picked.insert(m.id) }
+        var dropped = false
+        if shift { picked.formUnion(Picking.range(ids, from: anchor, to: m.id)) }
+        else if picked.contains(m.id) { picked.remove(m.id); dropped = true } else { picked.insert(m.id) }
         pickAnchor = m.id
+        if dropped, picked.count == 1, let only = listMails.first(where: { picked.contains($0.id) }) { await open(only) }   // back to one email: it opens
     }
 
     func selectAllInList() {
@@ -60,15 +64,24 @@ extension MailStore {
     func batch(_ ms: [Mail], text: (Int) -> String, _ each: (Mail) async -> Void) async {
         guard !ms.isEmpty else { return }
         let first = firstPosition(of: ms)
+        let earlier = (undoArchive, undoSibs, undoFolder, undoAside, undoUntrash)   // kept if nothing goes through
         undoArchive = []; undoSibs = []; undoFolder = nil; undoAside = false; undoUntrash = false
         batching = true
         for m in ms { await each(m) }
         batching = false
-        picked = []
-        let done = ms.filter { undoArchive.contains($0.id) }.count
-        guard done > 0 else { return }   // nothing went through; the error bar says why
-        showToast(text(done), action: "Undo")
-        await openNext(after: first)
+        let went = Set(undoArchive), failed = ms.filter { !went.contains($0.id) }
+        guard failed.count < ms.count else {   // nothing went through: the error bar says why, the earlier undo and the selection stay
+            (undoArchive, undoSibs, undoFolder, undoAside, undoUntrash) = earlier
+            return
+        }
+        showToast(text(ms.count - failed.count), action: "Undo")
+        await settle(failed: failed, after: first)
+    }
+
+    /// After a group action: only the emails that failed stay selected (one left opens, none left opens the next email).
+    private func settle(failed: [Mail], after first: Int) async {
+        picked = Set(failed.map(\.id))
+        if failed.isEmpty { await openNext(after: first) } else if failed.count == 1 { await open(failed[0]) }
     }
 
     private func firstPosition(of ms: [Mail]) -> Int {
@@ -124,16 +137,19 @@ extension MailStore {
     /// One block per address (or per company), each the same Gmail filter plus label as blocking one sender. There is no Undo for a block, as for one email.
     func bulkBlock(wholeCompany: Bool) async {
         let ms = bulk, first = firstPosition(of: ms)
-        var seen = Set<String>(), addrs: [Address] = []
-        for m in ms where seen.insert(wholeCompany ? m.from.domain : m.from.email).inserted { addrs.append(m.from) }
+        let addrs = blockTargets(ms, wholeCompany: wholeCompany)
+        func key(_ a: Address) -> String { (wholeCompany ? a.domain : a.email).lowercased() }
+        let wanted = Set(addrs.map(key)), skipped = ms.filter { !wanted.contains(key($0.from)) || isNoReply($0) }.count
         blockMenuFor = nil
-        var blocked = 0
-        for a in addrs { if await block(a, wholeCompany: wholeCompany, reload: false) { blocked += 1 } }
-        picked = []
+        guard !addrs.isEmpty else { status = "Nothing was blocked: those emails are from your own address or a free email service."; return }
+        var done = Set<String>()
+        for a in addrs { if await block(a, wholeCompany: wholeCompany, reload: false) { done.insert(key(a)) } }
+        let failed = ms.filter { wanted.contains(key($0.from)) && !done.contains(key($0.from)) && !isNoReply($0) }
         await loadBlocked()
-        guard blocked > 0 else { return }
-        await openNext(after: first)   // opening an email clears the status line, so the words come after it
-        status = wholeCompany ? "Blocked \(blocked) companies. They were not told." : "Blocked \(blocked) senders. They were not told."
+        guard !done.isEmpty else { return }   // all failed: they stay selected, the error bar says why
+        await settle(failed: failed, after: first)   // opening an email clears the status line, so the words come after it
+        let what = wholeCompany ? "\(done.count) companies" : "\(done.count) senders"
+        status = "Blocked \(what). They were not told." + (failed.isEmpty ? "" : " \(failed.count) could not be blocked and stay selected.") + (skipped == 0 ? "" : " \(skipped) left alone (your own address or a free email service).")
     }
 
     func addTodoBulk(line: String) async -> Bool {
@@ -141,8 +157,10 @@ extension MailStore {
         var added = 0
         for m in ms { if await addTodo(line: line, mail: m) { added += 1 } else { break } }
         guard added > 0 else { return false }
-        picked = []
-        showToast("Added \(added) emails to to-do.")
-        return added == ms.count
+        let missing = Array(ms.dropFirst(added))   // the loop stops at the first failure
+        picked = Set(missing.map(\.id))
+        if missing.count == 1 { await open(missing[0]) }
+        showToast(MultiPanel.todoWords(added: added, of: ms.count, missing: missing))
+        return missing.isEmpty
     }
 }

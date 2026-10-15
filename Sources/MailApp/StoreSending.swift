@@ -28,7 +28,7 @@ extension MailStore {
     }
 
     /// Every address that is John's own (the account and every "send as" address).
-    private var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
+    var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
 
     /// Reply goes to Reply-To when the sender set one, else From. Reply all adds everyone else on the email, without
     /// John's own addresses and without repeats. The sender goes in To, everyone else in Cc.

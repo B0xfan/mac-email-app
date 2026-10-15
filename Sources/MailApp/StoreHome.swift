@@ -35,6 +35,9 @@ extension MailStore {
         return false
     }
 
+    /// The mail window itself (not Help or Settings): Command-A and Esc belong to it only while it is the key window.
+    static func isMainWindow(_ w: NSWindow?) -> Bool { w?.title == "Audrey Mail" }
+
     /// While the Home Screen is up, any key press returns to the app and is not passed on.
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
@@ -42,7 +45,7 @@ extension MailStore {
             guard let self else { return e }
             if !self.homeShown {
                 // Cmd-A and Esc for a multi-selection; never while typing in a field
-                if Self.isTypingOrReading(NSApp.keyWindow?.firstResponder) { return e }
+                if !Self.isMainWindow(NSApp.keyWindow) || Self.isTypingOrReading(NSApp.keyWindow?.firstResponder) { return e }
                 let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 return self.pickKey(escape: e.keyCode == 53 && f.isEmpty, selectAll: f == .command && e.charactersIgnoringModifiers == "a") ? nil : e
             }
