@@ -120,6 +120,24 @@ extension SelfTest {
         await st.select(.sent)
         check("no reload on revisit: Sent left alone stays kept, but a send finishing, or any other change (mark read, pin, block ...), makes the saved list read fresh",
               untouched && afterSend && lists == l0 + 2)
+        // the send goes out while Sent is open: leaving and coming back must read Sent again
+        await st.select(.sent)
+        let s0 = lists
+        _ = try? await st.gmail.sendRaw(Data("To: a@x.example\r\n\r\nhi".utf8), threadID: nil)
+        await st.select(.inbox); await st.select(.sent)
+        let sentAfterSendInside = lists == s0 + 1
+        // a change lands while a list is still loading
+        await st.select(.inbox)
+        StubProtocol.delay = { $0.url!.path.hasSuffix("/messages") ? 0.4 : 0 }
+        let slow = Task { await st.select(.archive) }
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        try? await st.gmail.modify(ids: ["a1"], add: ["UNREAD"], remove: [])
+        await slow.value
+        StubProtocol.delay = nil
+        let a0 = lists
+        await st.select(.inbox); await st.select(.archive)
+        check("no reload on revisit: a send that goes out while Sent is open, or a change that lands while a list is loading, makes that list read fresh when you come back",
+              sentAfterSendInside && lists == a0 + 1)
         return ok
     }
 }
