@@ -44,6 +44,16 @@ final class MailStore: ObservableObject {
     @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     @Published var loadingOtherMore = false
     var otherSource: OtherSource?
+    /// A list John just left (Archive, Sent, a folder ...) is kept for a short while, so going back to it asks Gmail for nothing.
+    struct KeptList { var mails: [Mail]; var next: String?; var source: OtherSource?; var at: Date }
+    var keptLists: [String: KeptList] = [:]
+    static let keepListFor: TimeInterval = 120
+    /// Lists that are plain Gmail lists; search, Drafts and Recently Seen change on their own and are always read fresh.
+    func keptKey(_ box: Mailbox) -> String? {
+        switch box { case .sent, .archive, .folder, .smart, .saved: return "\(box)"; default: return nil }
+    }
+    /// Something changed in Gmail through Mail (archive, move, send, undo, a manual check): kept lists are no longer to be trusted.
+    func forgetKeptLists() { keptLists = [:] }
     var otherGen = 0
     var autoPagesLeft = MailStore.autoPages
     // Translate (in memory only; never saved or sent to Gmail)
@@ -248,7 +258,9 @@ final class MailStore: ObservableObject {
         await loadBlocked()   // last: it makes one call per blocked sender
     }
 
-    func refresh() async {
+    /// `reloadList`: the open Archive/Sent/folder list is read again from Gmail (the Check button, Check now). The quiet check every few minutes leaves it alone.
+    func refresh(reloadList: Bool = false) async {
+        if reloadList { forgetKeptLists() }
         loading = true
         defer { loading = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
         do {
@@ -291,7 +303,8 @@ final class MailStore: ObservableObject {
             error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
             let keepPaged = otherSource != nil && other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
-            async let oth: Void = keepPaged ? () : loadOther()
+            let listBare = other.isEmpty && otherSource == nil   // nothing was ever read (failed or offline): read it now
+            async let oth: Void = (keepPaged || !(reloadList || listBare)) ? () : loadOther()
             let smartDue = lastSmartAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
             async let smt: Void = smartDue ? refreshSmartCounts() : ()
             await cls; await oth; await smt
@@ -439,11 +452,16 @@ final class MailStore: ObservableObject {
     static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
     func select(_ box: Mailbox) async {
+        // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
+        if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date()) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
-        else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() } else { await loadOther() }
+        else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() }
+        else if let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor {
+            other = kept.mails; otherNext = kept.next; otherSource = kept.source   // coming back to it: no request to Gmail
+        } else { await loadOther() }
     }
 
     func runSearch() async {

@@ -49,13 +49,51 @@ struct NotInInbox: Error {}
 enum GmailError: Error, LocalizedError {
     case http(Int, String)
     case signInAgain
+    case slowDown      // Gmail kept answering "too many requests" after the waits
     case offline
     var errorDescription: String? {
         switch self {
         case .http(let c, let m): return "Gmail said no (\(c)): \(m)"
+        case .slowDown: return "Gmail is busy right now. Audrey Mail will try again by itself on the next check."
         case .signInAgain: return "Your Google sign-in expired. Please sign in again."
         case .offline: return "Could not reach Gmail. Check your connection."
         }
+    }
+}
+
+// MARK: - Pacing
+
+/// Gmail allows 6,000 units per user per minute (messages.get 20, list 5, threads.get 40 ...). Every request goes through here first and waits when the last
+/// minute is nearly used up, so a burst (opening Archive and scrolling) slows down instead of being refused. 4,500 leaves room for what runs beside it.
+/// shortcut: one shared line for everything, no foreground priority; upgrade when background sync (plan step 3) runs beside John's clicks.
+actor QuotaGate {
+    private let cap: Int
+    private var spent: [(at: Date, units: Int)] = []
+    private var pausedUntil = Date.distantPast
+    private let now: @Sendable () -> Date
+    private let sleep: @Sendable (Double) async -> Void
+    init(cap: Int = 4_500, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
+        self.cap = cap; self.now = now; self.sleep = sleep
+    }
+    func acquire(_ units: Int) async {
+        while !Task.isCancelled {
+            let t = now()
+            if t < pausedUntil { await sleep(pausedUntil.timeIntervalSince(t)); continue }
+            spent.removeAll { t.timeIntervalSince($0.at) >= 60 }
+            if spent.isEmpty || spent.reduce(0, { $0 + $1.units }) + units <= cap { spent.append((t, units)); return }
+            await sleep(max(60 - t.timeIntervalSince(spent[0].at), 0.2))
+        }
+    }
+    /// Gmail said "slow down": nothing else goes out until then.
+    func pause(_ seconds: Double) { pausedUntil = max(pausedUntil, now().addingTimeInterval(seconds)) }
+    static func units(method: String, path: String) -> Int {
+        if path.hasSuffix("/send") { return 100 }
+        if path.contains("batchModify") { return 50 }
+        if path == "/threads" { return 10 }
+        if path.hasPrefix("/threads/") { return 40 }
+        if path == "/messages" { return method == "GET" ? 5 : 25 }
+        if path.hasPrefix("/messages/") { return path.hasSuffix("/modify") || path.hasSuffix("/untrash") ? 5 : 20 }
+        return 5
     }
 }
 
@@ -66,7 +104,25 @@ final class GmailClient: @unchecked Sendable {
     let session: URLSession
     static let base = "https://gmail.googleapis.com/gmail/v1/users/me"
 
-    init(auth: GoogleAuth, session: URLSession = .shared) { self.auth = auth; self.session = session }
+    /// The self-test turns pacing off for its pretend Gmail (the pacing itself has its own check).
+    nonisolated(unsafe) static var pacingOff = false
+    let gate: QuotaGate
+    /// How long to wait before asking again after "too many requests"; a check replaces it so it does not really wait.
+    var waitBeforeRetry: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }
+    static let quotaRetries = 5
+
+    init(auth: GoogleAuth, session: URLSession = .shared, gate: QuotaGate? = nil) {
+        self.auth = auth; self.session = session; self.gate = gate ?? QuotaGate(cap: Self.pacingOff ? Int.max / 2 : 4_500)
+    }
+
+    /// Gmail's per-minute quota answers: 429, or 403 with the reason rateLimitExceeded / userRateLimitExceeded. Any other 403 (no permission) is a real refusal.
+    static func isQuotaAnswer(_ code: Int, _ data: Data) -> Bool {
+        if code == 429 { return true }
+        guard code == 403, let e = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any] else { return false }
+        let reasons = (e["errors"] as? [[String: Any]])?.compactMap { $0["reason"] as? String } ?? []
+        return reasons.contains { $0 == "rateLimitExceeded" || $0 == "userRateLimitExceeded" }
+            || ((e["message"] as? String)?.contains("Quota exceeded") == true && (e["message"] as? String)?.contains("per minute") == true)
+    }
 
     /// False for sending and filter creation: after a timeout or 5xx the call may have gone through, so a retry would send twice / make a second filter. A 429 means Gmail did nothing, so send() retries that for every call regardless.
     static func retriesAfterUncertainFailure(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
@@ -84,6 +140,7 @@ final class GmailClient: @unchecked Sendable {
         catch { throw GmailError.offline }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+        await gate.acquire(QuotaGate.units(method: method, path: path))
         let data: Data, resp: URLResponse
         let canRetry = Self.retriesAfterUncertainFailure(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
@@ -94,7 +151,15 @@ final class GmailClient: @unchecked Sendable {
         }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if (200..<300).contains(code) { return data }
-        if (code == 429 || (canRetry && code >= 500)) && retry < 3 {
+        if Self.isQuotaAnswer(code, data) {
+            // Gmail did nothing, so repeating is safe for every call: wait 2, 4, 8, 16, 32 seconds (a little extra at random), everything else waits too
+            guard retry < Self.quotaRetries else { throw GmailError.slowDown }
+            let wait = Double(2 << retry) + Double.random(in: 0...1)
+            await gate.pause(wait)
+            await waitBeforeRetry(wait)
+            return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1)
+        }
+        if canRetry && code >= 500 && retry < 3 {
             try await Task.sleep(nanoseconds: UInt64(800_000_000 * (retry + 1)))
             return try await send(path, method: method, query: query, body: body, contentType: contentType, retry: retry + 1)
         }

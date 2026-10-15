@@ -55,7 +55,7 @@ extension MailStore {
             add("todo", "Add to to-do", key: "T") { self.todoMail = m }
             add("print", "Print", key: "\u{2318}P") { self.startPrint(m) }
         }
-        add("check", "Check now") { Task { await self.refresh() } }
+        add("check", "Check now") { Task { await self.refresh(reloadList: true) } }
         add("home", "Go to Home", group: "Go") { self.homeShown = true }
         let places: [(String, String, Mailbox)] = [("Inbox", "inbox", .inbox), ("Recently Seen", "recent", .recent), ("Set Aside", "setaside", .setAside), ("Snoozed", "snoozed", .snoozed),
             ("Scheduled", "scheduled", .scheduled), ("New senders", "newsenders", .newSenders), ("Blocked", "blocked", .blocked), ("Sent", "sent", .sent), ("Drafts", "drafts", .drafts), ("Archive", "archive", .archive)]
@@ -188,7 +188,7 @@ struct MenuBarContent: View {
         Divider()
         Button("Open Audrey Mail") { AppDelegate().showWindow() }
         Button("New email") { AppDelegate().showWindow(); store.newCompose() }
-        Button("Check now") { Task { await store.refresh() } }
+        Button("Check now") { Task { await store.refresh(reloadList: true) } }
         Divider()
         Button("Quit Audrey Mail") { NSApp.terminate(nil) }
     }

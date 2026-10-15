@@ -346,7 +346,7 @@ struct CheckNowButton: View {
     @StateObject private var hover = Box(false)
     @StateObject private var angle = Box(0.0)
     var body: some View {
-        Button { if !store.loading { Task { await store.refresh() } } } label: {
+        Button { if !store.loading { Task { await store.refresh(reloadList: true) } } } label: {
             Image(systemName: "arrow.clockwise").font(.system(size: 17, weight: .regular))
                 .rotationEffect(.degrees(angle.v))
                 .foregroundStyle(Theme.text).opacity(store.loading ? 0.45 : 1)

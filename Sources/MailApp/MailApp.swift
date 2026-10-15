@@ -66,6 +66,7 @@ struct MailApp: App {
         #if TESTHARNESS
         if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest", "--helpshots", "--listtest"].contains(where: args.contains) { Keychain.testMode = true }
         if args.contains("--selftest") {
+            GmailClient.pacingOff = true
             Task { exit(await SelfTest.run() ? 0 : 1) }
         } else if let i = args.firstIndex(of: "--helpshots"), i + 1 < args.count {
             let dir = args[i + 1]
