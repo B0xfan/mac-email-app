@@ -115,6 +115,14 @@ struct SettingsView: View {
             } }
             Card { HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
+                    Text("Group emails into conversations").font(Theme.bodyStrong)
+                    Text("Emails that are replies to each other show as one line, with the number of messages. Off by default.").font(Theme.small).foregroundStyle(Theme.sub)
+                }
+                Spacer()
+                Toggle("Group emails into conversations", isOn: $settings.groupConversations).toggleStyle(.switch).labelsHidden()
+            } }
+            Card { HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("Check for new email").font(Theme.bodyStrong)
                     Text("How often Audrey Mail looks for new messages while it is open.").font(Theme.small).foregroundStyle(Theme.sub)
                 }

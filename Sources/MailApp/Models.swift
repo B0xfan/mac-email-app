@@ -105,17 +105,31 @@ struct UnsubscribeInfo: Hashable, Codable {
     }
 }
 
+/// One message inside a conversation: enough for the count, the folded lines of the reading pane and "who wrote last".
+struct ConvMsg: Hashable, Codable, Identifiable {
+    let id: String
+    let from: Address
+    let subject: String
+    let snippet: String
+    let date: Date
+    var labels: [String]
+    var mine: Bool { labels.contains("SENT") }
+    var unread: Bool { labels.contains("UNREAD") }
+    var who: String { mine ? "You" : from.display }
+    init(_ m: Mail) { id = m.id; from = m.from; subject = m.subject; snippet = m.snippet; date = m.date; labels = m.labels }
+}
+
 struct Mail: Identifiable, Hashable, Codable {
     let id: String
     let threadID: String
     var labels: [String]
-    let from: Address
+    var from: Address
     let to: String
     let cc: String
     var bcc: String?            // the Bcc header (only present on John's own drafts)
-    let subject: String
+    var subject: String
     var date: Date   // a snoozed or reminded email shows the time it came back
-    let snippet: String
+    var snippet: String
     let messageIDHeader: String
     let references: String
     let unsubscribe: UnsubscribeInfo?
@@ -123,6 +137,7 @@ struct Mail: Identifiable, Hashable, Codable {
     var text: String?
     var attachments: [Attachment]
     var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
+    var convo: [ConvMsg]?       // every message of the conversation, oldest first (Trash, Spam and drafts left out); nil = not fetched by conversation (older cache, Sent, search)
     var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
     var replyTo: String?        // the Reply-To header, when the sender set one
     var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
@@ -131,6 +146,16 @@ struct Mail: Identifiable, Hashable, Codable {
 
     var unread: Bool { labels.contains("UNREAD") }
     var inInbox: Bool { labels.contains("INBOX") }
+
+    /// How many messages the conversation holds (1 for a single email).
+    var convoCount: Int { max(convo?.count ?? 1, 1) }
+    /// The row as it reads with "Group emails into conversations" on: whoever wrote last, with that message's subject, preview and time.
+    /// Same id and labels, so selecting, unread and every action still work on the row itself.
+    var conversationFace: Mail {
+        guard let l = convo?.last else { return self }
+        var x = self; x.from = l.from; x.subject = l.subject; x.snippet = l.snippet; x.date = max(date, l.date)   // max: a snoozed email that came back keeps its return time
+        return x
+    }
 
     init(_ g: GMessage) {
         id = g.id
