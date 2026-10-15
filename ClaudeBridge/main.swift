@@ -1,7 +1,7 @@
 import Foundation
 
 // AudreyMailClaude: started by the Claude app (never by hand). Reads Claude's requests from standard input, hands each one to the
-// running Audrey Mail over its private socket, and prints the answer. If Mail is closed it answers for itself ("Mail is not open").
+// running Audrey Mail over its private socket, and prints the answer. If Audrey Mail is closed it answers for itself ("Audrey Mail is not open").
 // It holds no mail, no sign-in and no password, and has no way to change mail.
 
 setvbuf(stdout, nil, _IOLBF, 0)

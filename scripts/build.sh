@@ -1,6 +1,6 @@
 #!/bin/zsh
 # LOCAL build, only with John's say-so: normal builds run on GitHub (scripts/cloud-build.sh, then scripts/install-cloud-build.sh).
-# Builds "Audrey Mail.app" from the Swift package, signs it ad hoc (no Xcode needed),
+# Builds "Audrey Mail.app" from the Swift package, signs it with the local self-signed identity (scripts/sign.sh; no Xcode needed),
 # and replaces the installed copy in /Applications so there is never a stale one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
