@@ -98,6 +98,7 @@ extension SelfTest {
         check("translate: nothing to translate answers at once", nothing == nil)
         if !(await searchPagingChecks()) { ok = false }
         if !(await inboxBudgetChecks()) { ok = false }
+        if !(await arrivalTimeChecks()) { ok = false }
         if !(await claudeChecks()) { ok = false }
         check("search: an address after 'from' is used whole", p("from tomas@x.example").gmail == "from:\"tomas@x.example\"")
         check("search: 'from' alone, or only filler words, leaves nothing to send (the store then sends the typed text)", p("from").gmail == "" && p("emails").gmail == "")
@@ -206,6 +207,42 @@ extension SelfTest {
         try? await Task.sleep(nanoseconds: 500_000_000)
         sending.cancel()
         check("gmail client: a call cancelled in flight throws a cancellation, not 'Could not reach Gmail'", await sending.value)
+        return ok
+    }
+
+
+    /// James: "wrong time on arrival, an hour earlier after opening". The time must come from Gmail's receive time (internalDate) in every path
+    /// (conversation row, full open, row after reading), never from the Date header or its -0600/-0700 offset. Fixed sample data, no live Gmail.
+    static func arrivalTimeChecks() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let newMs = 1_792_080_607_000, oldMs = 1_792_077_007_000   // 16:10:07Z and 15:10:07Z = 10:10 and 9:10 in Utah (MDT, -0600)
+        nonisolated(unsafe) var newLabels = #""INBOX","UNREAD""#
+        func msg(_ id: String, _ labels: String, _ ms: Int, _ dateHeader: String) -> String {
+            #"{"id":"\#(id)","threadId":"T","labelIds":[\#(labels)],"snippet":"x","internalDate":"\#(ms)","payload":{"headers":[{"name":"From","value":"A <a@x.example>"},{"name":"Subject","value":"S"},{"name":"Date","value":"\#(dateHeader)"}]}}"#
+        }
+        StubProtocol.handler = { req in
+            let u = req.url!, p = u.path
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            // the older message carries a header an hour off from its receive time on purpose (-0700 where -0600 applies)
+            let old = msg("m1", #""INBOX""#, oldMs, "Thu, 15 Oct 2026 08:10:00 -0700"), new = msg("m2", newLabels, newMs, "Thu, 15 Oct 2026 09:10:00 -0700")
+            if p.hasSuffix("/threads/T") { return (200, #"{"id":"T","historyId":"1","messages":[\#(old),\#(new)]}"#) }
+            if p.hasSuffix("/messages/m2") { return (200, new) }
+            return (200, "{}")
+        }
+        defer { StubProtocol.handler = nil }
+        let g = GmailClient(auth: pauth, session: session)
+        let arrived = try? await g.thread(id: "T")
+        let opened = try? await g.message(id: "m2", full: true)
+        newLabels = #""INBOX""#   // reading it removed UNREAD; the next refresh fetches the conversation again
+        let afterRead = try? await g.thread(id: "T")
+        let want = Date(timeIntervalSince1970: Double(newMs) / 1000)
+        check("time: the arrival row, the full open and the row after reading all show Gmail's receive time, whatever the Date header says",
+              arrived?.date == want && opened?.date == want && afterRead?.date == want && arrived?.id == "m2" && afterRead?.id == "m2")
+        let groups = SmartInbox.unreadFirst([arrived!, Mail(id: "o", from: Address(name: "O", email: "o@x.example"), subject: "o", snippet: "", date: want.addingTimeInterval(-60))])
+        let after = SmartInbox.unreadFirst([afterRead!, Mail(id: "u", from: Address(name: "U", email: "u@x.example"), subject: "u", snippet: "", date: want.addingTimeInterval(-60), labels: ["INBOX", "UNREAD"])])
+        check("time: in Unread first the email leaves the Unread group once read, with its time unchanged",
+              groups.first?.id == "unread" && groups.first?.mails.first?.date == want && after.first?.id == "unread" && after.last?.mails.first?.id == "m2" && after.last?.mails.first?.date == want)
         return ok
     }
 
