@@ -111,10 +111,13 @@ enum HelpSearch {
         let phrase = ts.joined(separator: " ")
         var found: [(hit: HelpHit, score: Int)] = []
         for s in sections where ts.allSatisfy({ has(s.plain, $0) }) {
-            let phraseLine = s.lines.first { has($0, phrase) }
-            let line = phraseLine ?? s.lines.first { l in ts.allSatisfy { has(l, $0) } } ?? s.lines.first { l in ts.contains { has(l, $0) } } ?? ""
-            let inTitle: Int = has(s.title, phrase) ? 4 : (ts.allSatisfy { has(s.title, $0) } ? 2 : 0)
-            found.append((HelpHit(section: s, snippet: excerpt(line, around: ts)), inTitle + (phraseLine == nil ? 0 : 1)))
+            let phraseLine: String? = s.lines.first { has($0, phrase) }
+            let allLine: String? = s.lines.first { l in ts.allSatisfy { has(l, $0) } }
+            let anyLine: String? = s.lines.first { l in ts.contains { has(l, $0) } }
+            let line: String = phraseLine ?? allLine ?? anyLine ?? ""
+            var score: Int = phraseLine == nil ? 0 : 1
+            if has(s.title, phrase) { score += 4 } else if ts.allSatisfy({ has(s.title, $0) }) { score += 2 }
+            found.append((HelpHit(section: s, snippet: excerpt(line, around: ts)), score))
         }
         let ranked = found.enumerated().sorted { a, b in a.element.score != b.element.score ? a.element.score > b.element.score : a.offset < b.offset }
         return ranked.map { $0.element.hit }
@@ -273,6 +276,7 @@ struct HelpView: View {
                     .buttonStyle(.plain)
                     .opacity(ts.isEmpty || hit ? 1 : 0.4)   // sections without the typed words are dimmed
                     .accessibilityLabel(s.title)
+                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
             .padding(8)

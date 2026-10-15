@@ -214,6 +214,7 @@ enum SelfTest {
         if !(await partSenderPictures()) { ok = false }
         if !(await partRound2()) { ok = false }
         if !(await partPhase5()) { ok = false }
+        if !(await partHelp()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
         return ok
