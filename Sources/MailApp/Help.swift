@@ -118,8 +118,8 @@ enum HelpSearch {
         let off = text.distance(from: text.startIndex, to: from)
         guard let fromF = ft.index(ft.startIndex, offsetBy: off, limitedBy: ft.endIndex),
               let r = ft.range(of: pattern(fold(t)), options: [.regularExpression, .caseInsensitive], range: fromF..<ft.endIndex),
-              let lo = text.index(text.startIndex, offsetBy: ft.distance(ft.startIndex, r.lowerBound), limitedBy: text.endIndex),
-              let hi = text.index(lo, offsetBy: ft.distance(r.lowerBound, r.upperBound), limitedBy: text.endIndex) else { return nil }
+              let lo = text.index(text.startIndex, offsetBy: ft.distance(from: ft.startIndex, to: r.lowerBound), limitedBy: text.endIndex),
+              let hi = text.index(lo, offsetBy: ft.distance(from: r.lowerBound, to: r.upperBound), limitedBy: text.endIndex) else { return nil }
         return lo..<hi
     }
     static func has(_ text: String, _ t: String) -> Bool { range(of: t, in: text, from: text.startIndex) != nil }
@@ -392,20 +392,14 @@ struct HelpBlockView: View {
     }
 }
 
-/// Keeps the help window out of the Mac's window restoration, so it never comes back by itself at the next launch (macOS 14; macOS 15 also gets the scene setting).
+/// Keeps the help window out of the Mac's window restoration, so it never comes back by itself at the next launch. (SwiftUI's SceneBuilder cannot switch on `#available`
+/// with an else, so the macOS 15 scene setting defaultLaunchBehavior(.suppressed) cannot be added for 15 only; this works on 14 and 15 alike, with the launch guard in AppDelegate.)
 struct NoRestore: NSViewRepresentable {
     final class V: NSView {
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.isRestorable = false }
     }
     func makeNSView(context: Context) -> V { V() }
     func updateNSView(_ v: V, context: Context) {}
-}
-
-extension Scene {
-    /// Not opened at launch and not restored (macOS 15 and later); older systems rely on NoRestore above, and a Window scene that is not the first scene is not opened at launch.
-    @SceneBuilder func notAtLaunch() -> some Scene {
-        if #available(macOS 15.0, *) { self.defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled) } else { self }
-    }
 }
 
 /// The Help menu. It opens the window through the app's own window opener, so Command-? works with the main window closed.

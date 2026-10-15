@@ -19,7 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showWindow()
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) { MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // The help window is only ever opened by the user: one that the Mac brought back from an earlier session is closed again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApplication.shared.windows.filter { $0.title == "Mail Help" }.forEach { $0.close() } }
+        MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
 
     func applicationWillTerminate(_ notification: Notification) {
         MailStore.clearAttachmentTemp()
@@ -124,7 +127,6 @@ struct MailApp: App {
             HelpView(model: HelpModel.shared)
         }
         .defaultSize(width: 860, height: 600)
-        .notAtLaunch()
         MenuBarExtra(isInserted: Binding(get: { AppSettings.shared.menuBarShow && !Keychain.testMode }, set: { AppSettings.shared.menuBarShow = $0 })) {
             MenuBarContent(store: app.store, settings: AppSettings.shared)
         } label: { MenuBarLabel(store: app.store, settings: AppSettings.shared) }
