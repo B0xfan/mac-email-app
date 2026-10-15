@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showWindow() {
         let app = NSApplication.shared
-        if let w = app.windows.first(where: { $0.canBecomeMain }) {
+        if let w = app.windows.first(where: { $0.canBecomeMain && $0.title != "Mail Help" }) {   // the help window is not the mail window
             if w.isMiniaturized { w.deminiaturize(nil) }
             w.makeKeyAndOrderFront(nil)
         } else {
@@ -109,11 +109,21 @@ struct MailApp: App {
             CommandGroup(replacing: .printItem) {
                 Button("Print...") { if let m = app.store.openMail { app.store.startPrint(m) } }.keyboardShortcut("p")
             }
+            CommandGroup(replacing: .help) {
+                Button("Mail Help") { HelpModel.shared.open() }.keyboardShortcut("?", modifiers: .command)
+                Button("Keyboard shortcuts") { HelpModel.shared.open("keyboard-shortcuts") }
+                Divider()
+                Button("Search help...") { HelpModel.shared.open(search: true) }
+            }
             CommandGroup(after: .toolbar) {
                 Button(app.store.settings.compactSidebar ? "Show Sidebar" : "Hide Sidebar") { app.store.toggleSidebar() }.keyboardShortcut("s", modifiers: [.control, .command])
                 Button("Command Center") { app.store.commandCenterOpen.toggle() }.keyboardShortcut("k")
             }
         }
+        Window("Mail Help", id: "help") {
+            HelpView(model: HelpModel.shared)
+        }
+        .defaultSize(width: 860, height: 600)
         MenuBarExtra(isInserted: Binding(get: { AppSettings.shared.menuBarShow && !Keychain.testMode }, set: { AppSettings.shared.menuBarShow = $0 })) {
             MenuBarContent(store: app.store, settings: AppSettings.shared)
         } label: { MenuBarLabel(store: app.store, settings: AppSettings.shared) }
@@ -193,6 +203,6 @@ final class SignInModel: ObservableObject {
 struct RegisterOpenWindow: ViewModifier {
     @Environment(\.openWindow) private var openWindow
     func body(content: Content) -> some View {
-        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") } }
+        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") }; HelpModel.openWindow = { openWindow(id: "help") } }
     }
 }

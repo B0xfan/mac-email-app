@@ -13,6 +13,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
 cp scripts/Info.plist "$APP/Contents/Info.plist"
 cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp Manual/mail-manual.md "$APP/Contents/Resources/mail-manual.md"   # the in-app help (copy of the vault manual, scripts/sync-manual.sh)
 # The "Mail" item in other apps' Share menu: a small sandboxed extension that hands what was shared to this app.
 EXT="$APP/Contents/PlugIns/MailShare.appex"
 mkdir -p "$EXT/Contents/MacOS"

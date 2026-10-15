@@ -19,6 +19,7 @@ jobs:
           cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
           cp scripts/Info.plist "$APP/Contents/Info.plist"
           cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          cp Manual/mail-manual.md "$APP/Contents/Resources/mail-manual.md"   # the in-app help (copy of the vault manual, scripts/sync-manual.sh)
           swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
           cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
           swiftc -O -target arm64-apple-macos14.0 ClaudeBridge/main.swift Sources/MailApp/MCP.swift -o "$APP/Contents/MacOS/AudreyMailClaude"

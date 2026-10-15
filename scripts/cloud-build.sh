@@ -2,6 +2,7 @@
 # Starts a cloud build on GitHub (workflow build.yml) and prints the run URL. Does not wait. Light: no compiling here.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+scripts/sync-manual.sh --check || [ $? -eq 2 ]   # the bundled manual must be the vault's; a missing vault file (exit 2, another Mac) is not a reason to stop
 BRANCH="${1:-$(git branch --show-current)}"
 gh workflow run build.yml --ref "$BRANCH"
 sleep 4   # the new run needs a moment to appear in the list
