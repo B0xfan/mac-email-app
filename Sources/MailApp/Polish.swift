@@ -45,11 +45,11 @@ extension MailStore {
             add("reply", "Reply", key: "R") { self.reply(m) }
             add("replyall", "Reply all") { self.reply(m, all: true) }
             add("forward", "Forward", key: "F") { self.forward(m) }
-            add("archive", "Archive", key: "A") { Task { await self.archive(m) } }
+            add("archive", "Archive", key: "A") { Task { await self.archive(self.openRow ?? m) } }
             if mailbox == .inbox {
-                add("aside", "Set Aside", key: "S") { Task { await self.setAside(m) } }
-                add("snooze", "Snooze this email", key: "Z") { self.picker = .snooze([m.id]) }
-                add("pin", "Pin or unpin this email", key: "P") { Task { await self.togglePin(m) } }
+                add("aside", "Set Aside", key: "S") { Task { await self.setAside(self.openRow ?? m) } }
+                add("snooze", "Snooze this email", key: "Z") { self.picker = .snooze([(self.openRow ?? m).id]) }
+                add("pin", "Pin or unpin this email", key: "P") { Task { await self.togglePin(self.openRow ?? m) } }
             }
             add("note", NotesBook.shared.has(m.threadID) ? "Edit private note" : "Add private note") { self.noteOpen = m.threadID; self.noteEdit = m.threadID }
             add("todo", "Add to to-do", key: "T") { self.todoMail = m }

@@ -300,9 +300,9 @@ struct ToolbarView: View {
             IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multi) {
                 if multi { Task { await store.bulkArchive() } } else { Task { await store.archiveOpen() } } }
             IconButton(symbol: "rectangle.stack", label: asideTip, enabled: multi || inboxOne) {
-                if multi { Task { await store.bulkSetAside() } } else if let m = store.openMail { Task { await store.setAside(m) } } }
+                if multi { Task { await store.bulkSetAside() } } else if let m = store.openRow { Task { await store.setAside(m) } } }
             IconButton(symbol: "moon", label: snoozeTip, enabled: multi || inboxOne) {
-                if multi { store.bulkSnooze() } else if let m = store.openMail { store.picker = .snooze([m.id]) } }
+                if multi { store.bulkSnooze() } else if let m = store.openRow { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
                 if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
             IconButton(symbol: "doc.text", label: "Save as note (N)", enabled: canAct && !store.savingNote) {
@@ -452,9 +452,9 @@ struct ListPane: View {
             switch p.characters.lowercased() {
             case "a": Task { await store.archiveOpen() }; return .handled
             case "c": store.newCompose(); return .handled
-            case "s": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.setAside(m) }; return .handled }; return .ignored
-            case "z": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { store.picker = .snooze([m.id]); return .handled }; return .ignored
-            case "p": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.togglePin(m) }; return .handled }; return .ignored
+            case "s": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.setAside(m) }; return .handled }; return .ignored
+            case "z": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { store.picker = .snooze([m.id]); return .handled }; return .ignored
+            case "p": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.togglePin(m) }; return .handled }; return .ignored
             case "t": if let m = store.openMail, !store.selectedIsNewSender { store.todoMail = m; return .handled }; return .ignored
             case "r": if let m = store.openMail, !store.selectedIsNewSender { store.reply(m); return .handled }; return .ignored
             case "f": if let m = store.openMail, !store.selectedIsNewSender { store.forward(m); return .handled }; return .ignored
@@ -484,6 +484,7 @@ struct MessageRow: View {
     var tag: String? = nil                // "Back Sun 8:00 AM", "No reply yet"
     var warmTag = false
     var fromText: String? = nil           // "You, to Dana Whitfield" for a reminded email
+    var count: Int? = nil                 // conversations on: how many messages the row holds
     var pinned = false
     var picked = false                    // one of several selected emails: grey-blue fill and a check circle (the open email is the only teal one)
     var onPin: (() -> Void)? = nil        // inbox rows: Pin, Set Aside, Archive hover buttons
@@ -561,6 +562,7 @@ struct MessageRow: View {
                     if notes.has(mail.threadID) { Label("note", systemImage: "note.text").font(Theme.label).foregroundStyle(Theme.accInk).labelStyle(.titleAndIcon).help("You wrote a private note on this email") }
                     Spacer(minLength: 8)
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
+                    if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).padding(.horizontal, 7).frame(minHeight: 18).background(Capsule().fill(selected ? Theme.acc : Theme.sub)).foregroundStyle(selected ? Theme.accText : Theme.bg).accessibilityHidden(true) }
                     Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub)
                 }
                 Text(mail.subject).font(Theme.body).lineLimit(1)
@@ -575,7 +577,7 @@ struct MessageRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(picked ? .isSelected : [])
-        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
+        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
     }
 }
 
@@ -720,7 +722,7 @@ struct ReadingPane: View {
     var body: some View {
         Group {
             if store.isMulti { MultiPanel(store: store) }
-            else if let m = store.openMail { ReadingContent(store: store, mail: m) }
+            else if let m = store.openMail { ReadingContent(store: store, mail: store.convoShown ?? m) }
             else {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 30)).foregroundStyle(Theme.sub)
@@ -736,6 +738,14 @@ struct ReadingPane: View {
 struct ReadingContent: View {
     @ObservedObject var store: MailStore
     let mail: Mail
+    /// The newest message kept open beside an older one (fold setting off): the same view, without the folded lines, the quick reply or the outer padding.
+    var embedded = false
+    enum BodyKind { case html, loading, text }
+    /// What the pane shows for a message once its web text is cleaned: the web version, nothing yet while it loads, or plain text (snippet last).
+    static func bodyKind(cleanHTML: String?, _ m: Mail) -> BodyKind {
+        if let h = cleanHTML, !h.isEmpty { return .html }
+        return m.html == nil && m.text == nil && !SnapshotMode.on ? .loading : .text
+    }
     var body: some View {
         let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers)
         let sender = mail.from.email.lowercased()
@@ -743,7 +753,8 @@ struct ReadingContent: View {
         let warns = store.senderWarnings(mail)
         let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
         VStack(alignment: .leading, spacing: 10) {
-            if store.selectedIsNewSender {
+            if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: true) }
+            if store.selectedIsNewSender, !embedded {
                 Card(padding: 12) {
                     HStack(spacing: 16) {
                         Text("\(mail.from.display) is a new sender. Let their emails into your inbox?").font(Theme.bodyStrong)
@@ -777,12 +788,12 @@ struct ReadingContent: View {
             .zIndex(1)   // a warning's bubble draws over the subject below it
             if let tr { TranslatedBanner(store: store, mail: mail, tr: tr) }
             Text(tr?.subject ?? mail.subject).font(.system(size: 22, weight: .bold)).tracking(-0.2).textSelection(.enabled)
-            NoteStrip(store: store, mail: mail).id(mail.threadID)
+            if !embedded { NoteStrip(store: store, mail: mail).id(mail.threadID) }
             if store.isInTodo(mail) { Label("In your to-do list", systemImage: "checkmark.circle").font(Theme.small).foregroundStyle(Theme.acc) }
             if store.mailbox == .recent, let at = store.openedAt(mail.id) {
                 Text("Received \(RecentGroups.lower(Fmt.long(mail.date))). You opened it \(RecentGroups.lower(Fmt.long(at))).").font(Theme.small).foregroundStyle(Theme.sub)
             }
-            switch store.unsubStage {
+            switch embedded ? MailStore.UnsubStage.idle : store.unsubStage {
             case .asking(let who):
                 Card {
                     HStack(spacing: 16) {
@@ -818,12 +829,12 @@ struct ReadingContent: View {
                     Text(tr.body).font(Theme.body).lineSpacing(4).textSelection(.enabled)
                         .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else if let html = cleanHTML, !html.isEmpty {
+            } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .html, let html = cleanHTML {
                 HTMLMessageView(html: html, blockRemote: !loadImgs)
                     .background(RoundedRectangle(cornerRadius: 10).fill(.white))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if mail.html == nil, mail.text == nil, !SnapshotMode.on {
+            } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .loading {
                 // Still loading the full message: show nothing rather than the snippet (it flashed "Sent from my iPhone").
                 Spacer(minLength: 0)
             } else {
@@ -832,7 +843,8 @@ struct ReadingContent: View {
                         .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: mail) }
+            if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: false) }
+            if !embedded, !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: store.openMail ?? mail) }   // a reply answers the newest message
             if !mail.attachments.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(mail.attachments) { a in
@@ -842,7 +854,7 @@ struct ReadingContent: View {
                 }
             }
         }
-        .padding(24)
+        .padding(embedded ? 0 : 24)
     }
 }
 

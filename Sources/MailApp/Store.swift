@@ -36,8 +36,10 @@ final class MailStore: ObservableObject {
     @Published var picked: Set<String> = []
     var pickAnchor: String?     // the last email clicked: where Shift-click starts
     var batching = false        // a group action is running: the single-email paths add to one undo step instead of making their own
+    /// Conversations on: an older message of the open conversation that was clicked open (full text). nil = the open email itself is shown.
+    @Published var convoShown: Mail?
     @Published var openMail: Mail? {
-        didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
+        didSet { if oldValue?.id != openMail?.id { convoShown = nil }; if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
     @Published var search = ""
@@ -288,7 +290,7 @@ final class MailStore: ObservableObject {
             }
             // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
             let have = Dictionary(inbox.filter(\.inInbox).map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
-            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID }.map(\.id)
+            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID || (settings.groupConversations && have[$0.id]?.convo == nil) }.map(\.id)
             async let aside: Void = loadAside()
             async let snz: Void = loadSnoozed()
             let got = await gmail.threads(need)

@@ -134,8 +134,70 @@ enum ListTest {
         try? FileManager.default.removeItem(atPath: p9)
         LiveTest.grab(win, p9)
         check("9-open-after-selecting: a plain click leaves the grey-blue rows behind and opens one teal row", bands(p9, rgb: lightMulti, tol: 4).isEmpty && tealBands(p9).count == 1)
+
+        // conversations: with the switch on, a row with several messages shows the count pill (the grey capsule) and the newest message's words; off, neither
+        let thread = [ConvMsg(mail("cv1", "Priya Raman", hoursAgo: 5, unread: false)), ConvMsg(mail("cv2", "Priya Raman", hoursAgo: 4, unread: false)), ConvMsg(mail("cv3", "Newest Writer", hoursAgo: 1, unread: true))]
+        var conv = mail("cv3", "Priya Raman", hoursAgo: 1, unread: true); conv.convo = thread
+        store.closeReader(); store.inbox = [conv, suz]
+        st.inboxView = .classic
+        var pills: [Bool] = []
+        for on in [false, true] {
+            st.groupConversations = on
+            await LiveTest.pump(0.8)
+            let path = "\(dir)/list-10-conversations-\(on ? "on" : "off").png"
+            try? FileManager.default.removeItem(atPath: path)
+            LiveTest.grab(win, path)
+            pills.append(hasPill(path))
+        }
+        st.groupConversations = false
+        // the open conversation: with the switch on the two older messages are folded to one-line cards (white cards in the reading pane)
+        var edges: [Int] = []
+        for on in [false, true] {
+            st.groupConversations = on
+            await store.open(conv)
+            await LiveTest.pump(0.8)
+            let path = "\(dir)/list-11-conversation-open-\(on ? "on" : "off").png"
+            try? FileManager.default.removeItem(atPath: path)
+            LiveTest.grab(win, path)
+            edges.append(longLines(path))
+            store.closeReader()
+        }
+        st.groupConversations = false
+        check("11-conversation open: the two folded older messages add white cards to the reading pane (off \(edges[0]), on \(edges[1]))", edges[1] - edges[0] >= 30)
+        check("10-conversations: the count pill shows with the switch on and not with it off", pills == [false, true])
         win.close()
         return ok
+    }
+
+    /// How many pixel rows in the reading pane hold a long run of white (the folded message cards; this window's reader is otherwise the grey-green page colour).
+    static func longLines(_ path: String) -> Int {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return 0 }
+        let scale = Double(rep.pixelsWide) / 1280, need = Int(150 * scale)
+        var px = [Int](repeating: 0, count: 5), rows = 0
+        for y in 0..<rep.pixelsHigh {
+            var run = 0, hit = false
+            for x in Int(700 * scale)..<rep.pixelsWide {
+                rep.getPixel(&px, atX: x, y: y)
+                if px[0] >= 253 && px[1] >= 253 && px[2] >= 253 { run += 1; if run >= need { hit = true; break } } else { run = 0 }
+            }
+            if hit { rows += 1 }
+        }
+        return rows
+    }
+
+    /// True if the list column holds a long run of the count pill's grey (no letter in the list is that wide).
+    static func hasPill(_ path: String) -> Bool {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return false }
+        let scale = Double(rep.pixelsWide) / 1280, need = Int(16 * scale)
+        var px = [Int](repeating: 0, count: 5)
+        for y in 0..<rep.pixelsHigh {
+            var run = 0
+            for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
+                rep.getPixel(&px, atX: x, y: y)
+                if abs(px[0] - 74) <= 3 && abs(px[1] - 95) <= 3 && abs(px[2] - 98) <= 3 { run += 1; if run >= need { return true } } else { run = 0 }
+            }
+        }
+        return false
     }
 }
 #endif

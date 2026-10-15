@@ -233,6 +233,8 @@ final class GmailClient: @unchecked Sendable {
         var m = Mail(rep)
         if mine.contains(where: { ($0.labelIds ?? []).contains("UNREAD") }) && !m.labels.contains("UNREAD") { m.labels.append("UNREAD") }
         m.siblings = mine.map(\.id).filter { $0 != rep.id }
+        // the whole conversation comes in this same call (Gmail's order is oldest first), so grouping costs no extra request
+        m.convo = all.filter { Set($0.labelIds ?? []).isDisjoint(with: ["DRAFT", "TRASH", "SPAM"]) }.map { ConvMsg(Mail($0)) }
         m.historyID = t.historyId
         return m
     }

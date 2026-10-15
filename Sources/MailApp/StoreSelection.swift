@@ -110,10 +110,11 @@ extension MailStore {
         guard !changed.isEmpty else { return }
         do {
             let add = markRead ? [] : ["UNREAD"], remove = markRead ? ["UNREAD"] : []
-            try await gmail.modify(ids: changed.map(\.id), add: add, remove: remove)
-            for m in changed { applyLabels(m.id, add: add, remove: remove) }
+            let ids = changed.flatMap { markRead ? unreadIDs($0) : [$0.id] }
+            try await gmail.modify(ids: ids, add: add, remove: remove)
+            for id in ids { applyLabels(id, add: add, remove: remove) }
             saveCache()
-            undoArchive = changed.map(\.id); undoSibs = []; undoAside = false; undoUntrash = false
+            undoArchive = ids; undoSibs = []; undoAside = false; undoUntrash = false
             undoFolder = (add: markRead ? ["UNREAD"] : [], remove: markRead ? [] : ["UNREAD"])
             picked = []
             showToast(markRead ? "Marked \(changed.count) read." : "Marked \(changed.count) unread.", action: "Undo")
@@ -124,11 +125,12 @@ extension MailStore {
     func bulkPin() async {
         let ms = bulk, unpin = ms.allSatisfy { isPinned($0) }
         let changed = ms.filter { isPinned($0) == unpin }
-        for m in changed { await togglePin(m) }
+        var touched: [String] = []
+        for m in changed { touched += await togglePin(m) }
         guard let l = pinLabelID else { return }
         let done = changed.filter { m in (inbox + other).first { $0.id == m.id }.map(isPinned) == !unpin }
         guard !done.isEmpty else { return }
-        undoArchive = done.map(\.id); undoSibs = []; undoAside = false; undoUntrash = false
+        undoArchive = touched; undoSibs = []; undoAside = false; undoUntrash = false
         undoFolder = (add: unpin ? [l] : [], remove: unpin ? [] : [l])
         picked = []
         showToast(unpin ? "Unpinned \(done.count)." : "Pinned \(done.count).", action: "Undo")

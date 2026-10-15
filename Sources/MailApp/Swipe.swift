@@ -103,22 +103,28 @@ extension MailStore {
     /// Pin and Set Aside only make sense in the inbox; elsewhere that side does nothing.
     func swipeFor(_ a: SwipeAction) -> SwipeAction { (a == .aside || a == .pin) && mailbox != .inbox ? .none : a }
 
+    /// Changes labels on every copy of the message held in memory: the row itself, and (conversations) its entry inside a conversation's list.
     func applyLabels(_ id: String, add: [String], remove: [String]) {
-        func f(_ x: inout Mail) { x.labels.removeAll { remove.contains($0) }; for l in add where !x.labels.contains(l) { x.labels.append(l) } }
-        for i in inbox.indices where inbox[i].id == id { f(&inbox[i]) }
-        for i in other.indices where other[i].id == id { f(&other[i]) }
-        for i in aside.indices where aside[i].id == id { f(&aside[i]) }
-        if openMail?.id == id { f(&openMail!) }
+        func change(_ l: inout [String]) { l.removeAll { remove.contains($0) }; for a in add where !l.contains(a) { l.append(a) } }
+        func f(_ x: inout Mail) {
+            if x.id == id { change(&x.labels) }
+            if let i = x.convo?.firstIndex(where: { $0.id == id }) { change(&x.convo![i].labels) }
+        }
+        for i in inbox.indices { f(&inbox[i]) }
+        for i in other.indices { f(&other[i]) }
+        for i in aside.indices { f(&aside[i]) }
+        if openMail != nil { f(&openMail!) }
     }
 
     func toggleRead(_ given: Mail) async {
         let m = (inbox + other + aside).first { $0.id == given.id } ?? given
         let wasUnread = m.unread
+        let ids = wasUnread ? unreadIDs(m) : [m.id]
         do {
-            try await gmail.modify(ids: [m.id], add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
-            applyLabels(m.id, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
+            try await gmail.modify(ids: ids, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
+            for id in ids { applyLabels(id, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : []) }
             saveCache()
-            undoArchive = [m.id]; undoSibs = []; undoAside = false; undoUntrash = false
+            undoArchive = ids; undoSibs = []; undoAside = false; undoUntrash = false
             undoFolder = (add: wasUnread ? ["UNREAD"] : [], remove: wasUnread ? [] : ["UNREAD"])
             showToast(wasUnread ? "Marked read." : "Marked unread.", action: "Undo")
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
@@ -132,10 +138,10 @@ extension MailStore {
         case .trash: await leaveInbox(m, add: [], text: "Moved to Trash.", aside: false, exactUndo: true, trashIt: true)
         case .toggleRead: await toggleRead(m)
         case .pin:
-            await togglePin(m)
+            let touched = await togglePin(m)
             guard let l = pinLabelID, let now = (inbox + other).first(where: { $0.id == m.id }) else { return }
-            let pinned = now.labels.contains(l)
-            undoArchive = [m.id]; undoSibs = []; undoAside = false; undoUntrash = false
+            let pinned = isPinned(now)
+            undoArchive = touched.isEmpty ? [m.id] : touched; undoSibs = []; undoAside = false; undoUntrash = false
             undoFolder = (add: pinned ? [] : [l], remove: pinned ? [l] : [])
             showToast(pinned ? "Pinned." : "Unpinned.", action: "Undo")
         }

@@ -115,6 +115,23 @@ struct SettingsView: View {
             } }
             Card { HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
+                    Text("Group emails into conversations").font(Theme.bodyStrong)
+                    Text("Emails that are replies to each other show as one line, with the number of messages. Off by default.").font(Theme.small).foregroundStyle(Theme.sub)
+                }
+                Spacer()
+                Toggle("Group emails into conversations", isOn: $settings.groupConversations).toggleStyle(.switch).labelsHidden()
+            } }
+            Card { HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Open one message at a time").font(Theme.bodyStrong)
+                    Text("When you open an older message in a conversation, the one already open folds shut. Turn off to keep both open." + (settings.groupConversations ? "" : " Works only when emails are grouped into conversations.")).font(Theme.small).foregroundStyle(Theme.sub)
+                }
+                Spacer()
+                Toggle("Open one message at a time", isOn: $settings.foldOthers).toggleStyle(.switch).labelsHidden()
+            } }
+            .disabled(!settings.groupConversations).opacity(settings.groupConversations ? 1 : 0.45)
+            Card { HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text("Check for new email").font(Theme.bodyStrong)
                     Text("How often Audrey Mail looks for new messages while it is open.").font(Theme.small).foregroundStyle(Theme.sub)
                 }

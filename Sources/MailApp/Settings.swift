@@ -37,6 +37,10 @@ final class AppSettings: ObservableObject {
     @Published var recentDays: Int { didSet { d.set(recentDays, forKey: "recentDays") } }
     /// How often Mail looks for new messages, in minutes. Allowed: see checkChoices.
     @Published var checkMinutes: Int { didSet { d.set(checkMinutes, forKey: "checkMinutes") } }
+    /// "Group emails into conversations": off = the inbox reads exactly as before.
+    @Published var groupConversations: Bool { didSet { d.set(groupConversations, forKey: "groupConversations") } }
+    /// "Open one message at a time" (Settings > Inbox, only used with grouping on): on = opening an older message folds the one already open.
+    @Published var foldOthers: Bool { didSet { d.set(foldOthers, forKey: "foldOthers") } }
     @Published var inboxView: InboxView { didSet { d.set(inboxView.rawValue, forKey: "inboxView") } }
     /// Folded groups: no longer used by Smart (tabs replaced folding); kept so the setting is not lost.
     @Published var foldedGroups: [String] { didSet { d.set(foldedGroups, forKey: "foldedGroups") } }
@@ -82,6 +86,8 @@ final class AppSettings: ObservableObject {
         homePreview = HomePreview(rawValue: d.string(forKey: "homePreview") ?? "") ?? .people
         homePhotoOwn = d.object(forKey: "homePhotoOwn") as? Bool ?? false
         recentDays = d.object(forKey: "recentDays") as? Int ?? 2
+        groupConversations = d.object(forKey: "groupConversations") as? Bool ?? false
+        foldOthers = d.object(forKey: "foldOthers") as? Bool ?? true
         inboxView = InboxView(rawValue: d.string(forKey: "inboxView") ?? "") ?? .smart
         foldedGroups = d.stringArray(forKey: "foldedGroups") ?? ["newsletters"]
         smartTab = d.string(forKey: "smartTab") ?? MailCategory.people.rawValue
