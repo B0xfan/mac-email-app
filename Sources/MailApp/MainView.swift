@@ -276,15 +276,15 @@ struct ToolbarView: View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
-            IconButton(symbol: "square.and.pencil", label: "New email") { store.newCompose() }
+            IconButton(symbol: "square.and.pencil", label: "New email (C)") { store.newCompose() }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
-            IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply" : "Reply, open an email first", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
             IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply all" : "Reply all, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.reply(m, all: true) } }
-            IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward" : "Forward, open an email first", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
-            IconButton(symbol: "archivebox", label: canAct ? "Archive" : "Archive, open an email first", enabled: canAct) {
+            IconButton(symbol: "archivebox", label: canAct ? "Archive (A)" : "Archive, open an email first", enabled: canAct) {
                 Task { await store.archiveOpen() } }
             IconButton(symbol: "rectangle.stack", label: canAct && store.mailbox == .inbox ? "Set Aside (S)" : "Set Aside, open an inbox email first", enabled: canAct && store.mailbox == .inbox) {
                 if let m = store.openMail { Task { await store.setAside(m) } } }
@@ -292,7 +292,7 @@ struct ToolbarView: View {
                 if let m = store.openMail { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: canAct ? "Add to to-do (T)" : "To-do, open an email first", enabled: canAct) {
                 if let m = store.openMail { store.todoMail = m } }
-            IconButton(symbol: "doc.text", label: "Save as note", enabled: canAct && !store.savingNote) {
+            IconButton(symbol: "doc.text", label: "Save as note (N)", enabled: canAct && !store.savingNote) {
                 if let m = store.openMail { Task { await store.saveAsNote(m) } } }
             LinkMenuButton(store: store, enabled: canAct)
             if canAct, let m = store.openMail, store.foreignLanguage(m) != nil, !store.translationShown.contains(m.id) {
