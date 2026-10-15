@@ -208,7 +208,7 @@ extension MailStore {
             if let id = try? await gmail.saveDraft(MIME.build(buildOutgoing(p.draft, bodyHTML: p.body)), threadID: d.threadID, replacing: d.draftID) { d.draftID = id; try? FileManager.default.removeItem(at: f) }
             if compose == nil && !shown { compose = d; shown = true }
         }
-        if shown { showToast("Mail closed before this email was sent. It was not sent. Check it, then press Send.", seconds: 12) }
+        if shown { showToast("Audrey Mail closed before this email was sent. It was not sent. Check it, then press Send.", seconds: 12) }
     }
 }
 

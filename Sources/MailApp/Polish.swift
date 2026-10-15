@@ -186,11 +186,11 @@ struct MenuBarContent: View {
             Button("\(m.from.display): \(m.subject)") { AppDelegate().showWindow(); Task { await store.openFromHome(m) } }
         }
         Divider()
-        Button("Open Mail") { AppDelegate().showWindow() }
+        Button("Open Audrey Mail") { AppDelegate().showWindow() }
         Button("New email") { AppDelegate().showWindow(); store.newCompose() }
         Button("Check now") { Task { await store.refresh() } }
         Divider()
-        Button("Quit Mail") { NSApp.terminate(nil) }
+        Button("Quit Audrey Mail") { NSApp.terminate(nil) }
     }
 }
 
@@ -426,7 +426,7 @@ struct TodoBoxView: View {
                         if p.project == nil && p.priority == nil && p.due == nil {
                             Text("Nothing picked out yet").font(Theme.small).foregroundStyle(Theme.sub)
                         } else {
-                            Text("Mail found").font(Theme.small).foregroundStyle(Theme.sub)
+                            Text("Audrey Mail found").font(Theme.small).foregroundStyle(Theme.sub)
                             if let pr = p.project { chip(pr + (p.projectKnown || settings.todoList != .obsidian ? "" : " (not found)"), due: false) }
                             if let pri = p.priority { chip(pri.title, due: false) }
                             if let d = p.due { chip("Due " + TodoBox.dueLabel(d), due: true) }
@@ -493,7 +493,7 @@ extension SettingsView {
             RadioRow(label: "Only emails from people", tag: "Default", on: !settings.menuBarAll) { settings.menuBarAll = false }
             RadioRow(label: "All unread emails", on: settings.menuBarAll) { settings.menuBarAll = true }
         }.frame(maxWidth: .infinity, alignment: .leading) }
-        Text("Closing the Mail window keeps Mail running so the count stays live. Quit Mail from the envelope menu.").font(Theme.small).foregroundStyle(Theme.sub)
+        Text("Closing the Audrey Mail window keeps Audrey Mail running so the count stays live. Quit Audrey Mail from the envelope menu.").font(Theme.small).foregroundStyle(Theme.sub)
     }
 
     @ViewBuilder var todoPanel: some View {
@@ -514,7 +514,7 @@ extension SettingsView {
                 Button("Choose folder") { chooseVault() }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             }.frame(maxWidth: .infinity, alignment: .leading) }
         case .reminders:
-            Text("The first time, the Mac asks if Mail may use Reminders. Choose Allow.").font(Theme.small).foregroundStyle(Theme.sub)
+            Text("The first time, the Mac asks if Audrey Mail may use Reminders. Choose Allow.").font(Theme.small).foregroundStyle(Theme.sub)
         case .todoist: TokenCard(name: "Todoist", showList: false)
         case .clickup: TokenCard(name: "ClickUp", showList: true)
         }

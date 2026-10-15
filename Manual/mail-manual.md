@@ -167,7 +167,7 @@ Saves the open email, or its whole conversation, as a note in your Obsidian vaul
 
 Forwarded content is kept. Earlier quoted copies of the same text are dropped, so each message appears once, in order. Signatures are kept. Attachments are not saved.
 
-This needs an Obsidian vault on the Mac. Audrey Mail saves into the folder named **01 Inbox** inside the vault folder you choose in Settings, To-do (under "Vault folder"). If it cannot find that folder, it says "Mail could not find the Inbox folder in your Obsidian vault."
+This needs an Obsidian vault on the Mac. Audrey Mail saves into the folder named **01 Inbox** inside the vault folder you choose in Settings, To-do (under "Vault folder"). If it cannot find that folder, it says "Audrey Mail could not find the Inbox folder in your Obsidian vault."
 
 
 ## Blocking and sender warnings
@@ -216,7 +216,7 @@ Type the search the way you would say it. Examples:
 - unread from Priya
 - sent to Dana in August
 
-Audrey Mail reads people (**from**, **to**, **sent to**), dates (today, yesterday, this week, last month, last 3 months, in August, August 2025, in 2025), attachments and unread. Small tags under the search bar show what it understood, with the words "Mail understood this". If a tag is wrong, click it to remove it and Audrey Mail searches again. If Audrey Mail cannot read a phrase, it says "Mail searched for these words." and searches for the words as you typed them.
+Audrey Mail reads people (**from**, **to**, **sent to**), dates (today, yesterday, this week, last month, last 3 months, in August, August 2025, in 2025), attachments and unread. Small tags under the search bar show what it understood, with the words "Audrey Mail understood this". If a tag is wrong, click it to remove it and Audrey Mail searches again. If Audrey Mail cannot read a phrase, it says "Audrey Mail searched for these words." and searches for the words as you typed them.
 
 Audrey Mail reads your words on your Mac with fixed rules. They do not go to any AI service. Gmail's own search words (such as `from:bob has:attachment`) still work and are sent exactly as typed. A saved search made in plain words is read again each time, so "last month" keeps moving.
 
@@ -238,7 +238,7 @@ Good to know:
 
 - The email itself is never changed.
 - Translation is done by your Mac's own translator. Nothing leaves your Mac, and the translation is not saved to Gmail or shown on your phone.
-- The first time you use a language, the Mac may ask to download it. Until it is ready, Audrey Mail says "Mail could not translate this email. The Mac may still be getting the language ready." Try again in a moment.
+- The first time you use a language, the Mac may ask to download it. Until it is ready, Audrey Mail says "Audrey Mail could not translate this email. The Mac may still be getting the language ready." Try again in a moment.
 - Only the first part of a very long email is translated, and Audrey Mail tells you when that happened.
 - It is good for understanding an email and for short replies, not for contracts or anything legal.
 - Translate needs macOS 15 or newer. On older Macs the button is not shown.
@@ -253,7 +253,7 @@ This lets the Claude app on your Mac search and read your mail when you ask it t
 
 1. Open Settings (Command-comma) and choose **Claude access**.
 2. Turn on **Allow Claude to use my mail**.
-3. Quit the Claude app and open it again, once. Claude only sees Audrey Mail after that restart. Audrey Mail reminds you with "On. Quit and reopen the Claude app once so it sees Mail."
+3. Quit the Claude app and open it again, once. Claude only sees Audrey Mail after that restart. Audrey Mail reminds you with "On. Quit and reopen the Claude app once so it sees Audrey Mail."
 
 To stop, turn the switch off. Claude can no longer see anything.
 

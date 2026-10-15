@@ -228,12 +228,12 @@ struct TimePickerCard: View {
                 case .passed: Text("That time has already passed.").foregroundStyle(Theme.blk)
                 case .unknown: typed.v.trimmingCharacters(in: .whitespaces).isEmpty
                     ? Text("Or pick one above.").foregroundStyle(Theme.sub)
-                    : Text("Mail could not read that time. Try \u{201C}Tuesday 3pm\u{201D}.").foregroundStyle(Theme.blk)
+                    : Text("Audrey Mail could not read that time. Try \u{201C}Tuesday 3pm\u{201D}.").foregroundStyle(Theme.blk)
                 }
             }
             .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 2)
             .accessibilityAddTraits(.updatesFrequently)
-            Text(kind.worksWithMacOff ? "Works even when your Mac is off." : "Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
+            Text(kind.worksWithMacOff ? "Works even when your Mac is off." : "Audrey Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
         }
         .padding(6).frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
@@ -277,7 +277,7 @@ struct SnoozedList: View {
     @ObservedObject var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
-            PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread. Mail must be open for this to happen on time.")
+            PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread. Audrey Mail must be open for this to happen on time.")
             ForEach(store.listMails) { m in
                 MessageRow(mail: m, selected: store.selectedID == m.id, tag: store.timing.data.snoozes[m.id].map { "Back " + TimeParser.short($0) },
                            onBack: { Task { await store.wake([m.id]) } }, onTime: { store.picker = .changeSnooze(m.id) }) { Task { await store.open(m) } }

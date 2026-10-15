@@ -72,7 +72,7 @@ extension MailStore {
             MailLink.copy(title: "Email: " + MailLink.subject(m), url: url)
             showToast(trimmed ? "Link copied. The email was very long, so the shared copy is shortened." : "Link copied. Paste it into a note or a to-do.", action: "Done")
         } catch TimingServerError.refused(let c) {
-            showToast(c == 429 ? "Too many shared links right now. Try again in a little while." : "Mail could not make the link (the sharing service said no, \(c)).", action: "OK", seconds: 10)
+            showToast(c == 429 ? "Too many shared links right now. Try again in a little while." : "Audrey Mail could not make the link (the sharing service said no, \(c)).", action: "OK", seconds: 10)
         } catch TimingServerError.unreachable, TimingServerError.timedOut, TimingServerError.busy {
             showToast("Could not make the link right now. Try again later.", action: "OK", seconds: 10)
         } catch {

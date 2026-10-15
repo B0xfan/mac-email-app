@@ -246,7 +246,7 @@ struct LinkMenuButton: View {
         IconButton(symbol: "link", label: enabled ? "Copy a link to this email" : "Link, open an email first", enabled: enabled) { open = true }
             .popover(isPresented: $open, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
-                    row("envelope", "Copy link for me", "Opens this email in Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
+                    row("envelope", "Copy link for me", "Opens this email in Audrey Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
                     Divider()
                     row("globe", "Copy link to share", "Anyone you send it to can read this email in a web page") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
                 }

@@ -9,7 +9,7 @@ extension MailStore {
     private func dropScheduled(_ id: String) { timing.change { $0.scheduled.removeAll { $0.draftID == id } }; objectWillChange.send() }
 
     static let macMustBeOpenTag = "Mac must be open"
-    static let cannotCancelText = "Could not reach the timing service, so Mail cannot be sure this email will stay unsent. Please try again in a moment."
+    static let cannotCancelText = "Could not reach the timing service, so Audrey Mail cannot be sure this email will stay unsent. Please try again in a moment."
 
     /// One pass: tell the service about new or changed emails, then read back what it did.
     func syncServer() async {
@@ -32,7 +32,7 @@ extension MailStore {
             timingSigninBad = !res.signinOK
             if !res.signinOK && !signinWarned {
                 signinWarned = true
-                error = "Scheduled emails will not go out while Mail is closed: Google no longer accepts the saved sign-in at the timing service. Remove the account and sign in again in Settings > Accounts."
+                error = "Scheduled emails will not go out while Audrey Mail is closed: Google no longer accepts the saved sign-in at the timing service. Remove the account and sign in again in Settings > Accounts."
             }
             if res.signinOK { signinWarned = false; signinRetried = false }
             for s in timing.data.scheduled where inFlight[s.draftID] == nil && pendingScheduled?.draftID != s.draftID {
@@ -47,7 +47,7 @@ extension MailStore {
                         if let r = s.remindAt, !j.sentID.isEmpty { t.followUps.append(FollowUp(messageID: j.sentID, threadID: j.threadID, sentAt: s.at, at: r, to: s.to, subject: s.subject)) }
                     }
                     objectWillChange.send()
-                    showToast("\u{201C}\(s.subject)\u{201D} went out on time while Mail was closed.", seconds: 8)
+                    showToast("\u{201C}\(s.subject)\u{201D} went out on time while Audrey Mail was closed.", seconds: 8)
                 case "gone":
                     dropScheduled(s.draftID)
                     showToast("\u{201C}\(s.subject)\u{201D} was sent or deleted on another device, so it was taken off Scheduled.", seconds: 8)

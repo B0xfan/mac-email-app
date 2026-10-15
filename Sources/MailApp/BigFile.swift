@@ -20,7 +20,7 @@ enum BigFileError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .needsPermission: return "Big files need one more Google permission. Open Settings, sign out of Google, and sign in again."
-        case .stuck: return "The big file could not be shared, and Mail could not remove it from your Google Drive yet. It will try again."
+        case .stuck: return "The big file could not be shared, and Audrey Mail could not remove it from your Google Drive yet. It will try again."
         case .failed(let m): return "The big file could not be sent as a link (\(m))."
         }
     }
@@ -171,7 +171,7 @@ struct BigFileStripView: View {
             ForEach(BigFile.strips(html: mail.html, records: store.timing.data.bigFiles ?? [], now: Date())) { s in
                 HStack(spacing: 8) {
                     Image(systemName: "clock").font(Theme.small)
-                    Text(failed ? "Google would not delete it yet. Mail will try again." : s.text).font(Theme.small)
+                    Text(failed ? "Google would not delete it yet. Audrey Mail will try again." : s.text).font(Theme.small)
                     Spacer(minLength: 8)
                     Button("Delete now") { Task { failed = !(await store.deleteBigFileNow(s.id)); refresh += 1 } }
                         .buttonStyle(.plain).font(Theme.small).foregroundStyle(Theme.acc).accessibilityLabel("Delete \(s.name) from your Google Drive now")

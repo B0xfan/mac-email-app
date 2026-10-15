@@ -116,7 +116,7 @@ struct SettingsView: View {
             Card { HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Check for new email").font(Theme.bodyStrong)
-                    Text("How often Mail looks for new messages while it is open.").font(Theme.small).foregroundStyle(Theme.sub)
+                    Text("How often Audrey Mail looks for new messages while it is open.").font(Theme.small).foregroundStyle(Theme.sub)
                 }
                 Spacer()
                 Picker("Check for new email", selection: $settings.checkMinutes) {
@@ -175,7 +175,7 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("Allow Claude to use my mail", isOn: Binding(get: { settings.claudeEnabled }, set: { settings.claudeEnabled = $0; claude.apply(store: app.store, userChange: true) })).labelsHidden().toggleStyle(.switch)
             } }
-            Text("While this is on, apps running on this Mac under your account can ask Mail for your email, Claude included.").font(Theme.small).foregroundStyle(Theme.sub)
+            Text("While this is on, apps running on this Mac under your account can ask Audrey Mail for your email, Claude included.").font(Theme.small).foregroundStyle(Theme.sub)
             if let m = claude.message { Text(m).font(Theme.small).foregroundStyle(Theme.sub) }
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text("What Claude may do").font(Theme.bodyStrong)
@@ -252,7 +252,7 @@ struct SettingsView: View {
 
     func makeDefault() {
         let r = LSSetDefaultHandlerForURLScheme("mailto" as CFString, (Bundle.main.bundleIdentifier ?? "") as CFString)
-        note.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. You can set it in Mail > Settings."
+        note.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. You can set it in Audrey Mail > Settings."
     }
 
     func head(_ t: String, _ s: String) -> some View {

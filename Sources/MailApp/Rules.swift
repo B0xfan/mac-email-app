@@ -84,7 +84,7 @@ extension GFilter {
     var plain: String {
         let c = criteria
         let bits = [(c?.from).map { "from \($0)" }, (c?.to).map { "to \($0)" }, (c?.subject).map { "subject \($0)" }, c?.query, (c?.negatedQuery).map { "not \($0)" }].compactMap { $0 }
-        return "A Gmail filter" + (bits.isEmpty ? "" : " (" + bits.joined(separator: ", ") + ")") + " that Mail cannot show in plain words. Change it in Gmail."
+        return "A Gmail filter" + (bits.isEmpty ? "" : " (" + bits.joined(separator: ", ") + ")") + " that Audrey Mail cannot show in plain words. Change it in Gmail."
     }
 }
 

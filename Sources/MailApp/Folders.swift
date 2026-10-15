@@ -26,7 +26,7 @@ enum Folders {
         let n = raw.trimmingCharacters(in: .whitespaces)
         if n.isEmpty { return "Give the folder a name." }
         if n.hasPrefix("/") || n.hasSuffix("/") || n.contains("//") { return "A name cannot start or end with a slash." }
-        if reserved.contains(n.lowercased()) { return "That name is already used by Mail or Gmail." }
+        if reserved.contains(n.lowercased()) { return "That name is already used by Audrey Mail or Gmail." }
         if existing.contains(where: { $0.caseInsensitiveCompare(n) == .orderedSame && $0 != ignoring }) { return "A folder with that name already exists." }
         return nil
     }

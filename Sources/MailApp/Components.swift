@@ -295,7 +295,7 @@ struct SearchChips: View {
                     .buttonStyle(.plain).help("Remove \u{201C}\(c.label)\u{201D} from this search")
                     .accessibilityLabel("\(c.label). Remove from this search")
                 }
-                Text(read.understood ? "Mail understood this" : "Mail searched for these words.").font(Theme.small).foregroundStyle(Theme.sub).fixedSize()
+                Text(read.understood ? "Audrey Mail understood this" : "Audrey Mail searched for these words.").font(Theme.small).foregroundStyle(Theme.sub).fixedSize()
             }
         }
     }

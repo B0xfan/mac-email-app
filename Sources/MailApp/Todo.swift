@@ -277,7 +277,7 @@ enum ObsidianTask {
 
     enum WriteError: Error, LocalizedError {
         case noFolder
-        var errorDescription: String? { "Mail could not find the Obsidian task folder. Check the vault folder in Settings, To-do." }
+        var errorDescription: String? { "Audrey Mail could not find the Obsidian task folder. Check the vault folder in Settings, To-do." }
     }
 
     /// Writes the note into the vault's task folder; a taken name gets -2, -3 like the task engine does.
@@ -337,8 +337,8 @@ enum TodoSendError: Error, LocalizedError, Equatable {
         switch self {
         case .needsToken(let n): return "Add your \(n) token in Settings, To-do, first."
         case .refused(let n, let c): return c == 401 || c == 403 ? "\(n) did not accept the token. Check it in Settings, To-do." : "\(n) could not add the task (error \(c))."
-        case .noPermission: return "Mail needs permission for Reminders. Allow it in System Settings, Privacy & Security, Reminders, then try again."
-        case .network: return "Mail could not reach the to-do list. Check the internet and try again."
+        case .noPermission: return "Audrey Mail needs permission for Reminders. Allow it in System Settings, Privacy & Security, Reminders, then try again."
+        case .network: return "Audrey Mail could not reach the to-do list. Check the internet and try again."
         }
     }
 }

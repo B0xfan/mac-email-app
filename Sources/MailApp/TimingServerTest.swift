@@ -116,7 +116,7 @@ extension SelfTest {
         fake.jobs["d4"] = (sec, "sent", "sentS", "thrS", "")
         await st.syncServer()
         let followIDs: [String] = st.timing.data.followUps.map { $0.messageID }
-        let toldSent: Bool = st.toast?.text.contains("went out on time while Mail was closed") ?? false
+        let toldSent: Bool = st.toast?.text.contains("went out on time while Audrey Mail was closed") ?? false
         check("sent while Mac was off: taken off Scheduled, a note says so, the reminder is set on the sent email", sched().isEmpty && toldSent && followIDs == ["sentS"])
 
         // 4. Failed: stays, shows "Could not send" / "Sign-in needed"

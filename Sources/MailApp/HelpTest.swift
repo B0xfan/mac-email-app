@@ -17,7 +17,24 @@ extension SelfTest {
         check("help: every section has text and the names are unique", sections.allSatisfy { !$0.blocks.isEmpty } && Set(ids).count == ids.count)
         check("help: the sections the app points at exist", ["send-later", "keyboard-shortcuts", "searching-your-mail", "translate", "claude-access", "using-this-help", "what-works-when-your-mac-is-off"].allSatisfy { ids.contains($0) })
         check("help: the manual has no unchecked marker, no em dash and no vault link", !raw.contains("[CHECK") && !raw.contains("\u{2014}") && !raw.contains("[["))
-        check("help: the manual and the Help menu name the app Audrey Mail", raw.contains("**Audrey Mail Help**") && !raw.contains("**Mail Help**"))
+        let bare = try! NSRegularExpression(pattern: "(?<!Audrey )\\bMail\\b")   // "Mail" is only the internal name; John 2026-10-15: every visible mention says Audrey Mail
+        check("help: the manual names the app Audrey Mail, never bare Mail", raw.contains("**Audrey Mail Help**") && bare.numberOfMatches(in: raw, range: NSRange(raw.startIndex..., in: raw)) == 0)
+        // the same for every on-screen text in the code (only runs where the sources are present, as in the cloud build)
+        let lit = try! NSRegularExpression(pattern: "\"(?:[^\"\\\\]|\\\\.)*\"")
+        let srcDir = cwd + "/Sources/MailApp"
+        if let files = try? FileManager.default.contentsOfDirectory(atPath: srcDir) {
+            var bareLits: [String] = []
+            for f in files where f.hasSuffix(".swift") && !f.contains("Test") && !f.contains("Shots") {
+                for (i, line) in ((try? String(contentsOfFile: srcDir + "/" + f, encoding: .utf8)) ?? "").components(separatedBy: "\n").enumerated() {
+                    let code = line.range(of: " //").map { String(line[..<$0.lowerBound]) } ?? line
+                    for m in lit.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+                        let t = String(code[Range(m.range, in: code)!])
+                        if bare.numberOfMatches(in: t, range: NSRange(t.startIndex..., in: t)) > 0 && !t.contains("Mail Snoozed") { bareLits.append("\(f):\(i + 1)") }
+                    }
+                }
+            }
+            check("help: no on-screen text in the code calls the app bare Mail " + bareLits.joined(separator: ","), bareLits.isEmpty)
+        } else { print("SKIP help: sources not found") }
         let links = raw.components(separatedBy: "](#").dropFirst().map { String($0.prefix { $0 != ")" }) }
         check("help: every link inside the manual points at a real section", !links.isEmpty && links.allSatisfy { ids.contains($0) })
         check("help: the manual says what Phase 5 added", ["searching-your-mail", "translate", "claude-access"].allSatisfy { id in sections.first { $0.id == id }.map { $0.plain.count > 400 } ?? false })

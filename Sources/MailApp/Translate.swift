@@ -198,7 +198,7 @@ extension MailStore {
         let target = TranslateText.myLanguage
         guard !parts.isEmpty, let out = await Translator.shared.translate([m.subject] + parts, from: code, to: target), out.count == parts.count + 1 else {
             guard openMail?.id == m.id else { return }   // the answer must not show over another email
-            let msg = "Mail could not translate this email. The Mac may still be getting the language ready."
+            let msg = "Audrey Mail could not translate this email. The Mac may still be getting the language ready."
             status = msg
             Task { try? await Task.sleep(nanoseconds: 8_000_000_000); if status == msg { status = "" } }
             return
@@ -248,7 +248,7 @@ final class ComposeTranslate: ObservableObject {
         let (parts, _) = TranslateText.paragraphs(text)
         guard !parts.isEmpty else { message = "Write something first, then translate it."; return }
         guard let out = await Translator.shared.translate(parts, from: nil, to: target), out.count == parts.count else {
-            message = "Mail could not translate this. The Mac may still be getting \(targetName) ready."; return
+            message = "Audrey Mail could not translate this. The Mac may still be getting \(targetName) ready."; return
         }
         source = text
         result = out.joined(separator: "\n\n")

@@ -10,8 +10,8 @@ enum EmailNote {
         case noFolder, load
         var errorDescription: String? {
             switch self {
-            case .noFolder: return "Mail could not find the Inbox folder in your Obsidian vault. Check the vault folder in Settings, To-do."
-            case .load: return "Mail could not load this email to save it. Check the internet and try again."
+            case .noFolder: return "Audrey Mail could not find the Inbox folder in your Obsidian vault. Check the vault folder in Settings, To-do."
+            case .load: return "Audrey Mail could not load this email to save it. Check the internet and try again."
             }
         }
     }
@@ -232,7 +232,7 @@ extension MailStore {
             let f = try await Task.detached(priority: .userInitiated) { try EmailNote.write(got, link: link, vault: vault) }.value   // cleaning a big email never stalls the window
             showToast("Saved to Obsidian.", action: "Open", link: ObsidianTask.openURL(f))
         } catch {
-            self.error = (error as? LocalizedError)?.errorDescription ?? "Mail could not save the note in your Obsidian vault."
+            self.error = (error as? LocalizedError)?.errorDescription ?? "Audrey Mail could not save the note in your Obsidian vault."
         }
     }
 }
