@@ -24,6 +24,7 @@ jobs:
           swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
           cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
           swiftc -O -target arm64-apple-macos14.0 ClaudeBridge/main.swift Sources/MailApp/MCP.swift -o "$APP/Contents/MacOS/AudreyMailClaude"
+          scripts/embed-sparkle.sh "$APP"   # self-update framework; scripts/sign.sh signs it on John's Mac
           ditto -c -k --keepParent "$APP" AudreyMail.zip
       - uses: actions/upload-artifact@v4
         with:

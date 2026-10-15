@@ -63,3 +63,7 @@ These appear only when you use the feature that needs them. You can say No and c
 - "Your Google sign-in expired": click **Sign in with Google** again.
 - The Open Anyway button is not there: try opening Audrey Mail once more, then go back to Privacy & Security. The button shows for about an hour after a blocked attempt.
 - Anything else: tell John what you saw on the screen.
+
+## Updates
+
+From now on, updates come through Audrey Mail > Check for Updates. Audrey Mail also looks once a day and asks before it installs anything.

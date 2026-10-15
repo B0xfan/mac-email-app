@@ -21,6 +21,8 @@ ID=$(security find-identity -v -p codesigning "$KC" | awk -F'"' '/Developer ID A
 [ -n "$ID" ] || { echo "No Developer ID Application identity in the .p12"; exit 1; }
 SIGN=(codesign --force --timestamp --options runtime --keychain "$KC" --sign "$ID")
 # Inside out, same identifiers as scripts/sign.sh. No --deep.
+SPK="$APP/Contents/Frameworks/Sparkle.framework"
+for part in "$SPK/Versions/B/Autoupdate" "$SPK/Versions/B/Updater.app" "$SPK"; do "${SIGN[@]}" "$part"; done
 "${SIGN[@]}" -i com.johnhesch.mailapp.share --entitlements ShareExtension/MailShare.entitlements "$EXT"
 "${SIGN[@]}" -i com.johnhesch.mailapp.claude "$HELPER"
 "${SIGN[@]}" -i com.johnhesch.mailapp --entitlements scripts/MailApp.entitlements "$APP"

@@ -3,14 +3,14 @@ import AppKit
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
-    case claude = "Claude access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy"
+    case claude = "Claude access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy", updates = "Updates"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .accounts: return "person.crop.circle"; case .signatures: return "signature"; case .quickReplies: return "bolt"; case .away: return "paperplane.circle"; case .rules: return "line.3.horizontal.decrease"; case .sending: return "paperplane"
         case .keyboard: return "keyboard"; case .layout: return "rectangle.split.2x1"; case .menuBar: return "menubar.rectangle"; case .todo: return "checklist"; case .swipe: return "hand.draw"; case .inbox: return "tray"; case .home: return "house"; case .recent: return "clock"
         case .appearance: return "circle.lefthalf.filled"; case .claude: return "sparkles"; case .defaultApp: return "envelope"
-        case .senders: return "person.badge.shield.checkmark"; case .privacy: return "shield"
+        case .senders: return "person.badge.shield.checkmark"; case .privacy: return "shield"; case .updates: return "arrow.down.circle"
         }
     }
 }
@@ -223,6 +223,9 @@ struct SettingsView: View {
             head("Privacy", "Control what emails can do when you open them.")
             switchCard("Block trackers", "Hidden spy pictures that tell senders you opened their email. Always blocked.", $settings.blockTrackers)
             switchCard("Load images automatically", "Show normal pictures in emails. Turn off to choose email by email.", $settings.loadImages)
+        case .updates:
+            head("Updates", "Keep Audrey Mail up to date.")
+            UpdatesPanel()
         }
     }
 

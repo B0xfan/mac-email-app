@@ -14,6 +14,13 @@
   <key>NSContactsUsageDescription</key><string>Audrey Mail suggests people from your Contacts when you type in the To field. It reads names, email addresses and photos, and shows the photos beside senders when you turn on Sender pictures.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
   <key>NSRemindersUsageDescription</key><string>Audrey Mail adds an email to your Reminders list when you choose Apple Reminders as your to-do list. It only adds new reminders.</string>
+  <key>SUFeedURL</key><string>https://github.com/B0xfan/mac-email-app/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key><string>xL6/zMqXNGGHrgcuWIf6VMLtbfMjmg9fWLsf9njrqKo=</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>86400</integer>
+  <key>SUAutomaticallyUpdate</key><false/>
+  <key>SUAllowsAutomaticUpdates</key><false/>
+  <key>SUVerifyUpdateBeforeExtraction</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleURLTypes</key>

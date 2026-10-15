@@ -10,6 +10,11 @@ SUPPORT="$HOME/Library/Application Support/Audrey Mail"
 SIGNKC="$SUPPORT/signing.keychain-db"
 if [ ! -f "$SIGNKC" ]; then echo "Signing keychain missing: $SIGNKC - run scripts/setup-signing.sh"; exit 1; fi
 security unlock-keychain -p "$(cat "$SUPPORT/signing.pw")" "$SIGNKC"
+# Sparkle (self-update), inside out: its installer, its progress app, then the framework. No --deep.
+SPK="$APP/Contents/Frameworks/Sparkle.framework"
+if [ -d "$SPK" ]; then
+  for part in "$SPK/Versions/B/Autoupdate" "$SPK/Versions/B/Updater.app" "$SPK"; do codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" "$part"; done
+fi
 codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.share --entitlements ShareExtension/MailShare.entitlements "$EXT"
 HELPER="$APP/Contents/MacOS/AudreyMailClaude"
 if [ -f "$HELPER" ]; then codesign --force --keychain "$SIGNKC" --sign "Audrey Mail Local Signing" -i com.johnhesch.mailapp.claude "$HELPER"; fi

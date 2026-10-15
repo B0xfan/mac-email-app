@@ -21,6 +21,7 @@ mkdir -p "$EXT/Contents/MacOS"
 scripts/safe exec 300 -- swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
 cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
 scripts/safe exec 300 -- swiftc -O -target arm64-apple-macos14.0 ClaudeBridge/main.swift Sources/MailApp/MCP.swift -o "$APP/Contents/MacOS/AudreyMailClaude"   # the helper the Claude app starts
+scripts/embed-sparkle.sh "$APP"
 scripts/sign.sh "$APP"   # stable local signing, shared with install-cloud-build.sh
 codesign --verify --verbose=2 "$APP"
 echo "Built $APP"

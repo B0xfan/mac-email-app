@@ -22,7 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The help window is only ever opened by the user: one that the Mac brought back from an earlier session is closed again.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !HelpModel.userOpened { NSApplication.shared.windows.filter { $0.title == "Audrey Mail Help" }.forEach { $0.close() } } }   // only a restored copy: help the user asked for sets userOpened
-        MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
+        MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox(); Updater.shared.start() } }   // test and picture modes pass --flags: no updater, no network
 
     func applicationWillTerminate(_ notification: Notification) {
         MailStore.clearAttachmentTemp()
@@ -112,6 +112,7 @@ struct MailApp: App {
         .defaultSize(width: 1280, height: 800)
         .commands {
             HelpCommands()
+            CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
             CommandGroup(replacing: .newItem) {
                 Button("New email") { app.store.newCompose() }.keyboardShortcut("n")
             }
