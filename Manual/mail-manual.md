@@ -100,6 +100,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 - **Right-click an email** for Pin, Set Aside, Snooze, Archive, Move to folder, Move to category and more.
 - **Recently Seen** lists emails you opened in the last 1 or 2 days (your choice in Settings).
 - **Check for new email.** The circular arrow in the top bar checks right now. Audrey Mail also checks by itself (Settings, Inbox).
+- **Lists you just left stay put.** Go back to Archive, Sent or a folder within two minutes and it shows at once, without asking Gmail again. The circular arrow (or Check now) reads the open list fresh, and so does any change you make. Gmail limits how fast one person can ask for mail. If you hit the limit, Audrey Mail slows down and waits by itself; if it still cannot get through you see "Gmail is busy right now. Audrey Mail will try again by itself on the next check."
 - **Home.** A welcome page with the time and counts. It appears after you have been idle (Settings, Home Screen), or click **Home** in the sidebar. Any click or key takes you back to your mail.
 
 ## Reading an email
