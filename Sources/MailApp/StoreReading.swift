@@ -20,6 +20,7 @@ extension MailStore {
         }
         if m.id != heldOpenID { heldUnreadID = m.unread ? m.id : nil }   // clicking the held email again keeps it held
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
+        picked = []; pickAnchor = m.id   // a plain click leaves the multi-selection
         openMail = m
         seen.record(m.id)
         await contacts.loadIfNeeded(ask: false)   // known names for "Name doesn't match address"

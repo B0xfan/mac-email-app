@@ -29,7 +29,12 @@ final class MailStore: ObservableObject {
     @Published var selectedID: String?
     /// Unread first: the email opened while unread. It holds its place in the list while it stays selected.
     var heldUnreadID: String?
-    var heldOpenID: String? { selectedID == heldUnreadID ? heldUnreadID : nil }
+    /// While the held email is part of a multi-selection it keeps its place too (the list must not shuffle under the cursor).
+    var heldOpenID: String? { guard let h = heldUnreadID else { return nil }; return selectedID == h || picked.contains(h) ? h : nil }
+    /// Select several emails: the ones ticked with Command/Shift-click or Command-A (Inbox only). Never overlaps the open email.
+    @Published var picked: Set<String> = []
+    var pickAnchor: String?     // the last email clicked: where Shift-click starts
+    var batching = false        // a group action is running: the single-email paths add to one undo step instead of making their own
     @Published var openMail: Mail? {
         didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
@@ -80,7 +85,8 @@ final class MailStore: ObservableObject {
     @Published var commandCenterOpen = false
     @Published var noteOpen: String?        // conversation whose private-note strip is showing
     @Published var noteEdit: String?        // conversation whose private note is being typed
-    @Published var todoMail: Mail?          // the to-do box is open for this email
+    @Published var todoMail: Mail? { didSet { if todoMail == nil { todoBulk = [] } } }   // the to-do box is open for this email
+    var todoBulk: [Mail] = []               // several selected emails: the box adds one task for each
     @Published var savingNote = false       // "Save as note" is running (no double notes from a double click)
     @Published var printAsk: Mail?          // "this email or the whole conversation?"
     var todoSender = TodoSender()
@@ -428,7 +434,7 @@ final class MailStore: ObservableObject {
     static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
     func select(_ box: Mailbox) async {
-        otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
+        otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }

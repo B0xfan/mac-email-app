@@ -30,7 +30,13 @@ extension MailStore {
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] e in
-            guard let self, self.homeShown else { return e }
+            guard let self else { return e }
+            if !self.homeShown {
+                // Cmd-A and Esc for a multi-selection; never while typing in a field
+                if NSApp.keyWindow?.firstResponder is NSText { return e }
+                let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                return self.pickKey(escape: e.keyCode == 53 && f.isEmpty, selectAll: f == .command && e.charactersIgnoringModifiers == "a") ? nil : e
+            }
             self.homeShown = false
             return nil
         }
