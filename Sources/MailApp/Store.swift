@@ -28,7 +28,7 @@ final class MailStore: ObservableObject {
     @Published var blocked: [BlockedEntry] = []
     @Published var selectedID: String?
     /// Unread first: the email opened while unread. It holds its place in the list while it stays selected.
-    @Published var heldUnreadID: String?
+    var heldUnreadID: String?
     var heldOpenID: String? { selectedID == heldUnreadID ? heldUnreadID : nil }
     @Published var openMail: Mail? {
         didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }

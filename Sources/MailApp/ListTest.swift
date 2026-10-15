@@ -74,6 +74,8 @@ enum ListTest {
         await step("2-open-the-unread-one", expectTeal: 1)
         store.inbox = [suz, store.inbox.first { $0.id == "mad" }!, wash, pre, vo1]   // two new unread emails arrive
         await step("3-two-arrive", expectTeal: 1)
+        func ids() -> [String] { SmartInbox.unreadFirstItems(store.inbox, holding: store.heldOpenID).map(\.id) }
+        check("held: mail arriving during a hold leaves the held email (mad) above Everything else", ids().firstIndex(of: "mail-mad")! < ids().firstIndex(of: "header-rest")!)
         let open = store.inbox.first { $0.id == "vo1" }!
         store.inbox.append(vo2)                                                        // a third arrives
         await step("4-third-arrives", expectTeal: 1)
@@ -89,9 +91,9 @@ enum ListTest {
               flat == ["header-unread", "mail-vo2", "mail-pre", "header-rest", "mail-vo1", "mail-suz", "mail-mad", "mail-wash"])
 
         // an opened email holds its place until another one is selected or the selection is cleared
-        func ids() -> [String] { SmartInbox.unreadFirstItems(store.inbox, holding: store.heldOpenID).map(\.id) }
         check("held: the opened email (vo1) stays in Unread, in date order",
               ids() == ["header-unread", "mail-vo2", "mail-pre", "mail-vo1", "header-rest", "mail-suz", "mail-mad", "mail-wash"])
+        check("held: list order = screen order", store.listMails.map { "mail-" + $0.id } == ids().filter { $0.hasPrefix("mail-") })
         await store.open(store.inbox.first { $0.id == "vo1" }!)    // click the held email again: nothing moves
         check("held: clicking it again keeps it in place", ids().contains("mail-vo1") && ids().firstIndex(of: "mail-vo1")! < ids().firstIndex(of: "header-rest")!)
         await store.open(store.inbox.first { $0.id == "pre" }!)    // select another unread email
