@@ -150,7 +150,7 @@ enum ListTest {
             pills.append(hasPill(path))
         }
         st.groupConversations = false
-        // the open conversation: with the switch on the two older messages are folded to one-line cards (their top and bottom edges add long thin lines to the reading pane)
+        // the open conversation: with the switch on the two older messages are folded to one-line cards (white cards in the reading pane)
         var edges: [Int] = []
         for on in [false, true] {
             st.groupConversations = on
@@ -163,13 +163,13 @@ enum ListTest {
             store.closeReader()
         }
         st.groupConversations = false
-        check("11-conversation open: two folded older messages add four card edges to the reading pane (off \(edges[0]), on \(edges[1]))", edges[1] - edges[0] >= 4)
+        check("11-conversation open: the two folded older messages add white cards to the reading pane (off \(edges[0]), on \(edges[1]))", edges[1] - edges[0] >= 30)
         check("10-conversations: the count pill shows with the switch on and not with it off", pills == [false, true])
         win.close()
         return ok
     }
 
-    /// How many pixel rows in the reading pane hold a long run of the thin line colour (card edges and dividers).
+    /// How many pixel rows in the reading pane hold a long run of white (the folded message cards; this window's reader is otherwise the grey-green page colour).
     static func longLines(_ path: String) -> Int {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return 0 }
         let scale = Double(rep.pixelsWide) / 1280, need = Int(150 * scale)
@@ -178,7 +178,7 @@ enum ListTest {
             var run = 0, hit = false
             for x in Int(700 * scale)..<rep.pixelsWide {
                 rep.getPixel(&px, atX: x, y: y)
-                if abs(px[0] - 201) <= 3 && abs(px[1] - 216) <= 3 && abs(px[2] - 216) <= 3 { run += 1; if run >= need { hit = true; break } } else { run = 0 }
+                if px[0] >= 253 && px[1] >= 253 && px[2] >= 253 { run += 1; if run >= need { hit = true; break } } else { run = 0 }
             }
             if hit { rows += 1 }
         }
