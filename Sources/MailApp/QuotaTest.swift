@@ -45,18 +45,24 @@ extension SelfTest {
         nonisolated(unsafe) var clock = Date(timeIntervalSince1970: 1_000_000)
         let gate = QuotaGate(cap: 100, now: { clock }, sleep: { clock = clock.addingTimeInterval($0) })
         let start = clock
-        await gate.acquire(60); await gate.acquire(30)
+        try? await gate.acquire(60); try? await gate.acquire(30)
         let sameMinute = clock.timeIntervalSince(start)
-        await gate.acquire(60)   // 150 would pass the cap of 100: it waits for the first 60 to be a minute old
+        try? await gate.acquire(60)   // 150 would pass the cap of 100: it waits for the first 60 to be a minute old
         let waited = clock.timeIntervalSince(start)
         await gate.pause(10)
         let before = clock
-        await gate.acquire(1)
+        try? await gate.acquire(1)
         check("pacing: requests go straight through while the minute has room, wait when it would pass the cap, and everything waits after a 'slow down'",
               sameMinute == 0 && waited >= 59.9 && waited < 61 && clock.timeIntervalSince(before) >= 9.9)
         check("pacing: units follow Gmail's table (message 20, list 5, conversation 40, bulk change 50, send 100)",
               QuotaGate.units(method: "GET", path: "/messages/abc") == 20 && QuotaGate.units(method: "GET", path: "/messages") == 5 && QuotaGate.units(method: "GET", path: "/threads/T1") == 40
               && QuotaGate.units(method: "POST", path: "/messages/batchModify") == 50 && QuotaGate.units(method: "POST", path: "/messages/send") == 100 && QuotaGate.units(method: "POST", path: "/messages/m1/modify") == 5)
+        // a request whose caller gave up never goes out: the gate throws instead of passing it
+        let stopped = await Task { () -> Bool in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do { try await QuotaGate(cap: 1_000_000).acquire(1); return false } catch { return error is CancellationError }
+        }.value
+        check("pacing: a cancelled caller is stopped at the gate (its request is not sent)", stopped)
         // lists already read are not read again by themselves
         nonisolated(unsafe) var lists = 0, gets = 0
         func msg(_ id: String, _ labels: [String]) -> String {
@@ -100,6 +106,20 @@ extension SelfTest {
         await MainActor.run { st.forgetKeptLists() }
         await st.select(.inbox); await st.select(.archive)
         check("no reload on revisit: after a change made through Mail (archive, move, send, undo) the list is read fresh", lists == 4)
+        // a change made through Mail (send, archive, mark read, pin, block ...) makes every saved list stale, wherever it was made from
+        await st.select(.sent)
+        let l0 = lists
+        await st.select(.inbox); await st.select(.sent)
+        let untouched = lists == l0
+        await st.select(.inbox)
+        _ = try? await st.gmail.sendRaw(Data("To: a@x.example\r\n\r\nhi".utf8), threadID: nil)   // the send finishing (after the undo delay) is a change
+        await st.select(.sent)
+        let afterSend = lists == l0 + 1
+        await st.select(.inbox)
+        try? await st.gmail.modify(ids: ["a1"], add: ["UNREAD"], remove: [])
+        await st.select(.sent)
+        check("no reload on revisit: Sent left alone stays kept, but a send finishing, or any other change (mark read, pin, block ...), makes the saved list read fresh",
+              untouched && afterSend && lists == l0 + 2)
         return ok
     }
 }

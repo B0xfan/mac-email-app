@@ -199,7 +199,6 @@ extension MailStore {
     }
 
     func moveToFolder(_ m: Mail, _ f: FolderNode) async {
-        forgetKeptLists()
         var cur: String?
         if case .folder(let c) = mailbox, c != f.id { cur = c }
         var inFolderView = false

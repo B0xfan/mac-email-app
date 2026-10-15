@@ -75,8 +75,10 @@ actor QuotaGate {
     init(cap: Int = 4_500, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.cap = cap; self.now = now; self.sleep = sleep
     }
-    func acquire(_ units: Int) async {
-        while !Task.isCancelled {
+    /// Throws CancellationError when the caller gave up (scrolled away): the request must then not go out.
+    func acquire(_ units: Int) async throws {
+        while true {
+            try Task.checkCancellation()
             let t = now()
             if t < pausedUntil { await sleep(pausedUntil.timeIntervalSince(t)); continue }
             spent.removeAll { t.timeIntervalSince($0.at) >= 60 }
@@ -86,6 +88,8 @@ actor QuotaGate {
     }
     /// Gmail said "slow down": nothing else goes out until then.
     func pause(_ seconds: Double) { pausedUntil = max(pausedUntil, now().addingTimeInterval(seconds)) }
+    /// Units per call, checked against Google's table on 2026-10-15 (messages.get 20, messages.list 5, messages.modify 5, messages.batchModify 50, messages.send 100,
+    /// messages.trash 20, threads.get 40, threads.list 10, history.list 2): https://developers.google.com/workspace/gmail/api/reference/quota
     static func units(method: String, path: String) -> Int {
         if path.hasSuffix("/send") { return 100 }
         if path.contains("batchModify") { return 50 }
@@ -110,6 +114,11 @@ final class GmailClient: @unchecked Sendable {
     /// How long to wait before asking again after "too many requests"; a check replaces it so it does not really wait.
     var waitBeforeRetry: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }
     static let quotaRetries = 5
+    /// Counts every change made through Mail (archive, trash, mark read, pin, block, send ...). A saved list is trusted only if this has not moved since it was saved.
+    private let writeLock = NSLock()
+    private var writeCount = 0
+    var writes: Int { writeLock.lock(); defer { writeLock.unlock() }; return writeCount }
+    private func noteWrite() { writeLock.lock(); writeCount += 1; writeLock.unlock() }
 
     init(auth: GoogleAuth, session: URLSession = .shared, gate: QuotaGate? = nil) {
         self.auth = auth; self.session = session; self.gate = gate ?? QuotaGate(cap: Self.pacingOff ? Int.max / 2 : 4_500)
@@ -140,7 +149,8 @@ final class GmailClient: @unchecked Sendable {
         catch { throw GmailError.offline }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
-        await gate.acquire(QuotaGate.units(method: method, path: path))
+        if method != "GET" { noteWrite() }   // before and after: a list kept meanwhile must not be trusted
+        try await gate.acquire(QuotaGate.units(method: method, path: path))
         let data: Data, resp: URLResponse
         let canRetry = Self.retriesAfterUncertainFailure(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
@@ -150,7 +160,7 @@ final class GmailClient: @unchecked Sendable {
             throw GmailError.offline
         }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if (200..<300).contains(code) { return data }
+        if (200..<300).contains(code) { if method != "GET" { noteWrite() }; return data }
         if Self.isQuotaAnswer(code, data) {
             // Gmail did nothing, so repeating is safe for every call: wait 2, 4, 8, 16, 32 seconds (a little extra at random), everything else waits too
             guard retry < Self.quotaRetries else { throw GmailError.slowDown }

@@ -68,7 +68,6 @@ extension MailStore {
     /// a move from Sent/Archive/search leaves the row where it is, and Undo puts back exactly what was changed.
     func leaveInbox(_ m: Mail, add: [String], text: String, aside setAside: Bool,
                             alsoRemove: [String] = [], keepOther: Bool = false, exactUndo: Bool = false, trashIt: Bool = false) async {
-        forgetKeptLists()
         let wasOpen = openMail?.id == m.id
         let before = listMails
         let idx = before.firstIndex { $0.id == m.id }
@@ -150,7 +149,6 @@ extension MailStore {
 
     /// Undo brings the archived (or set-aside) email back to the inbox and reopens it.
     func undoLast() async {
-        forgetKeptLists()
         var failed: String?
         func note(_ e: Error) { failed = (e as? LocalizedError)?.errorDescription ?? "Undo did not go through. Check your connection and try again." }
         if !undoArchive.isEmpty, let u = undoFolder {

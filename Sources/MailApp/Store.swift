@@ -45,14 +45,14 @@ final class MailStore: ObservableObject {
     @Published var loadingOtherMore = false
     var otherSource: OtherSource?
     /// A list John just left (Archive, Sent, a folder ...) is kept for a short while, so going back to it asks Gmail for nothing.
-    struct KeptList { var mails: [Mail]; var next: String?; var source: OtherSource?; var at: Date }
+    struct KeptList { var mails: [Mail]; var next: String?; var source: OtherSource?; var at: Date; var writes: Int }
     var keptLists: [String: KeptList] = [:]
     static let keepListFor: TimeInterval = 120
     /// Lists that are plain Gmail lists; search, Drafts and Recently Seen change on their own and are always read fresh.
     func keptKey(_ box: Mailbox) -> String? {
         switch box { case .sent, .archive, .folder, .smart, .saved: return "\(box)"; default: return nil }
     }
-    /// Something changed in Gmail through Mail (archive, move, send, undo, a manual check): kept lists are no longer to be trusted.
+    /// The Check button throws every kept list away (changes through Mail are caught by the write counter in the Gmail client).
     func forgetKeptLists() { keptLists = [:] }
     var otherGen = 0
     var autoPagesLeft = MailStore.autoPages
@@ -453,13 +453,13 @@ final class MailStore: ObservableObject {
 
     func select(_ box: Mailbox) async {
         // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
-        if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date()) }
+        if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: gmail.writes) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
         else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() }
-        else if let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor {
+        else if let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
             other = kept.mails; otherNext = kept.next; otherSource = kept.source   // coming back to it: no request to Gmail
         } else { await loadOther() }
     }

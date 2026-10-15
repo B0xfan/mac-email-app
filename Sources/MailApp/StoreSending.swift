@@ -95,7 +95,6 @@ extension MailStore {
 
     /// Send with the Undo Send delay. The mail leaves only when the delay runs out.
     func send(_ d: ComposeDraft, bodyHTML: String) {
-        forgetKeptLists()
         let out = buildOutgoing(d, bodyHTML: bodyHTML)
         let raw = MIME.build(out)
         let token = UUID()
