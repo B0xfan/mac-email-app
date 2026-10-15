@@ -754,7 +754,7 @@ struct ReadingContent: View {
         let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
         VStack(alignment: .leading, spacing: 10) {
             if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: true) }
-            if store.selectedIsNewSender {
+            if store.selectedIsNewSender, !embedded {
                 Card(padding: 12) {
                     HStack(spacing: 16) {
                         Text("\(mail.from.display) is a new sender. Let their emails into your inbox?").font(Theme.bodyStrong)
@@ -788,12 +788,12 @@ struct ReadingContent: View {
             .zIndex(1)   // a warning's bubble draws over the subject below it
             if let tr { TranslatedBanner(store: store, mail: mail, tr: tr) }
             Text(tr?.subject ?? mail.subject).font(.system(size: 22, weight: .bold)).tracking(-0.2).textSelection(.enabled)
-            NoteStrip(store: store, mail: mail).id(mail.threadID)
+            if !embedded { NoteStrip(store: store, mail: mail).id(mail.threadID) }
             if store.isInTodo(mail) { Label("In your to-do list", systemImage: "checkmark.circle").font(Theme.small).foregroundStyle(Theme.acc) }
             if store.mailbox == .recent, let at = store.openedAt(mail.id) {
                 Text("Received \(RecentGroups.lower(Fmt.long(mail.date))). You opened it \(RecentGroups.lower(Fmt.long(at))).").font(Theme.small).foregroundStyle(Theme.sub)
             }
-            switch store.unsubStage {
+            switch embedded ? MailStore.UnsubStage.idle : store.unsubStage {
             case .asking(let who):
                 Card {
                     HStack(spacing: 16) {
