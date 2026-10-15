@@ -80,6 +80,15 @@ Three buttons at the top right of the inbox switch the view.
 
 Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click the email, choose **Move to category**, and pick the right tab. Audrey Mail remembers your choice for that sender.
 
+**Group emails into conversations.** In Settings, Inbox, there is a switch with this name. It is off until you turn it on, and it works in all three views. With it off, nothing changes.
+
+- Emails that are replies to each other show as one row. A small number on the row says how many messages are in the conversation (a single email has no number).
+- The row names whoever wrote last, and shows the subject, preview and time of the newest message. It counts as unread if any message in the conversation is unread.
+- Open it and the messages are stacked, oldest first. The older ones are folded to one line; click a line to open that message (the one that was open folds). The newest message is open when you start. Messages you wrote yourself show as "You".
+- Archive, Snooze, Set Aside, Move to Trash, Pin, Mark read and Add to to-do act on the whole conversation. Reply answers the newest message. Select several rows (see below) and each row means its whole conversation. Your own sent messages in a conversation are left alone.
+- In Unread first, a conversation you open stays where it is until you click another email. If a new reply arrives, it goes back up under Unread and the number goes up by one.
+- This applies to the Inbox only. Sent, Archive, folders and searches stay as they are.
+
 ### Keeping the inbox tidy
 
 - **Pin.** Pinned emails stay in a strip at the top. Hover over a row and click the pin, or press P. Pin again to unpin.
