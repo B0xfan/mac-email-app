@@ -103,7 +103,7 @@ extension MailStore {
     /// Pin and Set Aside only make sense in the inbox; elsewhere that side does nothing.
     func swipeFor(_ a: SwipeAction) -> SwipeAction { (a == .aside || a == .pin) && mailbox != .inbox ? .none : a }
 
-    private func applyLabels(_ id: String, add: [String], remove: [String]) {
+    func applyLabels(_ id: String, add: [String], remove: [String]) {
         func f(_ x: inout Mail) { x.labels.removeAll { remove.contains($0) }; for l in add where !x.labels.contains(l) { x.labels.append(l) } }
         for i in inbox.indices where inbox[i].id == id { f(&inbox[i]) }
         for i in other.indices where other[i].id == id { f(&other[i]) }

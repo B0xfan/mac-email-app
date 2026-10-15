@@ -415,7 +415,7 @@ struct TodoBoxView: View {
             Color.black.opacity(0.25).ignoresSafeArea().onTapGesture { store.todoMail = nil }
             Card(padding: 16) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Add to to-do list").font(Theme.heading)
+                    Text(store.todoBulk.count > 1 ? "Add \(store.todoBulk.count) emails to to-do list" : "Add to to-do list").font(Theme.heading)
                     TextField("Task", text: $line.v, axis: .vertical).textFieldStyle(.plain).font(.system(size: 16)).lineLimit(3, reservesSpace: true)
                         .focused($focus).onSubmit { add() }.accessibilityLabel("Task line")
                         .padding(.horizontal, 12).padding(.vertical, 10)
@@ -442,14 +442,20 @@ struct TodoBoxView: View {
             }
             .frame(width: 520).frame(maxHeight: .infinity, alignment: .top).padding(.top, 90)
         }
-        .onAppear { line.v = mail.subject; focus = true; DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) } }
+        .onAppear { line.v = store.todoBulk.count > 1 ? "" : mail.subject; focus = true; DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) } }
         .onKeyPress(.escape) { store.todoMail = nil; return .handled }
     }
     private func chip(_ t: String, due: Bool) -> some View {
         Text(t).font(Theme.small).padding(.horizontal, 10).frame(minHeight: 26)
             .background(Capsule().fill(due ? Theme.accSoft : Theme.hovBg)).foregroundStyle(due ? Theme.accInk : Theme.text)
     }
-    private func add() { busy.v = true; Task { _ = await store.addTodo(line: line.v, mail: mail); busy.v = false } }
+    private func add() {
+        busy.v = true
+        Task {
+            if store.todoBulk.count > 1 { _ = await store.addTodoBulk(line: line.v) } else { _ = await store.addTodo(line: line.v, mail: mail) }
+            busy.v = false
+        }
+    }
 }
 
 enum TodoBox {

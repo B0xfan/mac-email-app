@@ -51,3 +51,96 @@ extension MailStore {
         return false
     }
 }
+
+// MARK: - Actions on the whole selection (each one runs the same single-email code as the right-click menu and the swipe choices)
+
+extension MailStore {
+    /// Runs `each` on every email as ONE undo step: the single-email paths add to a shared undo (see `batching`), then one toast,
+    /// and the next remaining email opens the way "After archiving an email" says.
+    func batch(_ ms: [Mail], text: (Int) -> String, _ each: (Mail) async -> Void) async {
+        guard !ms.isEmpty else { return }
+        let first = firstPosition(of: ms)
+        undoArchive = []; undoSibs = []; undoFolder = nil; undoAside = false; undoUntrash = false
+        batching = true
+        for m in ms { await each(m) }
+        batching = false
+        picked = []
+        let done = ms.filter { undoArchive.contains($0.id) }.count
+        guard done > 0 else { return }   // nothing went through; the error bar says why
+        showToast(text(done), action: "Undo")
+        await openNext(after: first)
+    }
+
+    private func firstPosition(of ms: [Mail]) -> Int {
+        let before = listMails
+        return ms.compactMap { m in before.firstIndex { $0.id == m.id } }.min() ?? 0
+    }
+
+    private func openNext(after first: Int) async {
+        let after = listMails
+        if let n = ArchiveNext.index(mode: settings.afterArchive, unread: after.map { $0.unread }, archivedAt: first) { await open(after[n]) }
+    }
+
+    func bulkArchive() async { await batch(bulk, text: { "Archived \($0) emails." }) { await self.archive($0) } }
+    func bulkSetAside() async { await batch(bulk, text: { "Set aside \($0) emails. They are in Set Aside in the sidebar." }) { await self.setAside($0) } }
+    func bulkTrash() async {
+        await batch(bulk, text: { "Moved \($0) emails to Trash." }) { await self.leaveInbox($0, add: [], text: "", aside: false, exactUndo: true, trashIt: true) }
+    }
+    func bulkMove(_ f: FolderNode) async { await batch(bulk, text: { "Moved \($0) emails to \(f.leaf)." }) { await self.moveToFolder($0, f) } }
+    func bulkSnooze() { let ids = bulk.map(\.id); if ids.count > 1 { picker = .snooze(ids) } }
+    func bulkTodo() { let ms = bulk; guard let f = ms.first, ms.count > 1 else { return }; todoMail = f; todoBulk = ms }
+
+    /// Marks all read if any is unread, otherwise all unread (the swipe choice flips one email; for a group "any unread" is the useful reading).
+    func bulkToggleRead() async {
+        let ms = bulk, markRead = ms.contains { $0.unread }
+        let changed = ms.filter { $0.unread == markRead }
+        guard !changed.isEmpty else { return }
+        do {
+            let add = markRead ? [] : ["UNREAD"], remove = markRead ? ["UNREAD"] : []
+            try await gmail.modify(ids: changed.map(\.id), add: add, remove: remove)
+            for m in changed { applyLabels(m.id, add: add, remove: remove) }
+            saveCache()
+            undoArchive = changed.map(\.id); undoSibs = []; undoAside = false; undoUntrash = false
+            undoFolder = (add: markRead ? ["UNREAD"] : [], remove: markRead ? [] : ["UNREAD"])
+            picked = []
+            showToast(markRead ? "Marked \(changed.count) read." : "Marked \(changed.count) unread.", action: "Undo")
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+
+    /// Unpins all if every selected email is pinned, otherwise pins the ones that are not.
+    func bulkPin() async {
+        let ms = bulk, unpin = ms.allSatisfy { isPinned($0) }
+        let changed = ms.filter { isPinned($0) == unpin }
+        for m in changed { await togglePin(m) }
+        guard let l = pinLabelID else { return }
+        let done = changed.filter { m in (inbox + other).first { $0.id == m.id }.map(isPinned) == !unpin }
+        guard !done.isEmpty else { return }
+        undoArchive = done.map(\.id); undoSibs = []; undoAside = false; undoUntrash = false
+        undoFolder = (add: unpin ? [l] : [], remove: unpin ? [] : [l])
+        picked = []
+        showToast(unpin ? "Unpinned \(done.count)." : "Pinned \(done.count).", action: "Undo")
+    }
+
+    /// One block per address (or per company), each the same Gmail filter plus label as blocking one sender. There is no Undo for a block, as for one email.
+    func bulkBlock(wholeCompany: Bool) async {
+        let ms = bulk, first = firstPosition(of: ms)
+        var seen = Set<String>(), addrs: [Address] = []
+        for m in ms where seen.insert(wholeCompany ? m.from.domain : m.from.email).inserted { addrs.append(m.from) }
+        blockMenuFor = nil
+        var blocked = 0
+        for a in addrs { if await block(a, wholeCompany: wholeCompany, reload: false) { blocked += 1 } }
+        picked = []
+        await loadBlocked()
+        if blocked > 0 { status = wholeCompany ? "Blocked \(blocked) companies. They were not told." : "Blocked \(blocked) senders. They were not told."; await openNext(after: first) }
+    }
+
+    func addTodoBulk(line: String) async -> Bool {
+        let ms = todoBulk
+        var added = 0
+        for m in ms { if await addTodo(line: line, mail: m) { added += 1 } else { break } }
+        guard added > 0 else { return false }
+        picked = []
+        showToast("Added \(added) emails to to-do.")
+        return added == ms.count
+    }
+}

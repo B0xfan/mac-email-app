@@ -91,9 +91,15 @@ extension MailStore {
             } else { asides.forget(m.id) }
             saveCache()
             let sibs = m.siblings ?? [], keepSibs = exactUndo && !trashIt
+            let folder: (add: [String], remove: [String])? = exactUndo ? (add: (m.labels.contains("INBOX") ? ["INBOX"] : []) + alsoRemove + (wasAside ? (asideLabelID.map { [$0] } ?? []) : []), remove: add) : nil
+            if batching {   // several selected emails: one undo step, one toast and one "next email", all made by batch()
+                undoArchive += keepSibs ? [m.id] : [m.id] + sibs; undoSibs += keepSibs ? sibs : []; undoAside = setAside; undoUntrash = trashIt
+                if let f = folder { let o = undoFolder ?? (add: [], remove: []); undoFolder = (add: Array(Set(o.add + f.add)), remove: Array(Set(o.remove + f.remove))) }
+                return
+            }
             undoArchive = keepSibs ? [m.id] : [m.id] + sibs; undoSibs = keepSibs ? sibs : []; undoAside = setAside
             undoUntrash = trashIt
-            undoFolder = exactUndo ? (add: (m.labels.contains("INBOX") ? ["INBOX"] : []) + alsoRemove + (wasAside ? (asideLabelID.map { [$0] } ?? []) : []), remove: add) : nil
+            undoFolder = folder
             showToast(text, action: "Undo")
             // open the email that moved into its place; if it was last, the one above; if none, the empty pane
             let after = listMails

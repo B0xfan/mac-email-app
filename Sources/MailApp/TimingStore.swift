@@ -12,7 +12,10 @@ extension MailStore {
     func pickedTime(_ d: Date) async {
         let k = picker; picker = nil
         switch k {
-        case .snooze(let ids): for id in ids { if let m = (inbox + aside + other).first(where: { $0.id == id }) { await snooze(m, until: d) } }
+        case .snooze(let ids):
+            let ms = ids.compactMap { id in (inbox + aside + other).first(where: { $0.id == id }) }
+            if ms.count > 1 { await batch(ms, text: { "Snoozed \($0) emails until \(TimeParser.short(d))." }) { await self.snooze($0, until: d) } }
+            else { for m in ms { await snooze(m, until: d) } }
         case .changeSnooze(let id):
             timing.change { $0.snoozes[id] = d }; objectWillChange.send()
             showToast("Snoozed until \(TimeParser.short(d)).")

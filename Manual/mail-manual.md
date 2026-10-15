@@ -86,6 +86,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 - **Set Aside.** Parks an email out of the inbox without deciding on it. Find it under **Set Aside**; **Back to Inbox** returns it.
 - **Archive.** Hover icon, A, or the toolbar button. A short **Undo** appears.
 - **Swipe.** Slide a row sideways with two fingers on the trackpad. By default right archives and left sets aside. You can change each side in Settings, Swipe.
+- **Select several emails.** In the Inbox, hold Command and click to add or remove one email. Hold Shift and click to select everything from the last email you clicked. Command-A selects every email in the list (in Smart, the tab you are on). Selected emails turn grey-blue with a check mark where the picture was; teal is only for the email you have open. With two or more selected, the reading pane says how many and offers Archive, Set Aside, Snooze, Pin, Mark read or unread, Add to to-do, Move to folder, Block senders and Move to Trash, each applied to all of them. One **Undo** brings them all back. The top-bar buttons that need a single email (Reply, Reply all, Forward, Save as note, Link) turn grey. Press Escape, or click one email, to go back to normal.
 - **Right-click an email** for Pin, Set Aside, Snooze, Archive, Move to folder, Move to category and more.
 - **Recently Seen** lists emails you opened in the last 1 or 2 days (your choice in Settings).
 - **Check for new email.** The circular arrow in the top bar checks right now. Audrey Mail also checks by itself (Settings, Inbox).

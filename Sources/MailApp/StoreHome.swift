@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import WebKit
 
 /// Home Screen and the To-field suggestions.
 extension MailStore {
@@ -26,6 +27,14 @@ extension MailStore {
         if Idle.shouldShow(idleMinutes: settings.idleMinutes, idleSeconds: Idle.seconds(), alreadyShown: homeShown) { homeShown = true }
     }
 
+    /// Typing in a box, or the focus is inside an email's text: Command-A and Esc belong to that, not to the list.
+    static func isTypingOrReading(_ r: NSResponder?) -> Bool {
+        if r is NSText { return true }
+        var v = r as? NSView
+        while let x = v { if x is WKWebView { return true }; v = x.superview }
+        return false
+    }
+
     /// While the Home Screen is up, any key press returns to the app and is not passed on.
     func installKeyMonitor() {
         guard keyMonitor == nil else { return }
@@ -33,7 +42,7 @@ extension MailStore {
             guard let self else { return e }
             if !self.homeShown {
                 // Cmd-A and Esc for a multi-selection; never while typing in a field
-                if NSApp.keyWindow?.firstResponder is NSText { return e }
+                if Self.isTypingOrReading(NSApp.keyWindow?.firstResponder) { return e }
                 let f = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 return self.pickKey(escape: e.keyCode == 53 && f.isEmpty, selectAll: f == .command && e.charactersIgnoringModifiers == "a") ? nil : e
             }

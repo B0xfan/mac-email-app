@@ -29,6 +29,12 @@ struct MailRoot: View {
                                     .padding(.horizontal, 12)
                                 ReadingPane(store: store).frame(maxWidth: .infinity)
                             }
+                        } else if store.isMulti {
+                            VStack(spacing: 0) {
+                                HStack { Button { store.clearPicked() } label: { Label("Back", systemImage: "chevron.left") }.buttonStyle(LinkButtonStyle()); Spacer() }
+                                    .padding(.horizontal, 12)
+                                MultiPanel(store: store).frame(maxWidth: .infinity)
+                            }
                         } else { ListPane(store: store).frame(maxWidth: .infinity) }
                     } else {
                         HStack(spacing: 0) {
@@ -274,24 +280,31 @@ struct ToolbarView: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
+        let multi = store.isMulti, n = store.bulk.count   // several selected: Archive, Set Aside, Snooze and To-do act on all, the one-email buttons go grey
+        let one = multi ? "works on one email at a time" : "open an email first"
+        let inboxOne = canAct && store.mailbox == .inbox
+        let archiveTip: String = multi ? "Archive \(n) (A)" : (canAct ? "Archive (A)" : "Archive, open an email first")
+        let asideTip: String = multi ? "Set Aside \(n) (S)" : (inboxOne ? "Set Aside (S)" : "Set Aside, open an inbox email first")
+        let snoozeTip: String = multi ? "Snooze \(n) (Z)" : (inboxOne ? "Snooze (Z)" : "Snooze, open an inbox email first")
+        let todoTip: String = multi ? "Add \(n) to to-do (T)" : (canAct ? "Add to to-do (T)" : "To-do, open an email first")
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
             IconButton(symbol: "square.and.pencil", label: "New email (C)") { store.newCompose() }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
-            IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, open an email first", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
-            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply all" : "Reply all, open an email first", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply all" : "Reply all, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m, all: true) } }
-            IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, open an email first", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
-            IconButton(symbol: "archivebox", label: canAct ? "Archive (A)" : "Archive, open an email first", enabled: canAct) {
-                Task { await store.archiveOpen() } }
-            IconButton(symbol: "rectangle.stack", label: canAct && store.mailbox == .inbox ? "Set Aside (S)" : "Set Aside, open an inbox email first", enabled: canAct && store.mailbox == .inbox) {
-                if let m = store.openMail { Task { await store.setAside(m) } } }
-            IconButton(symbol: "moon", label: canAct && store.mailbox == .inbox ? "Snooze (Z)" : "Snooze, open an inbox email first", enabled: canAct && store.mailbox == .inbox) {
-                if let m = store.openMail { store.picker = .snooze([m.id]) } }
-            IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: canAct ? "Add to to-do (T)" : "To-do, open an email first", enabled: canAct) {
-                if let m = store.openMail { store.todoMail = m } }
+            IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multi) {
+                if multi { Task { await store.bulkArchive() } } else { Task { await store.archiveOpen() } } }
+            IconButton(symbol: "rectangle.stack", label: asideTip, enabled: multi || inboxOne) {
+                if multi { Task { await store.bulkSetAside() } } else if let m = store.openMail { Task { await store.setAside(m) } } }
+            IconButton(symbol: "moon", label: snoozeTip, enabled: multi || inboxOne) {
+                if multi { store.bulkSnooze() } else if let m = store.openMail { store.picker = .snooze([m.id]) } }
+            IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
+                if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
             IconButton(symbol: "doc.text", label: "Save as note (N)", enabled: canAct && !store.savingNote) {
                 if let m = store.openMail { Task { await store.saveAsNote(m) } } }
             LinkMenuButton(store: store, enabled: canAct)
@@ -426,6 +439,16 @@ struct ListPane: View {
         .focusable().focusEffectDisabled()
         .onKeyPress(phases: .down) { p in
             guard store.settings.shortcuts, store.compose == nil else { return .ignored }
+            if store.isMulti {   // the same keys act on the whole selection
+                switch p.characters.lowercased() {
+                case "a": Task { await store.bulkArchive() }; return .handled
+                case "s": Task { await store.bulkSetAside() }; return .handled
+                case "z": store.bulkSnooze(); return .handled
+                case "p": Task { await store.bulkPin() }; return .handled
+                case "t": store.bulkTodo(); return .handled
+                default: break
+                }
+            }
             switch p.characters.lowercased() {
             case "a": Task { await store.archiveOpen() }; return .handled
             case "c": store.newCompose(); return .handled
@@ -695,7 +718,8 @@ struct ReadingPane: View {
     @ObservedObject var store: MailStore
     var body: some View {
         Group {
-            if let m = store.openMail { ReadingContent(store: store, mail: m) }
+            if store.isMulti { MultiPanel(store: store) }
+            else if let m = store.openMail { ReadingContent(store: store, mail: m) }
             else {
                 VStack(spacing: 8) {
                     Image(systemName: "tray").font(.system(size: 30)).foregroundStyle(Theme.sub)
