@@ -253,7 +253,7 @@ extension SelfTest {
         defer { try? FileManager.default.removeItem(at: vault) }
         await MainActor.run { AppSettings.shared.vaultPath = vault.path; AppSettings.shared.todoList = .obsidian; AppSettings.shared.todoMarks = [] }
         let t1 = mk("t1", "t1@x.example"), t3 = mk("t3", "t3@x.example")
-        var t2 = mk("t2", "t2@x.example"); t2.subject = String(repeating: "a", count: 300)   // a file name that long cannot be written
+        let t2 = Mail(id: "t2", from: Address(name: "t2", email: "t2@x.example"), subject: String(repeating: "a", count: 300), snippet: "p", date: Date(), labels: ["INBOX"])   // a file name that long cannot be written
         await reset(); await MainActor.run { store.inbox = [t1, t2, t3]; store.picked = ["t1", "t2", "t3"]; store.todoMail = t1; store.todoBulk = [t1, t2, t3] }
         let tdOK = await store.addTodoBulk(line: "")
         let tdr = await MainActor.run { (store.picked.sorted(), store.toast?.text ?? "") }
