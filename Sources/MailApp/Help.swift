@@ -90,7 +90,7 @@ enum HelpManual {
         for u in [inApp, inRepo].compactMap({ $0 }) {
             if let t = try? String(contentsOf: u, encoding: .utf8) { let s = parse(t); if !s.isEmpty { return s } }
         }
-        return [HelpSection(title: "Help is not available", blocks: [.para("The manual is missing from this copy of Mail. Reinstalling Mail brings it back.")])]
+        return [HelpSection(title: "Help is not available", blocks: [.para("The manual is missing from this copy of Audrey Mail. Reinstalling Audrey Mail brings it back.")])]
     }
 }
 
@@ -245,7 +245,7 @@ struct HelpView: View {
             }
             Rectangle().fill(Theme.line).frame(height: 1)
             HStack {
-                Text(model.showResults && !model.terms.isEmpty ? (model.hits.count == 1 ? "1 result" : "\(model.hits.count) results") : "Mail Help")
+                Text(model.showResults && !model.terms.isEmpty ? (model.hits.count == 1 ? "1 result" : "\(model.hits.count) results") : "Audrey Mail Help")
                 Spacer()
                 Text(model.terms.isEmpty ? "Opens beside your mail" : "Press Escape to clear")
             }
@@ -410,7 +410,7 @@ struct HelpCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(replacing: .help) {
-            Button("Mail Help") { openWindow.help() }.keyboardShortcut("?", modifiers: .command)
+            Button("Audrey Mail Help") { openWindow.help() }.keyboardShortcut("?", modifiers: .command)
             Button("Keyboard shortcuts") { openWindow.help("keyboard-shortcuts") }
             Divider()
             Button("Search help...") { openWindow.help(search: true) }

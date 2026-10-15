@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The help window is only ever opened by the user: one that the Mac brought back from an earlier session is closed again.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !HelpModel.userOpened { NSApplication.shared.windows.filter { $0.title == "Mail Help" }.forEach { $0.close() } } }   // only a restored copy: help the user asked for sets userOpened
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !HelpModel.userOpened { NSApplication.shared.windows.filter { $0.title == "Audrey Mail Help" }.forEach { $0.close() } } }   // only a restored copy: help the user asked for sets userOpened
         MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showWindow() {
         let app = NSApplication.shared
-        if let w = app.windows.first(where: { $0.canBecomeMain && $0.title != "Mail Help" }) {   // the help window is not the mail window
+        if let w = app.windows.first(where: { $0.canBecomeMain && $0.title != "Audrey Mail Help" }) {   // the help window is not the mail window
             if w.isMiniaturized { w.deminiaturize(nil) }
             w.makeKeyAndOrderFront(nil)
         } else {
@@ -123,7 +123,7 @@ struct MailApp: App {
                 Button("Command Center") { app.store.commandCenterOpen.toggle() }.keyboardShortcut("k")
             }
         }
-        Window("Mail Help", id: "help") {
+        Window("Audrey Mail Help", id: "help") {
             HelpView(model: HelpModel.shared)
         }
         .defaultSize(width: 860, height: 600)

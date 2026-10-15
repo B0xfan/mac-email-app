@@ -17,6 +17,7 @@ extension SelfTest {
         check("help: every section has text and the names are unique", sections.allSatisfy { !$0.blocks.isEmpty } && Set(ids).count == ids.count)
         check("help: the sections the app points at exist", ["send-later", "keyboard-shortcuts", "searching-your-mail", "translate", "claude-access", "using-this-help", "what-works-when-your-mac-is-off"].allSatisfy { ids.contains($0) })
         check("help: the manual has no unchecked marker, no em dash and no vault link", !raw.contains("[CHECK") && !raw.contains("\u{2014}") && !raw.contains("[["))
+        check("help: the manual and the Help menu name the app Audrey Mail", raw.contains("**Audrey Mail Help**") && !raw.contains("**Mail Help**"))
         let links = raw.components(separatedBy: "](#").dropFirst().map { String($0.prefix { $0 != ")" }) }
         check("help: every link inside the manual points at a real section", !links.isEmpty && links.allSatisfy { ids.contains($0) })
         check("help: the manual says what Phase 5 added", ["searching-your-mail", "translate", "claude-access"].allSatisfy { id in sections.first { $0.id == id }.map { $0.plain.count > 400 } ?? false })
