@@ -14,6 +14,9 @@ extension MailStore {
     /// The reading pane stacks the messages: switch on, in the Inbox, and the open email belongs to a conversation of two or more.
     var stackOpen: Bool { groupOn && mailbox == .inbox && (openMail?.convoCount ?? 1) > 1 }
 
+    /// With "Open one message at a time" off, the newest message stays open (as a card in its place) while an older one is open too.
+    var newestStaysOpen: Bool { stackOpen && !settings.foldOthers && convoShown != nil }
+
     /// A folded line was clicked: that message opens (the others fold). Clicking the open email's own line brings the newest back.
     func showConvoMessage(_ c: ConvMsg) async {
         guard let o = openMail else { return }

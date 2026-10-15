@@ -87,6 +87,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 - Open it and the messages are stacked, oldest first. The older ones are folded to one line; click a line to open that message (the one that was open folds). The newest message is open when you start. Messages you wrote yourself show as "You".
 - Archive, Snooze, Set Aside, Move to Trash, Pin, Mark read and Add to to-do act on the whole conversation. Reply answers the newest message. Select several rows (see below) and each row means its whole conversation. Your own sent messages in a conversation are left alone.
 - In Unread first, a conversation you open stays where it is until you click another email. If a new reply arrives, it goes back up under Unread and the number goes up by one.
+- In Settings, Inbox, **Open one message at a time** (on by default, available when grouping is on) decides what opening an older message does: on folds the one already open, off keeps the newest message open beside it.
 - This applies to the Inbox only. Sent, Archive, folders and searches stay as they are.
 
 ### Keeping the inbox tidy

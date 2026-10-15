@@ -203,6 +203,24 @@ extension SelfTest {
         let again = await row("C1")
         let g3 = await unreadGroup()
         check("hold: a new reply sends the conversation back to Unread with the count up by one", again.id == "c1d" && again.unread && again.convoCount == 4 && g3.contains("c1d"))
+        // "Open one message at a time": on folds the open one, off keeps the newest open beside the older one; saved; a missing key reads as on
+        await MainActor.run { st.settings.groupConversations = true; st.mailbox = .inbox; st.openMail = nil; st.closeReader() }
+        let c1r = await row("C1")
+        await MainActor.run { st.openMail = c1r; st.settings.foldOthers = true }
+        await st.showConvoMessage(c1r.convo![0])
+        let onFold = await MainActor.run { (st.convoShown?.id, st.newestStaysOpen) }
+        await MainActor.run { st.settings.foldOthers = false }
+        let offFold = await MainActor.run { (st.convoShown?.id, st.newestStaysOpen) }
+        await MainActor.run { st.settings.groupConversations = false }
+        let offGrouping = await MainActor.run { st.newestStaysOpen }
+        check("fold setting: on = opening an older message folds the one already open; off = the newest stays open too; with grouping off it does nothing",
+              onFold.0 == c1r.convo![0].id && !onFold.1 && offFold.0 == onFold.0 && offFold.1 && !offGrouping)
+        let kept = AppSettings().foldOthers
+        UserDefaults.standard.removeObject(forKey: "foldOthers")
+        let fresh = AppSettings().foldOthers
+        check("fold setting: it is saved with the other settings, and a settings file without it loads as on", !kept && fresh)
+        await MainActor.run { st.settings.foldOthers = true }
+        UserDefaults.standard.removeObject(forKey: "foldOthers")
         await MainActor.run { st.settings.inboxView = .classic; st.settings.groupConversations = true; st.closeReader() }
         UserDefaults.standard.removeObject(forKey: "groupConversations")
         await MainActor.run { st.settings.groupConversations = false }

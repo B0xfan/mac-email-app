@@ -14,6 +14,17 @@ struct ConvoFolds: View {
             VStack(alignment: .leading, spacing: 8) {
                 if older { Text("\(all.count) messages in this conversation").font(Theme.small).foregroundStyle(Theme.sub) }
                 ForEach(lines) { c in
+                    if c.id == store.openMail?.id, store.newestStaysOpen, let o = store.openMail {
+                        // switch "Open one message at a time" off: the newest message stays open, as text, beside the older one; a click on its head folds it back
+                        Card(padding: 12) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Button { Task { await store.showConvoMessage(c) } } label: {
+                                    HStack { Text(c.who).font(Theme.bodyStrong); Spacer(); Text(Fmt.short(c.date)).font(Theme.small).foregroundStyle(Theme.sub) }.contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                Text(o.text ?? o.snippet).font(Theme.body).lineSpacing(4).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    } else {
                     Button { Task { await store.showConvoMessage(c) } } label: {
                         HStack(spacing: 10) {
                             Avatar(text: c.mine ? "Y" : c.from.initials, size: 26)
@@ -29,6 +40,7 @@ struct ConvoFolds: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Open the message from \(c.who), \(Fmt.short(c.date))")
+                    }
                 }
             }
         }
