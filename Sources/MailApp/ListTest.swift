@@ -8,13 +8,16 @@ import AppKit
 @MainActor
 enum ListTest {
     /// Vertical runs (top, bottom) of the "selected row" teal in the list column of a picture.
-    static func tealBands(_ path: String) -> [(Int, Int)] {
+    static func tealBands(_ path: String) -> [(Int, Int)] { bands(path, rgb: (168, 212, 215), tol: 10) }
+
+    /// Same, for any fill colour (the picture's own stored values).
+    static func bands(_ path: String, rgb: (Int, Int, Int), tol: Int) -> [(Int, Int)] {
         guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return [] }
         let scale = Double(rep.pixelsWide) / 1280
         var px = [Int](repeating: 0, count: 5)
         func isTeal(_ x: Int, _ y: Int) -> Bool {   // the picture's own stored values, no colour-space conversion
             rep.getPixel(&px, atX: x, y: y)
-            return abs(px[0] - 168) <= 10 && abs(px[1] - 212) <= 10 && abs(px[2] - 215) <= 10
+            return abs(px[0] - rgb.0) <= tol && abs(px[1] - rgb.1) <= tol && abs(px[2] - rgb.2) <= tol
         }
         // the list column starts right of the 244 pt sidebar: find the left edge of the teal, then look 3 points inside it (inside the border, clear of the orange dot)
         var left: Int?
@@ -107,6 +110,30 @@ enum ListTest {
         check("held: clearing the selection releases it", ids().firstIndex(of: "mail-vo2")! > ids().firstIndex(of: "header-rest")!)
         await store.open(store.inbox.first { $0.id == "vo2" }!)    // reopening it afterwards must not pull it back up
         check("held: reopening a released read email holds nothing", store.heldOpenID == nil && ids().firstIndex(of: "mail-vo2")! > ids().firstIndex(of: "header-rest")!)
+
+        // select several: the chosen rows get the grey-blue fill, never the teal; the one open email is still the only teal row (light and dark)
+        let lightMulti = (217, 220, 234), darkMulti = (43, 47, 77), darkTeal = (44, 111, 117)
+        store.closeReader()
+        await store.rowClicked(suz, command: true, shift: false)
+        await store.rowClicked(wash, command: true, shift: false)
+        let looks: [(String, NSAppearance.Name, (Int, Int, Int), (Int, Int, Int))] = [("7-selected-light", .aqua, lightMulti, (168, 212, 215)), ("8-selected-dark", .darkAqua, darkMulti, darkTeal)]
+        for (name, appearance, fill, teal) in looks {
+            win.appearance = NSAppearance(named: appearance)
+            await LiveTest.pump(0.8)
+            let path = "\(dir)/list-\(name).png"
+            try? FileManager.default.removeItem(atPath: path)
+            LiveTest.grab(win, path)
+            let grey = bands(path, rgb: fill, tol: 4), tl = bands(path, rgb: teal, tol: 10)
+            print("\(name): selected bands \(grey), teal bands \(tl)")
+            check("\(name): the two selected rows are grey-blue and no row is teal", grey.count == 2 && tl.isEmpty)
+        }
+        win.appearance = NSAppearance(named: .aqua)
+        await store.open(mad)
+        await LiveTest.pump(0.8)
+        let p9 = "\(dir)/list-9-open-after-selecting.png"
+        try? FileManager.default.removeItem(atPath: p9)
+        LiveTest.grab(win, p9)
+        check("9-open-after-selecting: a plain click leaves the grey-blue rows behind and opens one teal row", bands(p9, rgb: lightMulti, tol: 4).isEmpty && tealBands(p9).count == 1)
         win.close()
         return ok
     }

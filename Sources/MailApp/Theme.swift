@@ -39,6 +39,10 @@ enum Theme {
     static let hovSide = Color("#d6e3e3", "#1c3639")
     static let hovCard = Color("#edf3f3", "#1f3a3d")
     static let selStrong = Color("#a8d4d7", "#2c6f75")
+    // Select several emails: grey-blue, never teal (teal stays for the one open email)
+    static let multi = Color("#d9dcea", "#2b2f4d")
+    static let multiInk = Color("#34386a", "#d3d6f5")
+    static let multiLine = Color("#7f84b8", "#7479b5")
     static let pinBg = Color("#fff6df", "#2b2a1a")
     static let dot = Color("#b45f0a", "#f5b25c")
 

@@ -462,6 +462,7 @@ struct MessageRow: View {
     var warmTag = false
     var fromText: String? = nil           // "You, to Dana Whitfield" for a reminded email
     var pinned = false
+    var picked = false                    // one of several selected emails: grey-blue fill and a check circle (the open email is the only teal one)
     var onPin: (() -> Void)? = nil        // inbox rows: Pin, Set Aside, Archive hover buttons
     var onAside: (() -> Void)? = nil
     var onSnooze: (() -> Void)? = nil
@@ -523,7 +524,12 @@ struct MessageRow: View {
     private var rowButton: some View {
         Button(action: tap) {
             HStack(alignment: .top, spacing: 10) {
-            if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail)) }
+            if picked {
+                ZStack {
+                    Circle().fill(Theme.multiInk)
+                    Image(systemName: "checkmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.multi)
+                }.frame(width: 34, height: 34).accessibilityHidden(true)
+            } else if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail)) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
@@ -539,13 +545,14 @@ struct MessageRow: View {
             }
             }
             .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 64).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(selected ? Theme.selStrong : (hover.v ? Theme.hovBg : (pinned ? Theme.pinBg : .clear))))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(selected ? Theme.acc : .clear, lineWidth: 2))
+            .background(RoundedRectangle(cornerRadius: 10).fill(picked ? Theme.multi : selected ? Theme.selStrong : (hover.v ? Theme.hovBg : (pinned ? Theme.pinBg : .clear))))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(picked ? Theme.multiLine : selected ? Theme.acc : .clear, lineWidth: picked ? 1.5 : 2))
             .contentShape(Rectangle())
             .draggable(mail.id)   // drop it on a folder in the sidebar to file it; must sit INSIDE the Button, or the Button swallows the drag
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
+        .accessibilityAddTraits(picked ? .isSelected : [])
+        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
     }
 }
 

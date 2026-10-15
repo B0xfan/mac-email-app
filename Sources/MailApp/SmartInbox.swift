@@ -193,7 +193,7 @@ struct InboxBody: View {
         let pinned = store.isPinned(m)
         let noReply = store.isNoReply(m)
         return MessageRow(mail: m, selected: store.selectedID == m.id, tag: noReply ? "No reply yet" : nil, warmTag: true,
-                   fromText: noReply ? "You, to \(Address.parse(m.to).display)" : nil, pinned: pinned,
+                   fromText: noReply ? "You, to \(Address.parse(m.to).display)" : nil, pinned: pinned, picked: store.picked.contains(m.id),
                    onPin: { Task { await store.togglePin(m) } }, onAside: { Task { await store.setAside(m) } }, onSnooze: { store.picker = .snooze([m.id]) }, onArchive: { Task { await store.archive(m) } },
                    swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
             .contextMenu {
