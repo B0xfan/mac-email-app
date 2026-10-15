@@ -27,6 +27,9 @@ final class MailStore: ObservableObject {
     @Published var other: [Mail] = []          // sent / drafts / archive / search
     @Published var blocked: [BlockedEntry] = []
     @Published var selectedID: String?
+    /// Unread first: the email opened while unread. It holds its place in the list while it stays selected.
+    @Published var heldUnreadID: String?
+    var heldOpenID: String? { selectedID == heldUnreadID ? heldUnreadID : nil }
     @Published var openMail: Mail? {
         didSet { if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
@@ -174,7 +177,7 @@ final class MailStore: ObservableObject {
             switch settings.inboxView {
             case .classic: body = rest.sorted { $0.date > $1.date }
             case .smart: body = SmartInbox.groups(rest, category: category(of:)).filter { $0.id == (MailCategory(rawValue: settings.smartTab) ?? .people).rawValue }.flatMap { $0.mails }
-            case .unreadFirst: body = SmartInbox.unreadFirst(rest).flatMap { $0.mails }   // same order as on screen
+            case .unreadFirst: body = SmartInbox.unreadFirst(rest, holding: heldOpenID).flatMap { $0.mails }   // same order as on screen
             }
             return pinnedMails + body
         case .newSenders: return newSenderMails.sorted { $0.date > $1.date }

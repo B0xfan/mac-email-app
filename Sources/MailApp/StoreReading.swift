@@ -18,6 +18,7 @@ extension MailStore {
             }
             return
         }
+        if m.id != heldOpenID { heldUnreadID = m.unread ? m.id : nil }   // clicking the held email again keeps it held
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
         openMail = m
         seen.record(m.id)

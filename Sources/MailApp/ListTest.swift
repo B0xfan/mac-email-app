@@ -87,6 +87,24 @@ enum ListTest {
         let flat = SmartInbox.unreadFirstItems(store.inbox).map(\.id)
         check("flat list: each header directly above its own emails",
               flat == ["header-unread", "mail-vo2", "mail-pre", "header-rest", "mail-vo1", "mail-suz", "mail-mad", "mail-wash"])
+
+        // an opened email holds its place until another one is selected or the selection is cleared
+        func ids() -> [String] { SmartInbox.unreadFirstItems(store.inbox, holding: store.heldOpenID).map(\.id) }
+        check("held: the opened email (vo1) stays in Unread, in date order",
+              ids() == ["header-unread", "mail-vo2", "mail-pre", "mail-vo1", "header-rest", "mail-suz", "mail-mad", "mail-wash"])
+        await store.open(store.inbox.first { $0.id == "vo1" }!)    // click the held email again: nothing moves
+        check("held: clicking it again keeps it in place", ids().contains("mail-vo1") && ids().firstIndex(of: "mail-vo1")! < ids().firstIndex(of: "header-rest")!)
+        await store.open(store.inbox.first { $0.id == "pre" }!)    // select another unread email
+        check("held: after selecting another email, vo1 moves down and pre holds",
+              ids() == ["header-unread", "mail-vo2", "mail-pre", "header-rest", "mail-vo1", "mail-suz", "mail-mad", "mail-wash"])
+        await step("6-select-another", expectTeal: 1)
+        await store.open(store.inbox.first { $0.id == "wash" }!)   // a read email never jumps up
+        check("held: opening an already-read email holds nothing", store.heldOpenID == nil && ids().firstIndex(of: "mail-pre")! > ids().firstIndex(of: "header-rest")!)
+        await store.open(store.inbox.first { $0.id == "vo2" }!)
+        store.closeReader()
+        check("held: clearing the selection releases it", ids().firstIndex(of: "mail-vo2")! > ids().firstIndex(of: "header-rest")!)
+        await store.open(store.inbox.first { $0.id == "vo2" }!)    // reopening it afterwards must not pull it back up
+        check("held: reopening a released read email holds nothing", store.heldOpenID == nil && ids().firstIndex(of: "mail-vo2")! > ids().firstIndex(of: "header-rest")!)
         win.close()
         return ok
     }

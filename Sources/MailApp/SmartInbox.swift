@@ -58,10 +58,12 @@ enum SmartInbox {
             return ms.isEmpty ? nil : SmartGroup(id: c.rawValue, title: c.title, symbol: c.symbol, mails: ms)
         }
     }
-    static func unreadFirst(_ mails: [Mail]) -> [SmartGroup] {
+    /// `holding`: the email just opened from Unread. It is read now but keeps its place until another email is selected.
+    static func unreadFirst(_ mails: [Mail], holding: String? = nil) -> [SmartGroup] {
         let sorted = mails.sorted { $0.date > $1.date }
-        return [SmartGroup(id: "unread", title: "Unread", symbol: nil, mails: sorted.filter { $0.unread }),
-                SmartGroup(id: "rest", title: "Everything else", symbol: nil, mails: sorted.filter { !$0.unread })].filter { !$0.mails.isEmpty }
+        func isUnread(_ m: Mail) -> Bool { m.unread || m.id == holding }
+        return [SmartGroup(id: "unread", title: "Unread", symbol: nil, mails: sorted.filter(isUnread)),
+                SmartGroup(id: "rest", title: "Everything else", symbol: nil, mails: sorted.filter { !isUnread($0) })].filter { !$0.mails.isEmpty }
     }
 }
 
@@ -71,8 +73,8 @@ enum UnreadFirstItem: Identifiable {
     var id: String { switch self { case .header(let g): return "header-" + g.id; case .row(let m): return "mail-" + m.id } }
 }
 extension SmartInbox {
-    static func unreadFirstItems(_ mails: [Mail]) -> [UnreadFirstItem] {
-        unreadFirst(mails).flatMap { g in [UnreadFirstItem.header(g)] + g.mails.map { UnreadFirstItem.row($0) } }
+    static func unreadFirstItems(_ mails: [Mail], holding: String? = nil) -> [UnreadFirstItem] {
+        unreadFirst(mails, holding: holding).flatMap { g in [UnreadFirstItem.header(g)] + g.mails.map { UnreadFirstItem.row($0) } }
     }
 }
 
@@ -170,7 +172,7 @@ struct InboxBody: View {
         case .unreadFirst:
             // One flat list of headers and rows: with a ForEach inside a ForEach, a row that moved from Unread to Everything else
             // kept its old look (dot, teal "open" fill) in the lazy list until something forced a redraw.
-            ForEach(SmartInbox.unreadFirstItems(store.unpinnedInbox)) { item in
+            ForEach(SmartInbox.unreadFirstItems(store.unpinnedInbox, holding: store.heldOpenID)) { item in
                 switch item {
                 case .header(let g):
                     HStack {
