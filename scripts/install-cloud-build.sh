@@ -13,6 +13,7 @@ rm -rf build/cloud "$APP"; mkdir -p build/cloud
 gh run download "$RUN" -n AudreyMail-app -D build/cloud
 ditto -x -k build/cloud/AudreyMail.zip build
 rm -rf build/cloud
+scripts/sync-manual.sh --check "$APP/Contents/Resources/mail-manual.md" || [ $? -eq 2 ]   # never install an app whose built-in help differs from the vault manual
 scripts/sign.sh "$APP"
 codesign --verify --verbose=2 "$APP"
 echo "Signed $APP (cloud run $RUN)"

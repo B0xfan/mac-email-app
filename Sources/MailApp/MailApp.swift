@@ -67,6 +67,8 @@ struct MailApp: App {
         } else if let i = args.firstIndex(of: "--helpshots"), i + 1 < args.count {
             let dir = args[i + 1]
             Task { @MainActor in exit(await HelpShots.run(into: dir) ? 0 : 1) }
+        } else if args.contains("--helpshots") {
+            print("--helpshots needs a folder to write the pictures into"); exit(2)
         } else if args.contains("--tiptest") {
             Task { @MainActor in exit(await TipTest.run() ? 0 : 1) }
         } else if args.contains("--print-auth-url") {
@@ -106,17 +108,12 @@ struct MailApp: App {
         }
         .defaultSize(width: 1280, height: 800)
         .commands {
+            HelpCommands()
             CommandGroup(replacing: .newItem) {
                 Button("New email") { app.store.newCompose() }.keyboardShortcut("n")
             }
             CommandGroup(replacing: .printItem) {
                 Button("Print...") { if let m = app.store.openMail { app.store.startPrint(m) } }.keyboardShortcut("p")
-            }
-            CommandGroup(replacing: .help) {
-                Button("Mail Help") { HelpModel.shared.open() }.keyboardShortcut("?", modifiers: .command)
-                Button("Keyboard shortcuts") { HelpModel.shared.open("keyboard-shortcuts") }
-                Divider()
-                Button("Search help...") { HelpModel.shared.open(search: true) }
             }
             CommandGroup(after: .toolbar) {
                 Button(app.store.settings.compactSidebar ? "Show Sidebar" : "Hide Sidebar") { app.store.toggleSidebar() }.keyboardShortcut("s", modifiers: [.control, .command])
@@ -127,6 +124,7 @@ struct MailApp: App {
             HelpView(model: HelpModel.shared)
         }
         .defaultSize(width: 860, height: 600)
+        .notAtLaunch()
         MenuBarExtra(isInserted: Binding(get: { AppSettings.shared.menuBarShow && !Keychain.testMode }, set: { AppSettings.shared.menuBarShow = $0 })) {
             MenuBarContent(store: app.store, settings: AppSettings.shared)
         } label: { MenuBarLabel(store: app.store, settings: AppSettings.shared) }

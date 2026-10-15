@@ -104,7 +104,25 @@ enum HelpSearch {
     static func terms(_ q: String) -> [String] { q.split(whereSeparator: { $0.isWhitespace }).map(String.init) }
     /// A typed word matches where a word starts, any case ("off" finds "off" and "office", not the end of "this").
     static func pattern(_ t: String) -> String { "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: t) }
-    static func has(_ text: String, _ t: String) -> Bool { text.range(of: pattern(t), options: [.regularExpression, .caseInsensitive]) != nil }
+
+    /// Lower case and no accents ("Información" is "informacion"), so typing without accents finds accented text. A regex search cannot
+    /// ignore accents by itself, so both sides are folded first. Only used when it keeps the length, so positions still line up; otherwise the text is left as it is.
+    static func fold(_ s: String) -> String {
+        let f = s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+        return f.count == s.count ? f : s
+    }
+
+    /// Where the typed word starts matching in `text` at or after `from` (a position in `text`), ignoring case and accents.
+    static func range(of t: String, in text: String, from: String.Index) -> Range<String.Index>? {
+        let ft = fold(text)
+        let off = text.distance(from: text.startIndex, to: from)
+        guard let fromF = ft.index(ft.startIndex, offsetBy: off, limitedBy: ft.endIndex),
+              let r = ft.range(of: pattern(fold(t)), options: [.regularExpression, .caseInsensitive], range: fromF..<ft.endIndex),
+              let lo = text.index(text.startIndex, offsetBy: ft.distance(ft.startIndex, r.lowerBound), limitedBy: text.endIndex),
+              let hi = text.index(lo, offsetBy: ft.distance(r.lowerBound, r.upperBound), limitedBy: text.endIndex) else { return nil }
+        return lo..<hi
+    }
+    static func has(_ text: String, _ t: String) -> Bool { range(of: t, in: text, from: text.startIndex) != nil }
 
     /// Sections with the typed words as a phrase; when none has the phrase, sections that contain every word (any order).
     /// The phrase in the title ranks first, then every word in the title, then the rest in the manual's order.
@@ -132,7 +150,7 @@ enum HelpSearch {
     static func excerpt(_ line: String, around ts: [String]) -> String {
         guard line.count > 150 else { return line }
         let phrase = ts.joined(separator: " ")
-        let firsts: [String.Index] = (has(line, phrase) ? [phrase] : ts).compactMap { line.range(of: pattern($0), options: [.regularExpression, .caseInsensitive])?.lowerBound }
+        let firsts: [String.Index] = (has(line, phrase) ? [phrase] : ts).compactMap { range(of: $0, in: line, from: line.startIndex)?.lowerBound }
         let start: String.Index = firsts.min() ?? line.startIndex
         let from: String.Index = line.index(start, offsetBy: -40, limitedBy: line.startIndex) ?? line.startIndex
         let to: String.Index = line.index(from, offsetBy: 150, limitedBy: line.endIndex) ?? line.endIndex
@@ -152,7 +170,7 @@ enum HelpText {
         let marked: [String] = terms.count > 1 && HelpSearch.has(s, phrase) ? [phrase] : terms   // "mac is off" marks the phrase, not every "is"
         for t in marked where !t.isEmpty {
             var from = s.startIndex
-            while from < s.endIndex, let r = s.range(of: HelpSearch.pattern(t), options: [.regularExpression, .caseInsensitive], range: from..<s.endIndex) {
+            while from < s.endIndex, let r = HelpSearch.range(of: t, in: s, from: from) {
                 let lo = a.characters.index(a.startIndex, offsetBy: s.distance(from: s.startIndex, to: r.lowerBound))
                 let hi = a.characters.index(lo, offsetBy: s.distance(from: r.lowerBound, to: r.upperBound))
                 a[lo..<hi].mergeAttributes(mark)
@@ -202,9 +220,14 @@ final class HelpModel: ObservableObject {
 
     /// The way in for the menu, the ? button and any feature that wants to point at a section.
     func open(_ section: String? = nil, search: Bool = false) {
+        prepare(section, search: search)
+        Self.openWindow?()
+    }
+
+    /// What the window should show, without opening it (the Help menu opens it through its own window opener, so it works with the main window closed).
+    func prepare(_ section: String? = nil, search: Bool = false) {
         if let section { show(section) }
         if search { focusPending = true; focusTick += 1 }
-        Self.openWindow?()
     }
 }
 
@@ -233,6 +256,7 @@ struct HelpView: View {
             }
             .font(.system(size: 12)).foregroundStyle(Theme.sub).padding(.horizontal, 14).padding(.vertical, 6).background(Theme.side)
         }
+        .background(NoRestore())
         .background(Theme.bg).foregroundStyle(Theme.text).tint(Theme.acc)   // links in the text use Mail's teal
         .frame(minWidth: 680, minHeight: 440)
         .onExitCommand { model.clear() }
@@ -364,6 +388,35 @@ struct HelpBlockView: View {
             .padding(.horizontal, 10)
             .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+        }
+    }
+}
+
+/// Keeps the help window out of the Mac's window restoration, so it never comes back by itself at the next launch (macOS 14; macOS 15 also gets the scene setting).
+struct NoRestore: NSViewRepresentable {
+    final class V: NSView {
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.isRestorable = false }
+    }
+    func makeNSView(context: Context) -> V { V() }
+    func updateNSView(_ v: V, context: Context) {}
+}
+
+extension Scene {
+    /// Not opened at launch and not restored (macOS 15 and later); older systems rely on NoRestore above, and a Window scene that is not the first scene is not opened at launch.
+    @SceneBuilder func notAtLaunch() -> some Scene {
+        if #available(macOS 15.0, *) { self.defaultLaunchBehavior(.suppressed).restorationBehavior(.disabled) } else { self }
+    }
+}
+
+/// The Help menu. It opens the window through the app's own window opener, so Command-? works with the main window closed.
+struct HelpCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    var body: some Commands {
+        CommandGroup(replacing: .help) {
+            Button("Mail Help") { HelpModel.shared.prepare(); openWindow(id: "help") }.keyboardShortcut("?", modifiers: .command)
+            Button("Keyboard shortcuts") { HelpModel.shared.prepare("keyboard-shortcuts"); openWindow(id: "help") }
+            Divider()
+            Button("Search help...") { HelpModel.shared.prepare(search: true); openWindow(id: "help") }
         }
     }
 }

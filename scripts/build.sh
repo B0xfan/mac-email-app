@@ -4,6 +4,7 @@
 # and replaces the installed copy in /Applications so there is never a stale one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+scripts/sync-manual.sh --check || [ $? -eq 2 ]   # the manual that goes into the app must be the vault's (exit 2 = no vault on this Mac)
 scripts/safe build -c release   # capped: background priority, 1 job, lock (taken once, also when this script runs under safe exec), timeout. Never a bare swift build.
 NAME="Audrey Mail"
 APP="build/$NAME.app"

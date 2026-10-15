@@ -7,7 +7,8 @@ SRC="${MANUAL_SOURCE:-$HOME/Projects/A4/03 WiP/2026-10-09-mac-email-app/mail-man
 DST="Manual/mail-manual.md"
 [ -f "$SRC" ] || { echo "Manual source not found: $SRC"; exit 2; }
 if [ "${1:-}" = "--check" ]; then
-  cmp -s "$SRC" "$DST" && { echo "Manual copy is current."; exit 0; }
+  WITH="${2:-$DST}"   # --check [file]: compare the vault file with the repo copy, or with another copy (the one inside a built app)
+  cmp -s "$SRC" "$WITH" && { echo "Manual copy is current."; exit 0; }
   echo "The repo copy of the manual differs from the vault. Run scripts/sync-manual.sh, commit Manual/mail-manual.md and push."; exit 1
 fi
 cp "$SRC" "$DST"

@@ -19,6 +19,7 @@ jobs:
           cp "$(swift build -c release --show-bin-path)/MailApp" "$APP/Contents/MacOS/MailApp"
           cp scripts/Info.plist "$APP/Contents/Info.plist"
           cp scripts/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          test -s Manual/mail-manual.md   # the vault comparison cannot run here (no vault); scripts/cloud-build.sh checks before the run and install-cloud-build.sh checks the built app
           cp Manual/mail-manual.md "$APP/Contents/Resources/mail-manual.md"   # the in-app help (copy of the vault manual, scripts/sync-manual.sh)
           swiftc -O -parse-as-library -application-extension -target arm64-apple-macos14.0 -framework Cocoa -Xlinker -e -Xlinker _NSExtensionMain ShareExtension/ShareViewController.swift -o "$EXT/Contents/MacOS/MailShare"
           cp ShareExtension/Info.plist "$EXT/Contents/Info.plist"
@@ -36,9 +37,8 @@ jobs:
         run: |
           swift build
           .build/debug/MailApp --selftest
-      # Pictures of the help window (drawn in a window that is never shown) and a check of the toolbar tips. Noor looks at the pictures; this step never blocks the build.
+      # Pictures of the help window (drawn in a window that is never shown) and a check of the toolbar tips. Noor looks at the pictures; this step a blank picture or a failing tip check fails the run.
       - name: Help screens and toolbar tips
-        continue-on-error: true
         timeout-minutes: 8
         run: |
           rc=0

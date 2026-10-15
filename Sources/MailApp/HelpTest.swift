@@ -44,6 +44,11 @@ extension SelfTest {
         let longLine = "Away message: An automatic out-of-office reply: on or off, first and last day, subject, message and more words to push it along. Gmail sends it even when your Mac is off. Plenty more words follow here."
         check("help: a long line is cut around the whole phrase when it has one", HelpSearch.excerpt(longLine, around: ["mac", "is", "off"]).contains("Mac is off"))
 
+        check("help: typing without accents finds accented text, and the other way round", HelpSearch.has("Información sobre el café", "informacion") && HelpSearch.has("Información", "INFORMACIÓN") && HelpSearch.has("cafe", "café") && !HelpSearch.has("Información", "formacion"))
+        let acc = HelpText.markdown("Un café y otro Café", ["cafe"])
+        check("help: accented words are marked when typed without accents", acc.runs.filter { $0.attributes[AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self] != nil }.map { String(acc[$0.range].characters) } == ["café", "Café"])
+        check("help: a long line with accents is cut around the match", HelpSearch.excerpt(String(repeating: "palabra ", count: 40) + "información final " + String(repeating: "mas ", count: 60), around: ["informacion"]).contains("información"))
+
         // highlighting: only the typed word is marked, whatever its case
         let key = AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self
         let a = HelpText.markdown("Your **Mac** is off. mac again", ["mac"])
@@ -88,6 +93,18 @@ enum HelpShots {
         NSApp.setActivationPolicy(.accessory)
         SnapshotMode.on = false
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        var ok = true
+        /// A picture counts only if the file exists, is not tiny and has several different colours (a blank window is one flat colour).
+        func looksDrawn(_ path: String) -> Bool {
+            guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), d.count > 4000, let rep = NSBitmapImageRep(data: d), rep.pixelsWide > 100, rep.pixelsHigh > 100 else { return false }
+            var seen = Set<String>()
+            for x in stride(from: 0, to: rep.pixelsWide, by: max(1, rep.pixelsWide / 40)) {
+                for y in stride(from: 0, to: rep.pixelsHigh, by: max(1, rep.pixelsHigh / 40)) {
+                    if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) { seen.insert("\(Int(c.redComponent * 20)),\(Int(c.greenComponent * 20)),\(Int(c.blueComponent * 20))") }
+                }
+            }
+            return seen.count >= 4
+        }
         for dark in [false, true] {
             let tag = dark ? "dark" : "light"
             func shot(_ name: String, _ prepare: (HelpModel) -> Void) async {
@@ -100,8 +117,12 @@ enum HelpShots {
                 win.setContentSize(NSSize(width: 860, height: 600))
                 win.orderFront(nil)
                 await LiveTest.pump(0.8)
-                LiveTest.grab(win, "\(dir)/help-\(name)-\(tag).png")
-                print("wrote help-\(name)-\(tag)")
+                let path = "\(dir)/help-\(name)-\(tag).png"
+                try? FileManager.default.removeItem(atPath: path)
+                LiveTest.grab(win, path)
+                let good = looksDrawn(path)
+                print((good ? "PASS " : "FAIL ") + "help picture drawn: \(name)-\(tag)")
+                if !good { ok = false }
                 win.close()
             }
             await shot("section") { $0.show("send-later") }
@@ -110,7 +131,7 @@ enum HelpShots {
             await shot("table") { $0.show("settings-and-accounts") }
             await shot("claude") { $0.show("claude-access") }
         }
-        return true
+        return ok
     }
 }
 #endif
