@@ -4,6 +4,7 @@
 # Usage: scripts/sign-notarize.sh "<path to .app>"
 # Needs: DEVID_P12_BASE64, DEVID_P12_PASSWORD, ASC_KEY_P8_BASE64, ASC_KEY_ID, ASC_ISSUER_ID
 set -euo pipefail
+[ -n "${CI:-}" ] || { echo "Refusing to run outside CI (it rewrites the keychain list)"; exit 1; }
 cd "$(dirname "$0")/.."
 APP="$1"
 EXT="$APP/Contents/PlugIns/MailShare.appex"
@@ -25,7 +26,7 @@ SIGN=(codesign --force --timestamp --options runtime --keychain "$KC" --sign "$I
 "${SIGN[@]}" -i com.johnhesch.mailapp --entitlements scripts/MailApp.entitlements "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 ditto -c -k --keepParent "$APP" "$T/submit.zip"
-xcrun notarytool submit "$T/submit.zip" --key "$T/key.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait --timeout 30m | tee "$T/notary.log"
+xcrun notarytool submit "$T/submit.zip" --key "$T/key.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" --wait --timeout 30m | tee "$T/notary.log" || true   # keep going so Apple's log is fetched below
 if ! grep -q "status: Accepted" "$T/notary.log"; then
   xcrun notarytool log "$(awk '/id:/ {print $2; exit}' "$T/notary.log")" --key "$T/key.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" || true   # Apple's reason
   echo "Notarization was not accepted"; exit 1

@@ -1,11 +1,11 @@
 # Installing Audrey Mail (for James)
 
-Audrey Mail is a Gmail app for the Mac. It needs a Mac with macOS 14 (Sonoma) or newer.
+Audrey Mail is a Gmail app for the Mac. It needs a Mac with macOS 14 (Sonoma) or newer, and an Apple silicon Mac (made in 2020 or later). To check, open the Apple menu, choose **About This Mac**, and look at **Chip**: it should say M1, M2, M3 or newer. If it says Intel, Audrey Mail will not run; tell John.
 
 ## 1. Download and install
 
 1. Download the file `AudreyMail-notarized.zip` that John sent you.
-2. Double-click it. A file called **Audrey Mail** appears.
+2. Double-click it. **Audrey Mail** appears (an app icon).
 3. Drag **Audrey Mail** into your **Applications** folder.
 
 ## 2. Open it the first time
@@ -19,7 +19,7 @@ Audrey Mail is a Gmail app for the Mac. It needs a Mac with macOS 14 (Sonoma) or
 John will send you a small file named `google_client.json`. It lets Audrey Mail talk to Google. It holds no password and no mail.
 
 1. In Finder, choose **Go > Go to Folder** and paste: `~/Library/Application Support/Audrey Mail`
-2. If the folder is not there, open Audrey Mail once and close it, then try again. If it is still missing, create a folder with that exact name.
+2. If the folder is not there, create a folder with that exact name.
 3. Drop `google_client.json` into that folder.
 
 ## 4. Sign in with Google
