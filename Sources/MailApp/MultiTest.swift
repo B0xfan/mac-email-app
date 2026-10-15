@@ -98,7 +98,7 @@ extension SelfTest {
         // ---- a group action on three emails: the same single-email code, one undo step, one toast
         func reset() async {
             await MainActor.run {
-                store.inbox = ms; store.aside = []; store.snoozed = []; store.picked = []; store.selectedID = nil; store.openMail = nil; store.toast = nil
+                store.accountEmail = "john@mine.example"; store.inbox = ms; store.aside = []; store.snoozed = []; store.picked = []; store.selectedID = nil; store.openMail = nil; store.toast = nil
                 store.mailbox = .inbox; store.settings.inboxView = .classic; store.settings.afterArchive = .below; store.undoArchive = []; store.undoFolder = nil
             }
             mcalls = []
@@ -171,7 +171,7 @@ extension SelfTest {
         // ---- fix round 1
         func pickIDs(_ ids: [String]) async { for id in ids { if let m = await MainActor.run(body: { store.inbox.first { $0.id == id } }) { await store.rowClicked(m, command: true, shift: false) } } }
         func filterCalls() -> [String] { mcalls.filter { $0.hasPrefix("POST") && $0.contains("/settings/filters") } }
-        let own = mk("own1", "john@mine.example", h: 7), nr = mk("nr1", "john@mine.example", h: 8)
+        let own = mk("own1", "john@mine.example", h: 7), nr = mk("nr1", "noreply@other.example", h: 8)
         let gm = mk("gm1", "a@gmail.com", h: 9), yh = mk("yh1", "b@yahoo.co.uk", h: 10), co = mk("co1", "c@corp.example", h: 11)
         defer { failIDs = []; failFrom = [] }
 
@@ -181,6 +181,17 @@ extension SelfTest {
         await pickIDs(["mu1", "own1", "nr1"]); await store.bulkBlock(wholeCompany: false)
         let sb = await MainActor.run { store.status }
         check("block safety: a group block leaves out John's own address and 'No reply yet' rows", filterCalls().count == 1 && filterCalls()[0].contains("p1@x.example") && !mcalls.contains { $0.contains("john@mine.example") } && sb.contains("2 left alone"))
+        let bad = ["x <a@b.com OR @gmail.com>", "mailer-daemon", "a@b.com, c@d.com", "a@b@c.com", "@gmail.com"].map { Address(name: "", email: $0) }
+        let refusals = await MainActor.run { bad.map { store.blockRefusal($0, wholeCompany: false) != nil } + [store.blockRefusal(Address(name: "", email: "p@x.example"), wholeCompany: false) == nil] }
+        check("block safety: anything that is not one clean address is refused", refusals == [true, true, true, true, true, true])
+        await MainActor.run { store.accountEmail = "jo.hn@gmail.com" }
+        let gv = await MainActor.run { (store.blockRefusal(Address(name: "", email: "john+z@gmail.com"), wholeCompany: false) != nil, store.blockRefusal(Address(name: "", email: "joh.n@googlemail.com"), wholeCompany: false) != nil, store.blockRefusal(Address(name: "", email: "other@gmail.com"), wholeCompany: false) == nil) }
+        await MainActor.run { store.accountEmail = "" }
+        let emptyAcct = await MainActor.run { store.blockRefusal(Address(name: "", email: "a@b.com"), wholeCompany: false) != nil }
+        await MainActor.run { store.accountEmail = "john@mail.corp.example" }
+        let sub = await MainActor.run { store.blockRefusal(Address(name: "", email: "a@corp.example"), wholeCompany: true) != nil }
+        await MainActor.run { store.accountEmail = "john@mine.example" }
+        check("block safety: gmail dot and plus variants are John's own; an empty account refuses all; a parent company of John's domain is refused", gv == (true, true, true) && emptyAcct && sub)
         mcalls = []
         let single1 = await store.block(own.from, wholeCompany: false), single2 = await store.block(Address(name: "", email: "boss@mine.example"), wholeCompany: true)
         check("block safety: blocking one email gets the same guard (own address, own company)", !single1 && !single2 && filterCalls().isEmpty)
@@ -201,8 +212,7 @@ extension SelfTest {
         mcalls = []; await store.bulkBlock(wholeCompany: true)
         let keep = await MainActor.run { store.picked.count }
         check("free mail: with only free-mail senders the company option has nothing to block and the selection stays", onlyFree == 0 && filterCalls().isEmpty && keep == 2)
-        check("free mail: the list knows the country versions and not look-alikes", ["gmail.com", "Hotmail.co.uk", "outlook.es", "yahoo.com.br", "icloud.com"].allSatisfy(FreeMail.has) && !["corp.example", "livefree.com", "mine.example"].contains(where: FreeMail.has))
-        await MainActor.run { store.accountEmail = "" }
+        check("free mail: the list knows the country versions and not look-alikes", ["gmail.com", "Hotmail.co.uk", "outlook.es", "yahoo.com.br", "icloud.com", "comcast.net", "libero.it", "protonmail.ch"].allSatisfy(FreeMail.has) && !["corp.example", "livefree.com", "mine.example"].contains(where: FreeMail.has))
 
         // 3. the selection belongs to the list it was made in
         await reset(); await pickIDs(["mu1", "mu2"])
