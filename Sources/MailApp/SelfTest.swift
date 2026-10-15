@@ -1705,7 +1705,7 @@ enum SelfTest {
         check("snoozed paging: all 3 listed across pages; time kept for s3 (on page 2), dropped only for the one truly gone", sz.0 == ["s1", "s2", "s3"] && sz.1 == ["s3"])
         // blocking moves every existing email from the sender, across pages
         r2calls = []
-        let bs = await MainActor.run { r2store() }
+        let bs = await MainActor.run { let st = r2store(); st.accountEmail = "john@mine.example"; return st }
         let okB = await bs.block(Address(name: "", email: "spam@x.example"), wholeCompany: false)
         check("block: existing emails are moved from every page of results (b1, b2, b3)", okB && r2calls.contains { $0.contains("batchModify") && $0.contains("\"b1\"") && $0.contains("\"b2\"") && $0.contains("\"b3\"") })
         StubProtocol.handler = nil
