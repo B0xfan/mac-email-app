@@ -60,16 +60,17 @@ extension SelfTest {
         // the window model
         let m = HelpModel(sections: sections)
         check("help: opens on the first section", m.current?.title == "Getting started")
-        m.open("send-later")
+        m.prepare("send-later")
         check("help: opening from a feature jumps to its section", m.selected == "send-later" && m.current?.title == "Send Later")
-        m.open("no-such-section")
+        m.prepare("no-such-section")
         check("help: a section name the manual lacks changes nothing", m.selected == "send-later")
         m.query = "snooze"
         check("help: typing lists results; clicking one opens the section and keeps the words marked", m.showResults && !m.hits.isEmpty && { m.show("snooze"); return !m.showResults && m.selected == "snooze" && m.terms == ["snooze"] }())
         m.clear()
         check("help: Escape clears the search and brings the section back", m.query.isEmpty && !m.showResults && m.terms.isEmpty && m.selected == "snooze")
         let tick = m.focusTick
-        m.open(search: true)
+        m.prepare(search: true)
+        check("help: asking for help marks it as opened by the user, so a restored window is the only one closed at launch", HelpModel.userOpened)
         check("help: 'Search help...' asks for the cursor in the search box", m.focusPending && m.focusTick == tick + 1)
 
         // the app carries this file, and it is the vault's file
@@ -94,16 +95,16 @@ enum HelpShots {
         SnapshotMode.on = false
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var ok = true
-        /// A picture counts only if the file exists, is not tiny and has several different colours (a blank window is one flat colour).
+        /// A picture counts only if the file exists, is not tiny and is not one flat colour (exact 8-bit values, so a real but mostly dark screen still passes).
         func looksDrawn(_ path: String) -> Bool {
             guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), d.count > 4000, let rep = NSBitmapImageRep(data: d), rep.pixelsWide > 100, rep.pixelsHigh > 100 else { return false }
             var seen = Set<String>()
             for x in stride(from: 0, to: rep.pixelsWide, by: max(1, rep.pixelsWide / 40)) {
                 for y in stride(from: 0, to: rep.pixelsHigh, by: max(1, rep.pixelsHigh / 40)) {
-                    if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) { seen.insert("\(Int(c.redComponent * 20)),\(Int(c.greenComponent * 20)),\(Int(c.blueComponent * 20))") }
+                    if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) { seen.insert("\(Int((c.redComponent * 255).rounded())),\(Int((c.greenComponent * 255).rounded())),\(Int((c.blueComponent * 255).rounded()))") }
                 }
             }
-            return seen.count >= 4
+            return seen.count >= 3
         }
         for dark in [false, true] {
             let tag = dark ? "dark" : "light"

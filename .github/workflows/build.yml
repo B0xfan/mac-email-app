@@ -37,7 +37,7 @@ jobs:
         run: |
           swift build
           .build/debug/MailApp --selftest
-      # Pictures of the help window (drawn in a window that is never shown) and a check of the toolbar tips. Noor looks at the pictures; this step a blank picture or a failing tip check fails the run.
+      # Pictures of the help window (drawn in a window that is never shown) and a check of the toolbar tips. Noor looks at the pictures. A blank picture or a failing tip check fails the run.
       - name: Help screens and toolbar tips
         timeout-minutes: 8
         run: |

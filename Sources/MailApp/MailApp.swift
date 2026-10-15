@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The help window is only ever opened by the user: one that the Mac brought back from an earlier session is closed again.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApplication.shared.windows.filter { $0.title == "Mail Help" }.forEach { $0.close() } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if !HelpModel.userOpened { NSApplication.shared.windows.filter { $0.title == "Mail Help" }.forEach { $0.close() } } }   // only a restored copy: help the user asked for sets userOpened
         MailStore.clearAttachmentTemp(); if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) { MailStore.clearShareInbox() } }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -206,6 +206,6 @@ final class SignInModel: ObservableObject {
 struct RegisterOpenWindow: ViewModifier {
     @Environment(\.openWindow) private var openWindow
     func body(content: Content) -> some View {
-        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") }; HelpModel.openWindow = { openWindow(id: "help") } }
+        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") } }
     }
 }

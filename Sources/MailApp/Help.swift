@@ -190,8 +190,8 @@ enum HelpText {
 @MainActor
 final class HelpModel: ObservableObject {
     static let shared = HelpModel()
-    /// Set by the main window once it has appeared (like AppDelegate.openMainWindow): opens the help window.
-    nonisolated(unsafe) static var openWindow: (() -> Void)?
+    /// True once the user has asked for help in this run; AppDelegate closes a help window the Mac restored only while this is false.
+    nonisolated(unsafe) static var userOpened = false
 
     let sections: [HelpSection]
     @Published var selected: String
@@ -218,14 +218,9 @@ final class HelpModel: ObservableObject {
     /// Escape: the search is cleared and the section list is back.
     func clear() { query = "" }
 
-    /// The way in for the menu, the ? button and any feature that wants to point at a section.
-    func open(_ section: String? = nil, search: Bool = false) {
-        prepare(section, search: search)
-        Self.openWindow?()
-    }
-
-    /// What the window should show, without opening it (the Help menu opens it through its own window opener, so it works with the main window closed).
+    /// Chooses what the help window shows; the caller then opens the window with its own window opener (see OpenWindowAction.help), so nothing depends on the main window.
     func prepare(_ section: String? = nil, search: Bool = false) {
+        Self.userOpened = true
         if let section { show(section) }
         if search { focusPending = true; focusTick += 1 }
     }
@@ -403,14 +398,22 @@ struct NoRestore: NSViewRepresentable {
 }
 
 /// The Help menu. It opens the window through the app's own window opener, so Command-? works with the main window closed.
+extension OpenWindowAction {
+    /// The one way into help: the Help menu, the ? button and any feature that points at a section.
+    func help(_ section: String? = nil, search: Bool = false) {
+        MainActor.assumeIsolated { HelpModel.shared.prepare(section, search: search) }
+        callAsFunction(id: "help")
+    }
+}
+
 struct HelpCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     var body: some Commands {
         CommandGroup(replacing: .help) {
-            Button("Mail Help") { HelpModel.shared.prepare(); openWindow(id: "help") }.keyboardShortcut("?", modifiers: .command)
-            Button("Keyboard shortcuts") { HelpModel.shared.prepare("keyboard-shortcuts"); openWindow(id: "help") }
+            Button("Mail Help") { openWindow.help() }.keyboardShortcut("?", modifiers: .command)
+            Button("Keyboard shortcuts") { openWindow.help("keyboard-shortcuts") }
             Divider()
-            Button("Search help...") { HelpModel.shared.prepare(search: true); openWindow(id: "help") }
+            Button("Search help...") { openWindow.help(search: true) }
         }
     }
 }

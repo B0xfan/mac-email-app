@@ -271,6 +271,7 @@ struct LinkMenuButton: View {
 
 struct ToolbarView: View {
     @ObservedObject var store: MailStore
+    @Environment(\.openWindow) private var openWindow
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
         HStack(spacing: 4) {
@@ -315,7 +316,7 @@ struct ToolbarView: View {
                 Button("Move all back to Inbox") { Task { await store.backToInbox(store.aside) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             }
             if store.mailbox == .inbox { InboxViewSwitch(settings: store.settings) }
-            IconButton(symbol: "questionmark.circle", label: "Help") { HelpModel.shared.open() }
+            IconButton(symbol: "questionmark.circle", label: "Help") { openWindow.help() }
             IconButton(symbol: store.settings.readerOnTop ? "rectangle.split.2x1" : "rectangle.split.1x2", label: store.settings.readerOnTop ? "Show the reading pane beside the list" : "Show the reading pane on top") { store.settings.readerOnTop.toggle() }
             if !store.status.isEmpty { Text(store.status).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1) }
         }
