@@ -15,13 +15,13 @@ enum ListTest {
             guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
             return abs(Int((c.redComponent * 255).rounded()) - 168) <= 10 && abs(Int((c.greenComponent * 255).rounded()) - 212) <= 10 && abs(Int((c.blueComponent * 255).rounded()) - 215) <= 10
         }
-        // the list column starts right of the 244 pt sidebar: find the left edge of the teal, then look 6 points inside it (clear of the text)
+        // the list column starts right of the 244 pt sidebar: find the left edge of the teal, then look 3 points inside it (inside the border, clear of the orange dot)
         var left: Int?
         scan: for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
             for y in stride(from: 0, to: rep.pixelsHigh, by: 2) where isTeal(x, y) { left = x; break scan }
         }
         guard let left else { return [] }
-        let probe = left + Int(6 * scale), gap = Int(4 * scale), minLen = Int(30 * scale)
+        let probe = left + Int(3 * scale), gap = Int(4 * scale), minLen = Int(30 * scale)
         var out: [(Int, Int)] = [], start: Int?, last = 0
         for y in 0..<rep.pixelsHigh {
             if isTeal(probe, y) { if start == nil { start = y }; last = y }
@@ -83,6 +83,9 @@ enum ListTest {
         let g = SmartInbox.unreadFirst(store.inbox)
         check("headers: Unread above the unread emails, Everything else above the read ones",
               g.map(\.id) == ["unread", "rest"] && g[0].mails.allSatisfy(\.unread) && g[1].mails.allSatisfy { !$0.unread })
+        let flat = SmartInbox.unreadFirstItems(store.inbox).map(\.id)
+        check("flat list: each header directly above its own emails",
+              flat == ["header-unread", "mail-vo2", "mail-pre", "header-rest", "mail-vo1", "mail-suz", "mail-mad", "mail-wash"])
         win.close()
         return ok
     }

@@ -65,6 +65,17 @@ enum SmartInbox {
     }
 }
 
+/// "Unread first" as one flat list: a header, then its rows, then the next header.
+enum UnreadFirstItem: Identifiable {
+    case header(SmartGroup), row(Mail)
+    var id: String { switch self { case .header(let g): return "header-" + g.id; case .row(let m): return "mail-" + m.id } }
+}
+extension SmartInbox {
+    static func unreadFirstItems(_ mails: [Mail]) -> [UnreadFirstItem] {
+        unreadFirst(mails).flatMap { g in [UnreadFirstItem.header(g)] + g.mails.map { UnreadFirstItem.row($0) } }
+    }
+}
+
 extension MailStore {
     func category(of m: Mail) -> MailCategory { categories.learned(m.from.email) ?? .guess(m) }
     func moveToCategory(_ m: Mail, _ c: MailCategory) { categories.learn(m.from.email, c); objectWillChange.send() }
@@ -157,15 +168,20 @@ struct InboxBody: View {
                 }
             }
         case .unreadFirst:
-            ForEach(SmartInbox.unreadFirst(store.unpinnedInbox)) { g in
-                HStack {
-                    Text(g.title.uppercased()).font(Theme.label).tracking(0.7)
-                    Spacer()
-                    if g.id == "unread" { Text(g.countText).font(Theme.small) }
+            // One flat list of headers and rows: with a ForEach inside a ForEach, a row that moved from Unread to Everything else
+            // kept its old look (dot, teal "open" fill) in the lazy list until something forced a redraw.
+            ForEach(SmartInbox.unreadFirstItems(store.unpinnedInbox)) { item in
+                switch item {
+                case .header(let g):
+                    HStack {
+                        Text(g.title.uppercased()).font(Theme.label).tracking(0.7)
+                        Spacer()
+                        if g.id == "unread" { Text(g.countText).font(Theme.small) }
+                    }
+                    .foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2)
+                    .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                case .row(let m): row(m)
                 }
-                .foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2)
-                .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
-                ForEach(g.mails) { row($0) }
             }
         }
         if store.inboxNext != nil { MoreRow(loading: store.loadingMore, page: store.inboxNext, resetKey: settings.smartTab, auto: { await store.autoMoreInbox() }, manual: { store.resetAutoPages(); await store.loadMoreInbox() }, reset: { store.resetAutoPages() }) }
