@@ -131,7 +131,10 @@ extension SelfTest {
         await MainActor.run { st.settings.groupConversations = false }
         calls = []
         await st.refresh()
-        let sentShown = Mail(id: "c1b", from: Address(name: "Me", email: "me@x.example"), subject: "Notes", snippet: "mine", date: Date(), labels: ["SENT"])
+        // a fetched message (the stub gives it thread C1), so it shares the Inbox row's conversation; with threadID = id the check could not tell the guard is there
+        let sentFetched = try? await st.gmail.message(id: "c1b", full: false)
+        check("switch off, or outside the Inbox: the test message really belongs to conversation C1", sentFetched?.threadID == "C1")
+        let sentShown = sentFetched ?? Mail(id: "c1b", from: Address(name: "Me", email: "me@x.example"), subject: "Notes", snippet: "mine", date: Date(), labels: ["SENT"])
         await MainActor.run { st.mailbox = .sent; st.openMail = sentShown }
         let rowOff = await MainActor.run { st.openRow?.id }
         await MainActor.run { st.settings.groupConversations = true }
