@@ -122,10 +122,22 @@ extension SelfTest {
         wire = []
         await st.archiveOpen()
         check("pane: a reply that arrived while the pane was open is archived with the rest", touched(["c1d", "c1c", "c1a"], ["c1b"]))
+        check("pane: the pane moves on from the archived conversation even though a reply changed its newest message", await MainActor.run { st.openMail?.threadID != "C1" })
         c1Extra = false; hist["C1"] = "21"
         await st.undoLast()
         await st.refresh()
         await MainActor.run { st.closeReader() }
+        // switch off: an unchanged row is not fetched again, and the pane acts on the message shown, not on a row of the same thread
+        await MainActor.run { st.settings.groupConversations = false }
+        calls = []
+        await st.refresh()
+        let sentShown = Mail(id: "c1b", from: Address(name: "Me", email: "me@x.example"), subject: "Notes", snippet: "mine", date: Date(), labels: ["SENT"])
+        await MainActor.run { st.mailbox = .sent; st.openMail = sentShown }
+        let rowOff = await MainActor.run { st.openRow?.id }
+        await MainActor.run { st.settings.groupConversations = true }
+        let rowSent = await MainActor.run { st.openRow?.id }
+        await MainActor.run { st.mailbox = .inbox; st.closeReader() }
+        check("switch off, or outside the Inbox: nothing refetched for an unchanged row, and Archive/Snooze act on the message shown", !calls.contains { $0.hasSuffix("/threads/C2") } && rowOff == "c1b" && rowSent == "c1b")
         // switch turned on with rows saved without a conversation list: they are fetched again though Gmail's version tag is unchanged
         await MainActor.run { st.settings.groupConversations = true; st.inbox = st.inbox.map { var x = $0; x.convo = nil; return x } }
         calls = []

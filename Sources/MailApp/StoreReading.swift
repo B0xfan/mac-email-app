@@ -57,7 +57,8 @@ extension MailStore {
     // MARK: - Archive
 
     /// The open email's Inbox row: it carries the conversation's current siblings, even when a reply arrived while the pane was open.
-    var openRow: Mail? { openMail.map { o in inbox.first { $0.threadID == o.threadID } ?? o } }
+    /// Only for the stacked Inbox pane; Sent, Archive, search and the switch off act on the message shown.
+    var openRow: Mail? { openMail.map { o in groupOn && mailbox == .inbox ? inbox.first { $0.threadID == o.threadID } ?? o : o } }
 
     func archiveOpen() async {
         guard let m = openRow, !selectedIsNewSender else { return }
@@ -73,7 +74,7 @@ extension MailStore {
     /// a move from Sent/Archive/search leaves the row where it is, and Undo puts back exactly what was changed.
     func leaveInbox(_ m: Mail, add: [String], text: String, aside setAside: Bool,
                             alsoRemove: [String] = [], keepOther: Bool = false, exactUndo: Bool = false, trashIt: Bool = false) async {
-        let wasOpen = openMail?.id == m.id
+        let wasOpen = openMail?.id == m.id || (groupOn && mailbox == .inbox && openMail?.threadID == m.threadID)   // a reply that arrived since opening changed the row's id
         let before = listMails
         let idx = before.firstIndex { $0.id == m.id }
         let wasAside = aside.contains { $0.id == m.id }
