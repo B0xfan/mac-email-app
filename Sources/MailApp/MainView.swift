@@ -738,6 +738,14 @@ struct ReadingPane: View {
 struct ReadingContent: View {
     @ObservedObject var store: MailStore
     let mail: Mail
+    /// The newest message kept open beside an older one (fold setting off): the same view, without the folded lines, the quick reply or the outer padding.
+    var embedded = false
+    enum BodyKind { case html, loading, text }
+    /// What the pane shows for a message once its web text is cleaned: the web version, nothing yet while it loads, or plain text (snippet last).
+    static func bodyKind(cleanHTML: String?, _ m: Mail) -> BodyKind {
+        if let h = cleanHTML, !h.isEmpty { return .html }
+        return m.html == nil && m.text == nil && !SnapshotMode.on ? .loading : .text
+    }
     var body: some View {
         let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers)
         let sender = mail.from.email.lowercased()
@@ -745,7 +753,7 @@ struct ReadingContent: View {
         let warns = store.senderWarnings(mail)
         let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
         VStack(alignment: .leading, spacing: 10) {
-            if store.stackOpen { ConvoFolds(store: store, shown: mail.id, older: true) }
+            if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: true) }
             if store.selectedIsNewSender {
                 Card(padding: 12) {
                     HStack(spacing: 16) {
@@ -821,12 +829,12 @@ struct ReadingContent: View {
                     Text(tr.body).font(Theme.body).lineSpacing(4).textSelection(.enabled)
                         .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } else if let html = cleanHTML, !html.isEmpty {
+            } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .html, let html = cleanHTML {
                 HTMLMessageView(html: html, blockRemote: !loadImgs)
                     .background(RoundedRectangle(cornerRadius: 10).fill(.white))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if mail.html == nil, mail.text == nil, !SnapshotMode.on {
+            } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .loading {
                 // Still loading the full message: show nothing rather than the snippet (it flashed "Sent from my iPhone").
                 Spacer(minLength: 0)
             } else {
@@ -835,8 +843,8 @@ struct ReadingContent: View {
                         .frame(maxWidth: 620, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            if store.stackOpen { ConvoFolds(store: store, shown: mail.id, older: false) }
-            if !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: store.openMail ?? mail) }   // a reply answers the newest message
+            if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: false) }
+            if !embedded, !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: store.openMail ?? mail) }   // a reply answers the newest message
             if !mail.attachments.isEmpty {
                 HStack(spacing: 8) {
                     ForEach(mail.attachments) { a in
@@ -846,7 +854,7 @@ struct ReadingContent: View {
                 }
             }
         }
-        .padding(24)
+        .padding(embedded ? 0 : 24)
     }
 }
 

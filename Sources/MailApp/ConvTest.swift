@@ -215,6 +215,13 @@ extension SelfTest {
         let offGrouping = await MainActor.run { st.newestStaysOpen }
         check("fold setting: on = opening an older message folds the one already open; off = the newest stays open too; with grouping off it does nothing",
               onFold.0 == c1r.convo![0].id && !onFold.1 && offFold.0 == onFold.0 && offFold.1 && !offGrouping)
+        // the newest message kept open is drawn by the same body rule as a message opened alone: an email with only a web version uses it, not the snippet
+        var htmlOnly = c1r; htmlOnly.html = "<p>The whole <b>formatted</b> message</p>"; htmlOnly.text = nil; htmlOnly.snippet = "short preview"
+        var loadingMsg = c1r; loadingMsg.html = nil; loadingMsg.text = nil
+        let kindHTML = ReadingContent.bodyKind(cleanHTML: HTMLSafety.process(htmlOnly.html, blockTrackers: true).0, htmlOnly)
+        let kindLoading = ReadingContent.bodyKind(cleanHTML: nil, loadingMsg), kindText = ReadingContent.bodyKind(cleanHTML: nil, { var t = c1r; t.html = nil; t.text = "plain"; return t }())
+        check("fold setting off: the kept-open newest message with only a web version shows the web version (not the snippet); loading shows nothing yet; plain text as text",
+              kindHTML == .html && kindLoading == .loading && kindText == .text)
         let kept = AppSettings().foldOthers
         UserDefaults.standard.removeObject(forKey: "foldOthers")
         let fresh = AppSettings().foldOthers
