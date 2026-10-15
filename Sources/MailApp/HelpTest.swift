@@ -41,6 +41,9 @@ extension SelfTest {
         check("help: a long line is cut around the match", HelpSearch.excerpt(String(repeating: "word ", count: 80) + "needle " + String(repeating: "word ", count: 80), around: ["needle"]).contains("needle")
               && HelpSearch.excerpt(String(repeating: "word ", count: 80) + "needle " + String(repeating: "word ", count: 80), around: ["needle"]).count < 200)
 
+        let longLine = "Away message: An automatic out-of-office reply: on or off, first and last day, subject, message and more words to push it along. Gmail sends it even when your Mac is off. Plenty more words follow here."
+        check("help: a long line is cut around the whole phrase when it has one", HelpSearch.excerpt(longLine, around: ["mac", "is", "off"]).contains("Mac is off"))
+
         // highlighting: only the typed word is marked, whatever its case
         let key = AttributeScopes.SwiftUIAttributes.BackgroundColorAttribute.self
         let a = HelpText.markdown("Your **Mac** is off. mac again", ["mac"])

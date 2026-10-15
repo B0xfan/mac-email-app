@@ -131,7 +131,8 @@ enum HelpSearch {
     /// A long line is cut to a window around the first match.
     static func excerpt(_ line: String, around ts: [String]) -> String {
         guard line.count > 150 else { return line }
-        let firsts: [String.Index] = ts.compactMap { line.range(of: pattern($0), options: [.regularExpression, .caseInsensitive])?.lowerBound }
+        let phrase = ts.joined(separator: " ")
+        let firsts: [String.Index] = (has(line, phrase) ? [phrase] : ts).compactMap { line.range(of: pattern($0), options: [.regularExpression, .caseInsensitive])?.lowerBound }
         let start: String.Index = firsts.min() ?? line.startIndex
         let from: String.Index = line.index(start, offsetBy: -40, limitedBy: line.startIndex) ?? line.startIndex
         let to: String.Index = line.index(from, offsetBy: 150, limitedBy: line.endIndex) ?? line.endIndex
