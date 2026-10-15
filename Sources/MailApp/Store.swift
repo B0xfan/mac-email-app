@@ -276,7 +276,7 @@ final class MailStore: ObservableObject {
             }
             // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
             let have = Dictionary(inbox.filter(\.inInbox).map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
-            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID }.map(\.id)
+            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID || (settings.groupConversations && have[$0.id]?.convo == nil) }.map(\.id)
             async let aside: Void = loadAside()
             async let snz: Void = loadSnoozed()
             let got = await gmail.threads(need)

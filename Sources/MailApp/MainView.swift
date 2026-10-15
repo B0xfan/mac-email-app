@@ -300,9 +300,9 @@ struct ToolbarView: View {
             IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multi) {
                 if multi { Task { await store.bulkArchive() } } else { Task { await store.archiveOpen() } } }
             IconButton(symbol: "rectangle.stack", label: asideTip, enabled: multi || inboxOne) {
-                if multi { Task { await store.bulkSetAside() } } else if let m = store.openMail { Task { await store.setAside(m) } } }
+                if multi { Task { await store.bulkSetAside() } } else if let m = store.openRow { Task { await store.setAside(m) } } }
             IconButton(symbol: "moon", label: snoozeTip, enabled: multi || inboxOne) {
-                if multi { store.bulkSnooze() } else if let m = store.openMail { store.picker = .snooze([m.id]) } }
+                if multi { store.bulkSnooze() } else if let m = store.openRow { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
                 if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
             IconButton(symbol: "doc.text", label: "Save as note (N)", enabled: canAct && !store.savingNote) {
@@ -452,8 +452,8 @@ struct ListPane: View {
             switch p.characters.lowercased() {
             case "a": Task { await store.archiveOpen() }; return .handled
             case "c": store.newCompose(); return .handled
-            case "s": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.setAside(m) }; return .handled }; return .ignored
-            case "z": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { store.picker = .snooze([m.id]); return .handled }; return .ignored
+            case "s": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.setAside(m) }; return .handled }; return .ignored
+            case "z": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { store.picker = .snooze([m.id]); return .handled }; return .ignored
             case "p": if let m = store.openMail, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.togglePin(m) }; return .handled }; return .ignored
             case "t": if let m = store.openMail, !store.selectedIsNewSender { store.todoMail = m; return .handled }; return .ignored
             case "r": if let m = store.openMail, !store.selectedIsNewSender { store.reply(m); return .handled }; return .ignored

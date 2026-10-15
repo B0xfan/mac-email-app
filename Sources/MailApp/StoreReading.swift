@@ -24,9 +24,11 @@ extension MailStore {
         openMail = m
         seen.record(m.id)
         await contacts.loadIfNeeded(ask: false)   // known names for "Name doesn't match address"
-        if let full = try? await gmail.message(id: m.id, full: true), selectedID == m.id {
+        if var full = try? await gmail.message(id: m.id, full: true), selectedID == m.id {
+            full.convo = m.convo; full.siblings = m.siblings; full.historyID = m.historyID   // the fetched message is one email; the row knows its conversation
             openMail = full
-            let withPictures = await withInlineImages(full)   // pictures that are part of the email itself
+            var withPictures = await withInlineImages(full)   // pictures that are part of the email itself
+            withPictures.convo = m.convo; withPictures.siblings = m.siblings; withPictures.historyID = m.historyID
             if selectedID == m.id, withPictures.html != full.html { openMail = withPictures }
         }
         if m.unread { await setRead(m) }
@@ -54,8 +56,11 @@ extension MailStore {
 
     // MARK: - Archive
 
+    /// The open email's Inbox row: it carries the conversation's current siblings, even when a reply arrived while the pane was open.
+    var openRow: Mail? { openMail.map { o in inbox.first { $0.threadID == o.threadID } ?? o } }
+
     func archiveOpen() async {
-        guard let m = openMail, !selectedIsNewSender else { return }
+        guard let m = openRow, !selectedIsNewSender else { return }
         await archive(m)
     }
 

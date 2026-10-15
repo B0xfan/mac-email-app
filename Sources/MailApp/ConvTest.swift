@@ -48,7 +48,7 @@ extension SelfTest {
             let s = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("cv")),
                               seen: SeenBook(url: cbURL.appendingPathExtension("cvs")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil),
                               organizer: OrganizerBook(url: nil), timing: TimingBook(url: FileManager.default.temporaryDirectory.appendingPathComponent("cv-\(UUID().uuidString).json")))
-            s.settings.screenNewSenders = false; s.settings.inboxView = .classic; s.settings.groupConversations = false
+            s.settings.screenNewSenders = false; s.settings.inboxView = .classic; s.settings.groupConversations = true
             return s
         }
         defer { for e in ["cv", "cvs"] { try? FileManager.default.removeItem(at: cbURL.appendingPathExtension(e)) } }
@@ -63,6 +63,7 @@ extension SelfTest {
         check("unread: a conversation is unread if any message is (older one unread, newest read), and counts the unread messages",
               c2.unread && c2.id == "c2b" && c2.convo?.filter(\.unread).count == 1 && c1.unread && c1.convo?.filter(\.unread).count == 1 && !c3.unread)
         // the switch
+        await MainActor.run { st.settings.groupConversations = false }
         let off = await MainActor.run { (st.rowFace(c1), st.rowCount(c1), st.listMails.map(\.id)) }
         check("switch off (the default): rows are exactly as before, no count, no change of sender, subject, preview or time",
               !AppSettings().groupConversations && off.0 == c1 && off.1 == nil)
@@ -105,6 +106,40 @@ extension SelfTest {
         check("archive: a conversation is archived whole (every inbox message of it); your own sent message in it is left alone", touched(["c1c", "c1a"], ["c1b"]))
         await st.undoLast()
         check("archive: Undo puts the whole conversation back in the inbox", await MainActor.run { st.inbox.contains { $0.threadID == "C1" } })
+        // Archive from the open pane, reached the way a click reaches it (open() replaces the row with a one-message fetch)
+        await MainActor.run { st.closeReader() }
+        wire = []
+        await st.open(await row("C1"))
+        let paneConvo = await MainActor.run { (st.openMail?.convo?.count, st.openMail?.siblings, st.stackOpen) }
+        await st.archiveOpen()
+        func leftInbox(_ ids: [String]) -> Bool { let w = wire.filter { $0.contains("batchModify") && $0.contains("removeLabelIds") && $0.contains("INBOX") }; return ids.allSatisfy { id in w.contains { $0.contains("\"\(id)\"") } } }
+        let gone = await MainActor.run { !st.inbox.contains { $0.threadID == "C1" } }
+        check("pane: after open(), the stack is still there and Archive from the pane takes the whole conversation (3 messages: 2 in the inbox leave, your sent one is left alone)",
+              paneConvo.0 == 3 && paneConvo.1 == ["c1a"] && paneConvo.2 && gone && leftInbox(["c1c", "c1a"]) && !wire.contains { $0.contains("batchModify") && $0.contains("INBOX") && $0.contains("\"c1b\"") })
+        await st.undoLast()
+        // a reply arrives while the pane is open: Archive from the pane takes it too
+        await st.open(await row("C1"))
+        c1Extra = true; hist["C1"] = "20"
+        await st.refresh()
+        wire = []
+        await st.archiveOpen()
+        check("pane: a reply that arrived while the pane was open is archived with the rest", leftInbox(["c1d", "c1c", "c1a"]))
+        c1Extra = false; hist["C1"] = "21"
+        await st.undoLast()
+        await MainActor.run { st.closeReader() }
+        // rows cached before the switch have no conversation list: turning it on fetches them even though Gmail's version tag is unchanged
+        await MainActor.run { st.settings.groupConversations = false; st.inbox = st.inbox.map { var x = $0; x.convo = nil; return x } }
+        calls = []; hist["C3"] = "2"
+        await st.refresh()
+        let offRows = await MainActor.run { (st.inbox.first { $0.threadID == "C3" }?.convo == nil, st.inbox.first { $0.threadID == "C2" }?.convo == nil) }
+        check("switch off: nothing new is built for conversations, and an unchanged row is not fetched again", offRows.0 && offRows.1 && !calls.contains { $0.hasSuffix("/threads/C2") })
+        await MainActor.run { st.settings.groupConversations = true }
+        await st.refresh()
+        let onRows = await MainActor.run { st.inbox.map { $0.convo != nil } }
+        check("switch turned on: rows saved without a conversation list are fetched again, so older conversations group too", onRows.count == 3 && !onRows.contains(false))
+        var newer = await row("C1")
+        newer.convo = (newer.convo ?? []) + [ConvMsg(Mail(id: "c1y", from: Address(name: "Me", email: "me@x.example"), subject: "Notes", snippet: "mine", date: newer.date.addingTimeInterval(5000), labels: ["SENT"]))]
+        check("order: with the switch on a row sorts by the time it shows", newer.sortDate == newer.conversationFace.date && newer.sortDate > newer.date)
         // several selected rows: each row means its whole conversation
         await MainActor.run { st.closeReader() }
         let (r1, r2) = (await row("C1"), await row("C2"))
