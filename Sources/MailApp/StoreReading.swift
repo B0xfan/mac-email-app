@@ -206,29 +206,33 @@ extension MailStore {
 // MARK: - Pins
 
 extension MailStore {
-    func isPinned(_ m: Mail) -> Bool { pinLabelID.map { m.labels.contains($0) } ?? false }
+    func isPinned(_ m: Mail) -> Bool { pinLabelID.map { l in m.labels.contains(l) || (groupOn && (m.convo ?? []).contains { $0.labels.contains(l) }) } ?? false }
     var pinnedMails: [Mail] { inboxMails.filter(isPinned).sorted { $0.date > $1.date } }
     var unpinnedInbox: [Mail] { inboxMails.filter { !isPinned($0) } }
 
-    func togglePin(_ given: Mail) async {
+    /// With conversations on, a pin sits on every inbox email of the conversation (and an unpin clears every pinned one), so a new reply cannot lose it.
+    /// Returns the emails changed (empty = nothing was).
+    @discardableResult
+    func togglePin(_ given: Mail) async -> [String] {
         let m = (inbox + other).first { $0.id == given.id } ?? given   // always the current labels
         do {
             let unpin = isPinned(m)
             var id = pinLabelID
             if id == nil {
-                if unpin { return }
+                if unpin { return [] }
                 id = try await gmail.labels().first { $0.name == MailStore.pinLabelName }?.id
                 if id == nil { id = try await gmail.createLabel(name: MailStore.pinLabelName).id }
                 pinLabelID = id
             }
-            guard let label = id else { return }
-            try await gmail.modify(ids: [m.id], add: unpin ? [] : [label], remove: unpin ? [label] : [])
-            func apply(_ x: inout Mail) { if unpin { x.labels.removeAll { $0 == label } } else if !x.labels.contains(label) { x.labels.append(label) } }
-            for i in inbox.indices where inbox[i].id == m.id { apply(&inbox[i]) }
-            for i in other.indices where other[i].id == m.id { apply(&other[i]) }
-            if openMail?.id == m.id { apply(&openMail!) }
+            guard let label = id else { return [] }
+            var ids = [m.id]
+            if groupOn { ids += (m.siblings ?? []) + (unpin ? (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : []) }
+            ids = ids.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+            try await gmail.modify(ids: ids, add: unpin ? [] : [label], remove: unpin ? [label] : [])
+            for i in ids { applyLabels(i, add: unpin ? [] : [label], remove: unpin ? [label] : []) }
             saveCache()
-        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+            return ids
+        } catch { self.error = (error as? LocalizedError)?.errorDescription; return [] }
     }
 }
 

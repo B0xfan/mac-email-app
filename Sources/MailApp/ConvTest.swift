@@ -7,6 +7,7 @@ extension SelfTest {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
         nonisolated(unsafe) var calls: [String] = []
+        nonisolated(unsafe) var wire: [String] = []      // method, path and body of every request, for the action checks
         nonisolated(unsafe) var hist = ["C1": "1", "C2": "1", "C3": "1"]
         nonisolated(unsafe) var c1Extra = false          // a new reply has arrived in C1
         func msg(_ id: String, _ t: String, _ labels: [String], _ ms: Int, from: String, subject: String = "Notes") -> String {
@@ -16,6 +17,7 @@ extension SelfTest {
             let u = req.url!, us = u.absoluteString, path = u.path
             if us.contains("oauth2") || us.contains("token") && !us.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
             calls.append("\(req.httpMethod ?? "") \(path)")
+            wire.append("\(req.httpMethod ?? "") \(path) \(String(data: req.httpBody ?? Data(), encoding: .utf8) ?? "")")
             if path.hasSuffix("/threads") {
                 return (200, "{\"threads\":[" + ["C1", "C2", "C3"].map { "{\"id\":\"\($0)\",\"historyId\":\"\(hist[$0]!)\"}" }.joined(separator: ",") + "]}")
             }
@@ -37,6 +39,7 @@ extension SelfTest {
                 }
                 return (200, "{\"id\":\"\(id)\",\"historyId\":\"\(hist[id] ?? "1")\",\"messages\":[\(ms.joined(separator: ","))]}")
             }
+            if path.hasSuffix("/labels") && req.httpMethod == "GET" { return (200, #"{"labels":[{"id":"Label_Pin","name":"Pinned"}]}"#) }
             if path.contains("/messages/") && req.httpMethod == "GET" { return (200, msg(u.lastPathComponent, "C1", ["INBOX"], 1_700_000_000_000, from: "Priya <p@x.example>")) }
             return (200, "{}")
         }
@@ -48,7 +51,7 @@ extension SelfTest {
             s.settings.screenNewSenders = false; s.settings.inboxView = .classic; s.settings.groupConversations = false
             return s
         }
-        defer { try? FileManager.default.removeItem(at: cbURL.appendingPathExtension("cv")) }
+        defer { for e in ["cv", "cvs"] { try? FileManager.default.removeItem(at: cbURL.appendingPathExtension(e)) } }
         await st.refresh()
         let (c1, c2, c3) = await MainActor.run { (st.inbox.first { $0.threadID == "C1" }!, st.inbox.first { $0.threadID == "C2" }!, st.inbox.first { $0.threadID == "C3" }!) }
         check("grouping: one row per conversation; its messages come from the one call that already built the row (no extra Gmail requests)",
@@ -90,6 +93,75 @@ extension SelfTest {
               back == nil && other == nil)
         check("reading pane: not stacked for a single email, with the switch off, or outside the Inbox (Sent and other folders stay as they are)", !single && !offStack && !sentStack)
         await MainActor.run { st.mailbox = .inbox; st.openMail = nil }
+        // actions on the whole conversation (the row stands for all of it; a selected row means its whole conversation)
+        await MainActor.run { st.settings.groupConversations = true; st.settings.inboxView = .classic; st.mailbox = .inbox; st.pinLabelID = "Label_Pin"; st.closeReader() }
+        await st.refresh()
+        func row(_ t: String) async -> Mail { await MainActor.run { st.inbox.first { $0.threadID == t }! } }
+        func touched(_ ids: [String], _ not: [String] = []) -> Bool {
+            ids.allSatisfy { id in wire.contains { $0.contains("batchModify") && $0.contains("\"\(id)\"") } } && not.allSatisfy { id in !wire.contains { $0.contains("\"\(id)\"") } }
+        }
+        wire = []
+        await st.archive(await row("C1"))
+        check("archive: a conversation is archived whole (every inbox message of it); your own sent message in it is left alone", touched(["c1c", "c1a"], ["c1b"]))
+        await st.undoLast()
+        check("archive: Undo puts the whole conversation back in the inbox", await MainActor.run { st.inbox.contains { $0.threadID == "C1" } })
+        // several selected rows: each row means its whole conversation
+        await MainActor.run { st.closeReader() }
+        let (r1, r2) = (await row("C1"), await row("C2"))
+        await st.rowClicked(r1, command: true, shift: false)
+        await st.rowClicked(r2, command: true, shift: false)
+        let multi = await MainActor.run { st.isMulti }
+        wire = []
+        await st.bulkArchive()
+        check("multi-select: two selected conversation rows archive both whole conversations in one go", multi && touched(["c1c", "c1a", "c2b", "c2a"], ["c1b"]))
+        await st.undoLast()
+        await MainActor.run { st.closeReader() }
+        // Pin acts on the whole conversation and survives a new reply
+        wire = []
+        let pinned = await st.togglePin(await row("C1"))
+        let pr = await row("C1")
+        let shownPinned = await MainActor.run { st.isPinned(pr) }
+        check("pin: pins every inbox message of the conversation, and the row shows pinned", pinned.sorted() == ["c1a", "c1c"] && touched(["c1a", "c1c"]) && wire.contains { $0.contains("Label_Pin") } && shownPinned)
+        var later = Mail(id: "c1z", from: Address(name: "Priya", email: "p@x.example"), subject: "Notes", snippet: "newer", date: Date(), labels: ["INBOX", "UNREAD"])
+        later.convo = (pr.convo ?? []) + [ConvMsg(later)]   // a new reply arrives: the newest message itself has no pin
+        let (laterOn, laterOff) = await MainActor.run { () -> (Bool, Bool) in let a = st.isPinned(later); st.settings.groupConversations = false; let b = st.isPinned(later); st.settings.groupConversations = true; return (a, b) }
+        check("pin: a new reply does not lose the pin with conversations on, and nothing changes with them off", laterOn && !laterOff)
+        await MainActor.run { st.inbox = [later] }
+        wire = []
+        let unpinned = await st.togglePin(later)
+        let stillPinned = await MainActor.run { st.isPinned(st.inbox.first { $0.id == "c1z" }!) }
+        check("pin: unpinning clears the pin from every message that carries it", Set(unpinned) == ["c1z", "c1a", "c1c"] && !stillPinned)
+        // Mark read acts on the whole conversation: every unread message in it
+        hist["C1"] = "9"; hist["C2"] = "9"
+        await st.refresh()
+        wire = []
+        await st.toggleRead(await row("C2"))
+        let c2after = await row("C2")
+        let readOn = touched(["c2a", "c2b"]) && !c2after.unread
+        await MainActor.run { st.settings.groupConversations = false }
+        hist["C2"] = "10"
+        await st.refresh()
+        wire = []
+        await st.toggleRead(await row("C2"))
+        check("mark read: with conversations on it reaches the older unread message too; off, only the row's own email as before", readOn && touched(["c2b"], ["c2a"]))
+        // the hold rule in Unread first, for a conversation
+        await MainActor.run { st.settings.groupConversations = true; st.settings.inboxView = .unreadFirst; st.closeReader() }
+        hist["C1"] = "10"; hist["C2"] = "11"
+        await st.refresh()
+        func unreadGroup() async -> [String] { await MainActor.run { SmartInbox.unreadFirst(st.inbox, holding: st.heldOpenID).first { $0.id == "unread" }?.mails.map(\.id) ?? [] } }
+        await st.open(await row("C1"))
+        let heldRow = await row("C1")
+        let g1 = await unreadGroup()
+        check("hold: an opened conversation is read now but stays in place under Unread", !heldRow.unread && heldRow.convoCount == 3 && g1.contains("c1c"))
+        await st.open(await row("C3"))
+        let g2 = await unreadGroup(), inList = await MainActor.run { st.listMails.map(\.id).contains("c1c") }
+        check("hold: once you click another email the conversation moves down to Everything else", !g2.contains("c1c") && inList)
+        c1Extra = true; hist["C1"] = "11"
+        await st.refresh()
+        let again = await row("C1")
+        let g3 = await unreadGroup()
+        check("hold: a new reply sends the conversation back to Unread with the count up by one", again.id == "c1d" && again.unread && again.convoCount == 4 && g3.contains("c1d"))
+        await MainActor.run { st.settings.inboxView = .classic; st.settings.groupConversations = true; st.closeReader() }
         UserDefaults.standard.removeObject(forKey: "groupConversations")
         await MainActor.run { st.settings.groupConversations = false }
         return ok
