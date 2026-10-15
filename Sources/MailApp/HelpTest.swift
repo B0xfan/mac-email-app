@@ -69,6 +69,7 @@ extension SelfTest {
         m.clear()
         check("help: Escape clears the search and brings the section back", m.query.isEmpty && !m.showResults && m.terms.isEmpty && m.selected == "snooze")
         let tick = m.focusTick
+        HelpModel.userOpened = false
         m.prepare(search: true)
         check("help: asking for help marks it as opened by the user, so a restored window is the only one closed at launch", HelpModel.userOpened)
         check("help: 'Search help...' asks for the cursor in the search box", m.focusPending && m.focusTick == tick + 1)

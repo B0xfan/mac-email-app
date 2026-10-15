@@ -144,6 +144,26 @@ extension SelfTest {
         check("paging: both pages ask for the same search; the second carries the page token", qs.count == 2 && qs[1].contains("pageToken=T2") && qs[0].contains("from:") && !qs[0].contains("pageToken"))
         await st.loadMoreOther()
         check("paging: nothing more is asked once the last page is in", log.all.count == 2)
+
+        // The false "Could not load more." banner: scrolling away cancels the load in flight; that must not be shown as a failure, a real failure still is.
+        let st2: MailStore = await MainActor.run {
+            let s = MailStore(auth: SignInModel(), gmail: GmailClient(auth: pauth, session: session), book: SenderBook(url: cbURL.appendingPathExtension("pb2")),
+                              seen: SeenBook(url: cbURL.appendingPathExtension("ps2")), categories: CategoryBook(url: nil), asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+            s.settings.screenNewSenders = false; s.search = "from Amazon"; s.mailbox = .search; return s
+        }
+        await st2.loadOther()
+        let cut = Task { await st2.loadMoreOther() }
+        cut.cancel(); await cut.value
+        let afterCut = await MainActor.run { (st2.error, st2.otherNext, st2.loadingOtherMore) }
+        check("paging: a next-page load cancelled by scrolling away shows no banner, keeps its place and is not stuck loading", afterCut.0 == nil && afterCut.1 == "T2" && !afterCut.2)
+        StubProtocol.handler = { req in
+            let u = req.url!
+            if u.absoluteString.contains("oauth2") || u.absoluteString.contains("token") && !u.absoluteString.contains("gmail") { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+            return (403, #"{"error":{"message":"denied"}}"#)
+        }
+        await st2.loadMoreOther()
+        let real = await MainActor.run { st2.error }
+        check("paging: a real failure on the next page still shows its banner", real != nil)
         return ok
     }
 

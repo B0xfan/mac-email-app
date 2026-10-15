@@ -300,7 +300,7 @@ final class MailStore: ObservableObject {
             saveCache()
             inboxNext = page.next   // last: the page row reacts to this, and a cancelled task must not cut off the steps above
             Task { await classifySenders() }
-        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load older mail." }
+        } catch { if !Self.wasCancelled(error) { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load older mail." } }
     }
 
     /// Decide who is new: not approved, no mail from them before screening began, never written to.
@@ -415,8 +415,12 @@ final class MailStore: ObservableObject {
             other += more
             if mailbox == .search { other.sort { $0.date > $1.date } }
             otherNext = page.next
-        } catch { if gen == otherGen { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load more." } }
+        } catch { if gen == otherGen, !Self.wasCancelled(error) { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load more." } }
     }
+
+    /// Scrolling away (or opening another list) cancels the load in flight: that is not a failure, so it shows no banner. The cancelled request throws
+    /// URLError.cancelled, which the Gmail client turns into one retry, whose wait throws CancellationError (not a LocalizedError, hence the generic "Could not load more.").
+    static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
     func select(_ box: Mailbox) async {
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil
