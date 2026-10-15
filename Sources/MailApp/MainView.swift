@@ -484,6 +484,7 @@ struct MessageRow: View {
     var tag: String? = nil                // "Back Sun 8:00 AM", "No reply yet"
     var warmTag = false
     var fromText: String? = nil           // "You, to Dana Whitfield" for a reminded email
+    var count: Int? = nil                 // conversations on: how many messages the row holds
     var pinned = false
     var picked = false                    // one of several selected emails: grey-blue fill and a check circle (the open email is the only teal one)
     var onPin: (() -> Void)? = nil        // inbox rows: Pin, Set Aside, Archive hover buttons
@@ -561,6 +562,7 @@ struct MessageRow: View {
                     if notes.has(mail.threadID) { Label("note", systemImage: "note.text").font(Theme.label).foregroundStyle(Theme.accInk).labelStyle(.titleAndIcon).help("You wrote a private note on this email") }
                     Spacer(minLength: 8)
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
+                    if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).padding(.horizontal, 7).frame(minHeight: 18).background(Capsule().fill(selected ? Theme.acc : Theme.sub)).foregroundStyle(selected ? Theme.accText : Theme.bg).accessibilityHidden(true) }
                     Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub)
                 }
                 Text(mail.subject).font(Theme.body).lineLimit(1)
@@ -575,7 +577,7 @@ struct MessageRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(picked ? .isSelected : [])
-        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
+        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
     }
 }
 

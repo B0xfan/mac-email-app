@@ -8,4 +8,6 @@ extension MailStore {
     func rowFace(_ m: Mail) -> Mail { groupOn ? m.conversationFace : m }
     /// The number on the row; nil for a single email or with the switch off.
     func rowCount(_ m: Mail) -> Int? { groupOn && m.convoCount > 1 ? m.convoCount : nil }
+    /// "You" when the last message in the conversation is your own.
+    func rowFromText(_ m: Mail) -> String? { groupOn && m.convo?.last?.mine == true ? "You" : nil }
 }
