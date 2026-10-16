@@ -65,24 +65,27 @@ enum GmailError: Error, LocalizedError {
 
 /// Gmail allows 6,000 units per user per minute (messages.get 20, list 5, threads.get 40 ...). Every request goes through here first and waits when the last
 /// minute is nearly used up, so a burst (opening Archive and scrolling) slows down instead of being refused. 4,500 leaves room for what runs beside it.
-/// shortcut: one shared line for everything, no foreground priority; upgrade when background sync (plan step 3) runs beside John's clicks.
+/// Background work (the copy of the mailbox, the check for changes) may use only `backgroundCap` of that (about half of Gmail's allowance), so John's own clicks always have room.
+/// shortcut: foreground work is not put ahead of background work that is already waiting here, it only has more room; upgrade if a click is ever seen waiting.
 actor QuotaGate {
     private let cap: Int
+    private let backgroundCap: Int
     private var spent: [(at: Date, units: Int)] = []
     private var pausedUntil = Date.distantPast
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (Double) async -> Void
-    init(cap: Int = 4_500, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
-        self.cap = cap; self.now = now; self.sleep = sleep
+    init(cap: Int = 4_500, backgroundCap: Int = 3_000, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
+        self.cap = cap; self.backgroundCap = backgroundCap; self.now = now; self.sleep = sleep
     }
     /// Throws CancellationError when the caller gave up (scrolled away): the request must then not go out.
-    func acquire(_ units: Int) async throws {
+    func acquire(_ units: Int, background: Bool = false) async throws {
+        let limit = background ? min(backgroundCap, cap) : cap
         while true {
             try Task.checkCancellation()
             let t = now()
             if t < pausedUntil { await sleep(pausedUntil.timeIntervalSince(t)); continue }
             spent.removeAll { t.timeIntervalSince($0.at) >= 60 }
-            if spent.isEmpty || spent.reduce(0, { $0 + $1.units }) + units <= cap { spent.append((t, units)); return }
+            if spent.isEmpty || spent.reduce(0, { $0 + $1.units }) + units <= limit { spent.append((t, units)); return }
             await sleep(max(60 - t.timeIntervalSince(spent[0].at), 0.2))
         }
     }
@@ -92,6 +95,8 @@ actor QuotaGate {
     /// messages.trash 20, threads.get 40, threads.list 10, history.list 2): https://developers.google.com/workspace/gmail/api/reference/quota
     static func units(method: String, path: String) -> Int {
         if path.hasSuffix("/send") { return 100 }
+        if path == "/history" { return 2 }
+        if path == "/profile" { return 1 }
         if path.contains("batchModify") { return 50 }
         if path == "/threads" { return 10 }
         if path.hasPrefix("/threads/") { return 40 }
@@ -110,6 +115,8 @@ final class GmailClient: @unchecked Sendable {
 
     /// The self-test turns pacing off for its pretend Gmail (the pacing itself has its own check).
     nonisolated(unsafe) static var pacingOff = false
+    /// True for work John did not ask for (copying the mailbox, checking for changes): it is paced to half of Gmail's allowance. Child tasks inherit it.
+    @TaskLocal static var background = false
     let gate: QuotaGate
     /// How long to wait before asking again after "too many requests"; a check replaces it so it does not really wait.
     var waitBeforeRetry: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }
@@ -118,10 +125,10 @@ final class GmailClient: @unchecked Sendable {
     private let writeLock = NSLock()
     private var writeCount = 0
     var writes: Int { writeLock.lock(); defer { writeLock.unlock() }; return writeCount }
-    private func noteWrite() { writeLock.lock(); writeCount += 1; writeLock.unlock() }
+    func noteWrite() { writeLock.lock(); writeCount += 1; writeLock.unlock() }
 
     init(auth: GoogleAuth, session: URLSession = .shared, gate: QuotaGate? = nil) {
-        self.auth = auth; self.session = session; self.gate = gate ?? QuotaGate(cap: Self.pacingOff ? Int.max / 2 : 4_500)
+        self.auth = auth; self.session = session; self.gate = gate ?? QuotaGate(cap: Self.pacingOff ? Int.max / 2 : 4_500, backgroundCap: Self.pacingOff ? Int.max / 2 : 3_000)
     }
 
     /// Gmail's per-minute quota answers: 429, or 403 with the reason rateLimitExceeded / userRateLimitExceeded. Any other 403 (no permission) is a real refusal.
@@ -150,7 +157,7 @@ final class GmailClient: @unchecked Sendable {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if method != "GET" { noteWrite() }   // before and after: a list kept meanwhile must not be trusted
-        try await gate.acquire(QuotaGate.units(method: method, path: path))
+        try await gate.acquire(QuotaGate.units(method: method, path: path), background: Self.background)
         let data: Data, resp: URLResponse
         let canRetry = Self.retriesAfterUncertainFailure(method: method, path: path)
         do { (data, resp) = try await session.data(for: req) }
@@ -185,6 +192,15 @@ final class GmailClient: @unchecked Sendable {
 
     func profileEmail() async throws -> String {
         json(try await send("/profile"))["emailAddress"] as? String ?? ""
+    }
+
+    /// The mailbox size and Gmail's current change number (1 unit): where a full copy starts, and the number the change list is followed from.
+    struct ProfileInfo: Sendable { let messagesTotal: Int; let historyID: String }
+    func profileInfo() async throws -> ProfileInfo {
+        let r = json(try await send("/profile"))
+        let h = r["historyId"] as? String ?? (r["historyId"] as? Int).map(String.init) ?? ""
+        guard !h.isEmpty else { throw GmailError.http(0, "no history id") }
+        return ProfileInfo(messagesTotal: r["messagesTotal"] as? Int ?? 0, historyID: h)
     }
 
     /// One page of message ids plus the token for the next page (nil = last page).

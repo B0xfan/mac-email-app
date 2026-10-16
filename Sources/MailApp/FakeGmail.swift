@@ -1,0 +1,126 @@
+#if TESTHARNESS
+import Foundation
+
+/// A pretend Gmail for the stored-mail checks: a mailbox that answers list, read, change-list and change calls the way Gmail does,
+/// and counts what it was asked (including the Gmail "units" the calls cost).
+final class FakeGmail: @unchecked Sendable {
+    struct Msg { var id: String; var labels: [String]; var date: Int }
+    private let lock = NSLock()
+    private(set) var msgs: [Msg] = []
+    private var events: [(id: Int, json: String)] = []
+    private(set) var historyID = 1000
+    var gets: [String: Int] = [:], getOrder: [String] = []
+    var lists = 0, historyCalls = 0, profiles = 0, units = 0
+    var failGets: Set<String> = []        // reading these answers 400
+    var gone404: Set<String> = []         // reading these answers 404 (deleted since they were listed)
+    var timeoutGets: Set<String> = []     // reading these times out (the connection is down)
+    var rejectNextToken = false           // the next list call that carries a page token answers 400
+    var historyExpired = false            // the change list answers 404
+    var historyPageSize = 1_000
+    var writes: [String] = []             // changes received, e.g. "modify m1,m2 +A -B", "trash m1"
+    var writeAnswer: ((String) -> (Int, String)?)?   // an answer given instead of making the change (a failure, say); must not call back into this object
+    var otherCalls: [String] = []
+
+    /// Newest first: the first id is the newest message.
+    func seed(_ ids: [String], labels: [String] = ["INBOX"]) {
+        lock.lock(); defer { lock.unlock() }
+        for (i, id) in ids.enumerated() { msgs.append(Msg(id: id, labels: labels, date: 1_700_000_000 - i * 10)) }
+    }
+    /// New mail (newer than everything), recorded in the change list.
+    func add(_ id: String, _ labels: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        msgs.append(Msg(id: id, labels: labels, date: (msgs.map(\.date).max() ?? 1_700_000_000) + 10))
+        record("{\"messagesAdded\":[{\"message\":{\"id\":\"\(id)\",\"threadId\":\"T\(id)\",\"labelIds\":\(arr(labels))}}]}")
+    }
+    func remove(_ id: String) {
+        lock.lock(); defer { lock.unlock() }
+        msgs.removeAll { $0.id == id }
+        record("{\"messagesDeleted\":[{\"message\":{\"id\":\"\(id)\"}}]}")
+    }
+    func relabel(_ id: String, add: [String] = [], remove: [String] = []) {
+        lock.lock(); defer { lock.unlock() }
+        change(id, add, remove)
+    }
+    func labels(of id: String) -> [String]? { lock.lock(); defer { lock.unlock() }; return msgs.first { $0.id == id }?.labels }
+    func has(_ id: String) -> Bool { lock.lock(); defer { lock.unlock() }; return msgs.contains { $0.id == id } }
+
+    private func change(_ id: String, _ add: [String], _ remove: [String]) {
+        guard let i = msgs.firstIndex(where: { $0.id == id }) else { return }
+        msgs[i].labels.removeAll { remove.contains($0) }
+        for a in add where !msgs[i].labels.contains(a) { msgs[i].labels.append(a) }
+        let m = "{\"id\":\"\(id)\",\"labelIds\":\(arr(msgs[i].labels))}"
+        if !add.isEmpty { record("{\"labelsAdded\":[{\"message\":\(m),\"labelIds\":\(arr(add))}]}") }
+        if !remove.isEmpty { record("{\"labelsRemoved\":[{\"message\":\(m),\"labelIds\":\(arr(remove))}]}") }
+    }
+    private func record(_ body: String) {
+        historyID += 1
+        events.append((historyID, "{\"id\":\"\(historyID)\"," + String(body.dropFirst())))
+    }
+    private func arr(_ a: [String]) -> String { "[" + a.map { "\"\($0)\"" }.joined(separator: ",") + "]" }
+    private func json(_ m: Msg) -> String {
+        "{\"id\":\"\(m.id)\",\"threadId\":\"T\(m.id)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
+    }
+
+    func handle(_ req: URLRequest) -> (Int, String) {
+        let u = req.url!, abs = u.absoluteString
+        if abs.contains("oauth2") || (abs.contains("token") && !abs.contains("gmail")) { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
+        lock.lock(); defer { lock.unlock() }
+        let rel = u.path.replacingOccurrences(of: "/gmail/v1/users/me", with: ""), method = req.httpMethod ?? "GET"
+        units += QuotaGate.units(method: method, path: rel)
+        let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func q(_ n: String) -> String? { items.first { $0.name == n }?.value }
+        switch (method, rel) {
+        case ("GET", "/profile"):
+            profiles += 1
+            return (200, "{\"emailAddress\":\"me@x.example\",\"messagesTotal\":\(msgs.count),\"threadsTotal\":\(msgs.count),\"historyId\":\"\(historyID)\"}")
+        case ("GET", "/messages"):
+            lists += 1
+            if rejectNextToken, q("pageToken") != nil { rejectNextToken = false; return (400, #"{"error":{"code":400,"message":"Invalid pageToken"}}"#) }
+            let want = items.filter { $0.name == "labelIds" }.compactMap(\.value)
+            let sorted = msgs.filter { m in !m.labels.contains("TRASH") && !m.labels.contains("SPAM") && want.allSatisfy { m.labels.contains($0) } }.sorted { $0.date > $1.date }
+            let size = Int(q("maxResults") ?? "100") ?? 100, start = Int((q("pageToken") ?? "t0").dropFirst()) ?? 0
+            let page = Array(sorted.dropFirst(start).prefix(size))
+            let next = start + size < sorted.count ? ",\"nextPageToken\":\"t\(start + size)\"" : ""
+            return (200, "{\"messages\":[\(page.map { "{\"id\":\"\($0.id)\"}" }.joined(separator: ","))]\(next),\"resultSizeEstimate\":\(sorted.count)}")
+        case ("GET", "/history"):
+            historyCalls += 1
+            if historyExpired { return (404, #"{"error":{"code":404,"message":"Requested entity was not found."}}"#) }
+            let start = Int(q("startHistoryId") ?? "") ?? 0, from = Int((q("pageToken") ?? "h0").dropFirst()) ?? 0
+            let all = events.filter { $0.id > start }.map(\.json)
+            let recs = Array(all.dropFirst(from).prefix(historyPageSize))
+            let next = from + historyPageSize < all.count ? ",\"nextPageToken\":\"h\(from + historyPageSize)\"" : ""
+            return (200, "{" + (recs.isEmpty ? "" : "\"history\":[\(recs.joined(separator: ","))],") + "\"historyId\":\"\(historyID)\"\(next)}")
+        case ("GET", "/labels"):
+            return (200, #"{"labels":[]}"#)
+        case ("POST", "/messages/batchModify"):
+            let o = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data()) as? [String: Any]) ?? [:]
+            let ids = o["ids"] as? [String] ?? [], add = o["addLabelIds"] as? [String] ?? [], rem = o["removeLabelIds"] as? [String] ?? []
+            let w = "modify \(ids.joined(separator: ",")) +\(add.joined(separator: ",")) -\(rem.joined(separator: ","))"
+            writes.append(w)
+            if let a = writeAnswer?(w) { return a }
+            for id in ids { change(id, add, rem) }
+            return (200, "{}")
+        default: break
+        }
+        if method == "POST", rel.hasSuffix("/trash") || rel.hasSuffix("/untrash") {
+            let id = String(rel.dropFirst("/messages/".count).split(separator: "/").first ?? ""), trash = rel.hasSuffix("/trash")
+            let w = "\(trash ? "trash" : "untrash") \(id)"
+            writes.append(w)
+            if let a = writeAnswer?(w) { return a }
+            if trash { change(id, ["TRASH"], ["INBOX"]) } else { change(id, [], ["TRASH"]) }
+            return (200, "{}")
+        }
+        if method == "GET", rel.hasPrefix("/messages/") {
+            let id = String(rel.dropFirst("/messages/".count))
+            gets[id, default: 0] += 1; getOrder.append(id)
+            if timeoutGets.contains(id) { return (-1, "") }
+            if failGets.contains(id) { return (400, #"{"error":{"code":400,"message":"bad"}}"#) }
+            if gone404.contains(id) { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            guard let m = msgs.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            return (200, json(m))
+        }
+        otherCalls.append("\(method) \(rel)")
+        return (200, "{}")
+    }
+}
+#endif

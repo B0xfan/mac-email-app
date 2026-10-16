@@ -159,6 +159,10 @@ final class MailStore: ObservableObject {
     let cacheURL: URL?
     /// Mail kept on this Mac (plan-local-mail-storage.md). nil = tests and anything that does not use it: every list is then read from Gmail as before.
     let db: MailDB?
+    /// Copies the mailbox into `db` in the background and keeps it current (nil without a database).
+    var engine: SyncEngine?
+    /// How far the first full copy has come. No screen shows it yet (it needs an approved drawing first).
+    @Published var syncProgress = SyncProgress()
     /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
     let pendingDir: URL?
 
@@ -170,6 +174,11 @@ final class MailStore: ObservableObject {
         // a selection belongs to the list it was made in; a different tab or view is a different list
         pickWatch = [settings.$smartTab.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil },
                      settings.$inboxView.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil }]
+        if let db {
+            let e = SyncEngine(gmail: gmail, db: db)
+            e.onProgress = { [weak self] p in Task { @MainActor in self?.syncProgress = p } }
+            engine = e
+        }
     }
 
     func setKnown(_ email: String, _ known: Bool) { knownCache[email] = known }
@@ -249,6 +258,8 @@ final class MailStore: ObservableObject {
         for s in timing.data.scheduled where s.server != "off" { await releaseServer(s.draftID) }
         await releaseReminders()
         await auth.signOut(); accountEmail = ""
+        await engine?.stopAndWait()   // nothing may still be writing when the stored mail is deleted
+        syncProgress = SyncProgress()
         db?.wipe()
         if let u = cacheURL { try? FileManager.default.removeItem(at: u) }
     }
@@ -310,6 +321,7 @@ final class MailStore: ObservableObject {
             if deeper.isEmpty { inboxNext = page.next }
             pruneSurfaced()
             saveCache()
+            engine?.kickSync()   // the background copy of the mailbox (and, once it is complete, the check for changes)
             error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
             let keepPaged = otherSource != nil && other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
