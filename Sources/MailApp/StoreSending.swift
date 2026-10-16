@@ -121,6 +121,7 @@ extension MailStore {
                     do { let r = try await g.sendRaw(raw, threadID: d.threadID); mark.finish(true); return r } catch { mark.finish(false); throw error }
                 }.value
                 self.forgetPending(token)
+                self.engine?.kickSync()   // the sent email reaches the stored Sent list with the next check of changes
                 if let r = d.remindAt { self.addFollowUp(messageID: sent.id, threadID: sent.threadID, at: r, to: d.to, subject: d.subject) }
                 if let did = d.draftID { try? await self.gmail.deleteDraft(id: did) }
                 if self.toast?.id == tid { self.showToast("Sent.", seconds: 4) }

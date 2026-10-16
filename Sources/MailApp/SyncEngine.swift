@@ -32,6 +32,13 @@ final class SyncEngine: @unchecked Sendable {
     private let lock = NSLock()
     private var syncTask: Task<Void, Never>?
     private(set) var progress = SyncProgress()
+    // the outbox (step 6)
+    var now: @Sendable () -> Date = { Date() }
+    /// false only in checks: a paused change is then retried by the next kick instead of by a timer.
+    var autoRetry = true
+    private var outTask: Task<Void, Never>?
+    private var outAgain = false
+    private var retryTimer: Task<Void, Never>?
 
     init(gmail: GmailClient, db: MailDB) { self.gmail = gmail; self.db = db }
 
@@ -54,9 +61,10 @@ final class SyncEngine: @unchecked Sendable {
 
     /// Stops everything and waits until nothing is writing any more.
     func stopAndWait() async {
-        let t = runningPass()
-        t?.cancel()
-        await t?.value
+        let t = runningPass(), o = runningOutbox()
+        stopTimer()
+        t?.cancel(); o?.cancel()
+        await t?.value; await o?.value
     }
 
     /// One pass: start the full copy if there is none yet, then carry it on. Returns when it is done or stopped by a problem.
@@ -74,6 +82,7 @@ final class SyncEngine: @unchecked Sendable {
                 catch is HistoryGap { try await startFullSync(stale: true) }   // Gmail no longer has the changes since last time: copy everything again
             }
             try await backfill()
+            if db.isComplete { try await refetchUnverified() }
             publish(.upToDate)
         } catch is CancellationError {
         } catch { publish(.waiting) }
@@ -141,6 +150,7 @@ final class SyncEngine: @unchecked Sendable {
         try Task.checkCancellation()   // a cancelled read looks like a failure: do not count it
         db.upsert(r.compactMap { $0.1 }, verified: true, seen: epoch)
         db.delete(ids: r.filter { $0.2 }.map(\.0))
+        db.replayOutbox()   // a change still waiting for Gmail stays applied on what was just read
         let failed = r.filter { $0.1 == nil && !$0.2 }.map(\.0)
         if failed.isEmpty { db.setState("stall", nil); return }
         if r.contains(where: { $0.3 }) { throw SyncError.incomplete }   // offline, Gmail busy or signed out: stop, and do not count it against any message
@@ -191,7 +201,109 @@ final class SyncEngine: @unchecked Sendable {
         try await fetch(wanted.filter { toRead.contains($0) && !have.contains($0) }, epoch: epoch)
         db.delete(ids: Array(deleted))
         for c in changes where toRead.contains(c.id) && have.contains(c.id) { db.applyLabels(ids: [c.id], add: c.add, remove: c.remove) }
+        db.replayOutbox()
         db.setState("history_id", latest)
         onChange?()
+    }
+
+    /// Messages Gmail's answer contradicted (a change Gmail refused) are read again, so the stored copy agrees with Gmail.
+    private func refetchUnverified() async throws {
+        let ids = db.unverifiedIDs(limit: 200)
+        guard !ids.isEmpty else { return }
+        try await fetch(ids, epoch: Int(db.state("epoch") ?? "") ?? 1)
+        onChange?()
+    }
+
+    // MARK: - Telling Gmail (step 6)
+
+    /// Local first: the change is applied to the stored mail at once and queued; the queue is sent to Gmail in order, as soon as possible, and again after
+    /// a quit or a lost connection. John's own actions are foreground work for the request pacing.
+    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) {
+        db.enqueue(kind, ids: ids, add: add, remove: remove)
+        kickOutbox()
+    }
+
+    func kickOutbox() {
+        lock.lock(); defer { lock.unlock() }
+        if outTask != nil { outAgain = true; return }
+        outTask = Task { [weak self] in
+            while true {
+                guard let me = self else { return }
+                await GmailClient.$background.withValue(false) { await me.drain() }
+                if me.outboxDone() { break }
+            }
+        }
+    }
+    /// true = nothing was added while it ran; the loop may end.
+    private func outboxDone() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if outAgain { outAgain = false; return false }
+        outTask = nil
+        return true
+    }
+    private func runningOutbox() -> Task<Void, Never>? { lock.lock(); defer { lock.unlock() }; return outTask }
+    private func stopTimer() { lock.lock(); retryTimer?.cancel(); retryTimer = nil; lock.unlock() }
+    private func startTimer(after seconds: Double) {
+        guard autoRetry else { return }
+        lock.lock(); defer { lock.unlock() }
+        retryTimer?.cancel()
+        retryTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+            if !Task.isCancelled { self?.kickOutbox() }
+        }
+    }
+
+    /// Returns when everything that can be sent right now has been tried. A change waiting out a pause stays queued.
+    func flushOutbox() async {
+        kickOutbox()
+        await runningOutbox()?.value
+    }
+
+    private static func isRetryable(_ e: Error) -> Bool {
+        if let g = e as? GmailError {
+            switch g {
+            case .offline, .slowDown, .signInAgain: return true
+            case .http(let c, _): return c >= 500 || c == 408 || c == 429
+            }
+        }
+        return true   // anything unknown is kept and tried again: a change is never thrown away by accident
+    }
+
+    private func drain() async {
+        while let op = db.claimNextOutbox(now: now()) {
+            if Task.isCancelled { return }
+            do { try await send(op); db.finish(op.seq) }
+            catch {
+                if error is CancellationError || Task.isCancelled { db.retryLater(op.seq, at: now()); return }   // stopped (Remove account, quit): tried again at the next start
+                if Self.isRetryable(error) {
+                    // 5, 10, 20 ... seconds up to 15 minutes; a quit does not lose it, the next start tries at once
+                    let delay = min(5 * pow(2, Double(op.attempts)), 900)
+                    db.retryLater(op.seq, at: now().addingTimeInterval(delay))
+                    startTimer(after: delay)
+                    return
+                }
+                // Gmail refused it for good (400, 403, 404 ...). Gmail's version wins: what it refused is dropped and these messages are read again.
+                // A change for several messages is first tried one message at a time, so one bad message does not undo the others.
+                var bad = op.ids
+                if op.ids.count > 1 && op.kind == .modify {
+                    bad = []
+                    for id in op.ids {
+                        do { try await gmail.modify(ids: [id], add: op.add, remove: op.remove) }
+                        catch { if Self.isRetryable(error) { db.retryLater(op.seq, at: now().addingTimeInterval(5)); startTimer(after: 5); return }; bad.append(id) }
+                    }
+                }
+                db.finish(op.seq)
+                db.markUnverified(bad)
+                kickSync()
+            }
+        }
+    }
+
+    private func send(_ op: OutboxOp) async throws {
+        switch op.kind {
+        case .modify: try await gmail.modify(ids: op.ids, add: op.add, remove: op.remove)
+        case .trash: for id in op.ids { do { try await gmail.trash(id: id) } catch GmailError.http(404, _) { continue } }   // already gone
+        case .untrash: for id in op.ids { do { try await gmail.untrash(id: id) } catch GmailError.http(404, _) { continue } }
+        }
     }
 }

@@ -232,6 +232,7 @@ enum SelfTest {
         if !(await partSync()) { ok = false }
         if !(await partHistory()) { ok = false }
         if !(await partLocalLists()) { ok = false }
+        if !(await partOutbox()) { ok = false }
         if !(await partHelp()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }

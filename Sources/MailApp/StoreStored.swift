@@ -48,17 +48,32 @@ extension MailStore {
 
     // MARK: - Changes to Gmail
 
-    /// Every label change goes through here. Step 5: sent to Gmail, then written to the stored copy at once (the copy would otherwise lag until the next check).
+    /// Every label change goes through here. With a database it is local first: the stored mail changes at once and the change waits in the outbox,
+    /// which tells Gmail in order, retrying when Gmail or the connection is busy (the screen shows the result straight away, and a failure
+    /// is never shown as an error: the change is kept until Gmail has it, or Gmail refuses it for good and its version wins).
+    /// Without a database (checks) it is sent to Gmail directly and any failure is thrown, as before.
     func change(ids: [String], add: [String] = [], remove: [String] = []) async throws {
-        try await gmail.modify(ids: ids, add: add, remove: remove)
-        db?.applyLabels(ids: ids, add: add, remove: remove)
+        guard let engine else { try await gmail.modify(ids: ids, add: add, remove: remove); return }
+        gmail.noteWrite()   // lists kept for a short while (search, Smart Folders) are now stale
+        engine.enqueue(.modify, ids: ids, add: add, remove: remove)
     }
     func moveToTrash(id: String) async throws {
-        try await gmail.trash(id: id)
-        db?.applyLabels(ids: [id], add: ["TRASH"], remove: ["INBOX"])
+        guard let engine else { try await gmail.trash(id: id); return }
+        gmail.noteWrite()
+        engine.enqueue(.trash, ids: [id])
     }
     func moveFromTrash(id: String) async throws {
-        try await gmail.untrash(id: id)
-        db?.applyLabels(ids: [id], add: [], remove: ["TRASH"])
+        guard let engine else { try await gmail.untrash(id: id); return }
+        gmail.noteWrite()
+        engine.enqueue(.untrash, ids: [id])
+    }
+
+    /// Changes still waiting for Gmail are put back on what a fresh read of Gmail just put on the screen (the Inbox), so a message just archived does not come back for a moment.
+    func replayPendingOnScreen() {
+        guard let db else { return }
+        let ops = db.outbox()
+        guard !ops.isEmpty else { return }
+        for op in ops { let e = OutboxOp.effect(op.kind, op.add, op.remove); for id in op.ids { applyLabels(id, add: e.add, remove: e.remove) } }
+        inbox.removeAll { !$0.inInbox }
     }
 }

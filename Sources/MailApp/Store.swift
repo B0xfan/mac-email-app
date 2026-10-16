@@ -283,6 +283,7 @@ final class MailStore: ObservableObject {
     /// `reloadList`: the open Archive/Sent/folder list is read again from Gmail (the Check button, Check now). The quiet check every few minutes leaves it alone.
     func refresh(reloadList: Bool = false) async {
         if reloadList { forgetKeptLists() }
+        await engine?.flushOutbox()   // changes made here reach Gmail before Gmail is read, so a message just archived is not brought back by the read
         loading = true
         defer { loading = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
         do {
@@ -319,6 +320,7 @@ final class MailStore: ObservableObject {
             let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
             let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
             inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
+            replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
             if deeper.isEmpty { inboxNext = page.next }
             pruneSurfaced()
             saveCache()
@@ -408,6 +410,7 @@ final class MailStore: ObservableObject {
             other = rows; otherSource = .stored(spec); otherNext = rows.count == Self.otherPage ? String(Self.otherPage) : nil; otherWrites = writesAtStart
             return
         }
+        await engine?.flushOutbox()
         do {
             var src: OtherSource?
             var read: PlainSearch.Result?

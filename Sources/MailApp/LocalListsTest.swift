@@ -81,6 +81,7 @@ extension SelfTest {
         // an action in Mail is written to the stored copy at once (it goes to Gmail too)
         let i2 = db.messages(ids: ["i2"])["i2"]!
         await st.archive(i2)
+        await st.engine?.flushOutbox()   // the change is queued and sent in the background: wait for it
         let archive2 = await ids(.archive)
         check("lists keep up: after Archive in Mail the message is in the stored Archive at once and Gmail got the change", archive2.contains("i2") && f.writes.last == "modify i2 + -INBOX" && f.labels(of: "i2") == ["UNREAD"])
 
