@@ -4,6 +4,7 @@ import AppKit
 struct MailRoot: View {
     @ObservedObject var store: MailStore
     @ObservedObject var settings = AppSettings.shared
+    @AppStorage("listWidth") private var listWidth: Double = ListDivider.standard   // kept across restarts
     var body: some View {
         ZStack(alignment: .bottom) {
             TranslationHost()
@@ -37,12 +38,14 @@ struct MailRoot: View {
                             }
                         } else { ListPane(store: store).frame(maxWidth: .infinity) }
                     } else {
-                        HStack(spacing: 0) {
-                            ListPane(store: store)
-                                .frame(minWidth: 340, idealWidth: 400, maxWidth: 440)
-                                .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
-                            if store.compose != nil { ComposeView(store: store).id(store.composeID).frame(maxWidth: .infinity) }
-                            else { ReadingPane(store: store).frame(maxWidth: .infinity) }
+                        GeometryReader { geo in
+                            HStack(spacing: 0) {
+                                ListPane(store: store)
+                                    .frame(width: ListDivider.clamp(listWidth, total: geo.size.width))
+                                    .overlay(alignment: .trailing) { ListDivider(width: $listWidth, total: geo.size.width) }
+                                if store.compose != nil { ComposeView(store: store).id(store.composeID).frame(maxWidth: .infinity) }
+                                else { ReadingPane(store: store).frame(maxWidth: .infinity) }
+                            }
                         }
                     }
                   }
@@ -238,6 +241,32 @@ struct NavRow: View {
         }
         .buttonStyle(.plain).onHover { hover.v = $0 }
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+// MARK: - Draggable divider between the list and the reading pane
+
+/// The line between the list and the reading pane, wider to grab, with the usual left-right resize cursor.
+struct ListDivider: View {
+    static let standard = 400.0, minList = 280.0, minReader = 360.0, maxList = 700.0
+    @Binding var width: Double
+    let total: Double
+    @State private var start: Double?
+    /// Keeps the list between its smallest width and what leaves the reading pane its smallest width.
+    static func clamp(_ w: Double, total: Double) -> Double {
+        min(max(w, minList), min(maxList, max(minList, total - minReader)))
+    }
+    var body: some View {
+        Rectangle().fill(Theme.line).frame(width: 1)
+            .frame(width: 9, alignment: .trailing).contentShape(Rectangle())
+            .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { g in
+                    let s = start ?? width; start = s
+                    width = Self.clamp(s + g.translation.width, total: total)
+                }
+                .onEnded { _ in start = nil })
+            .accessibilityElement().accessibilityLabel("Resize the email list")
     }
 }
 

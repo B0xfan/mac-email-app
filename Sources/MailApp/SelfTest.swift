@@ -209,6 +209,7 @@ enum SelfTest {
         check("group header count: unread number shows (folded or open), nothing at zero",
               foldedGroup.countText == "3 new" && SmartGroup(id: "p", title: "People", symbol: nil, mails: [mk("z", "z@x.example")]).countText == "" && gs[0].countText == "1 new")
         check("unread first: unread on top, the rest below", uf.map(\.id) == ["unread", "rest"] && uf[0].mails.map(\.id) == ["p", "n"] && uf[1].mails.map(\.id) == ["l"])
+        check("list divider: stays between its smallest width and what leaves the reader 360", ListDivider.clamp(100, total: 1200) == 280 && ListDivider.clamp(900, total: 1200) == 700 && ListDivider.clamp(900, total: 900) == 540 && ListDivider.clamp(500, total: 500) == 280 && ListDivider.clamp(400, total: 1200) == 400)
         check("inbox view: default is Smart", InboxView(rawValue: "") == nil && (UserDefaults.standard.string(forKey: "inboxView") ?? "smart") == "smart" && InboxView.allCases.map(\.title) == ["Smart", "Classic", "Unread first"])
         check("smart tabs: all three always listed, an empty one has no group, a bad saved tab falls back to People",
               MailCategory.allCases.map(\.title) == ["People", "Notifications", "Newsletters"] && SmartInbox.groups([pm], category: MailCategory.guess).first { $0.id == "notifications" } == nil
