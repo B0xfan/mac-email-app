@@ -10,9 +10,9 @@ extension SelfTest {
         // the first-copy line: shown only while the copy runs, with the percentage the copy has reached
         let copying = SyncProgress(phase: .copying, stored: 40, total: 100)
         check("copy line: 'Getting your older mail' with 40% at 40 of 100, rounded (29 of 100 reads 29%, not 28%)",
-              copying.line?.text == "Getting your older mail\u{2026}" && copying.line?.percent == 40 && SyncProgress(phase: .copying, stored: 29, total: 100).line?.percent == 29)
+              copying.line?.text == "Getting your older mail\u{2026} \(40.formatted()) of \(100.formatted())" && copying.line?.percent == 40 && SyncProgress(phase: .copying, stored: 29, total: 100).line?.percent == 29)
         check("copy line: never 100% while copying (a little of Gmail's count is Trash and Spam), and no line before, after or while waiting",
-              SyncProgress(phase: .copying, stored: 100, total: 100).line?.percent == 99 && SyncProgress().line == nil && SyncProgress(phase: .upToDate, stored: 5, total: 5).line == nil && SyncProgress(phase: .waiting, stored: 3, total: 5).line == nil)
+              SyncProgress(phase: .copying, stored: 100, total: 100).line?.percent == 99 && SyncProgress().line == nil && SyncProgress(phase: .copying, stored: 0, total: 0).line?.text == "Getting your older mail\u{2026}" && SyncProgress(phase: .upToDate, stored: 5, total: 5).line == nil && SyncProgress(phase: .waiting, stored: 3, total: 5).line == nil)
 
         // the text of email: recent mail keeps its full text, older mail only sender, subject and preview, mail John opened stays, and the window can change
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("storage-test-\(UUID().uuidString)")

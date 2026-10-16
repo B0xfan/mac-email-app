@@ -3,7 +3,7 @@ import SwiftUI
 extension SyncProgress {
     /// The words and percentage of the thin line above the list while the first copy runs (the approved drawing, panel 1); nil when there is nothing to show.
     var line: (text: String, percent: Int)? {
-        phase == .copying ? ("Getting your older mail\u{2026}", Int((fraction * 100).rounded())) : nil
+        phase == .copying ? ("Getting your older mail\u{2026}" + (total > 0 ? " \(stored.formatted()) of \(total.formatted())" : ""), Int((fraction * 100).rounded())) : nil
     }
 }
 
