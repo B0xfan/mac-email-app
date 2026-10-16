@@ -169,6 +169,8 @@ final class MailStore: ObservableObject {
     let db: MailDB?
     /// Copies the mailbox into `db` in the background and keeps it current (nil without a database).
     var engine: SyncEngine?
+    /// Where the attachments John downloaded are kept (a check points it somewhere else).
+    var attachmentsBase = MailStore.attachmentsFolder
     /// John's own changes so far (see `storedRead`).
     let changes = ChangeCounter()
     /// How far the first full copy has come. No screen shows it yet (it needs an approved drawing first).
@@ -275,6 +277,7 @@ final class MailStore: ObservableObject {
         await engine?.stopAndWait()   // nothing may still be writing when the stored mail is deleted
         syncProgress = SyncProgress()
         db?.wipe()
+        try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments downloaded for this account go with the rest of its mail
         if let u = cacheURL { try? FileManager.default.removeItem(at: u) }
     }
 

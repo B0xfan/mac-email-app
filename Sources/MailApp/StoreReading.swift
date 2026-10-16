@@ -194,18 +194,35 @@ extension MailStore {
 
     // MARK: - Attachments
 
+    /// The attachment button under an open email: the file is downloaded the first time and kept on this Mac (in Audrey Mail's folder), then opened. Opening it again opens the kept copy.
+    /// Nothing else ever downloads an attachment: the first copy of the mailbox and the background check only learn the names.
     func openAttachment(_ a: Attachment, of m: Mail) async {
-        guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID) else { return }
-        let dir = Self.attachmentTemp.appendingPathComponent(UUID().uuidString)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = dir.appendingPathComponent(a.name.replacingOccurrences(of: "/", with: "-"))
-        try? data.write(to: url)
+        if let url = await saveAttachment(a, of: m) { NSWorkspace.shared.open(url) }
+    }
+
+    /// The kept copy of an attachment, downloaded now if this Mac does not have it yet. nil if it could not be downloaded or saved.
+    func saveAttachment(_ a: Attachment, of m: Mail) async -> URL? {
+        let url = Self.attachmentFile(a, of: m, in: attachmentsBase)
+        if FileManager.default.fileExists(atPath: url.path) { return url }
+        guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID), !data.isEmpty else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try data.write(to: url, options: .atomic)
+        } catch { self.error = "Could not save the attachment on this Mac."; return nil }
         Self.quarantine(url)
-        NSWorkspace.shared.open(url)
+        return url
+    }
+
+    /// Where attachments John downloaded are kept: Audrey Mail's folder, one folder per email and one per attachment (two attachments may share a name). Removed with the account.
+    static var attachmentsFolder: URL { JSONStore.folder.appendingPathComponent("Attachments") }
+    static func attachmentFile(_ a: Attachment, of m: Mail, in base: URL) -> URL {
+        var name = a.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        if name.isEmpty || name == "." || name == ".." { name = "attachment" }
+        return base.appendingPathComponent(m.id).appendingPathComponent(String(m.attachments.firstIndex(of: a) ?? 0)).appendingPathComponent(name)
     }
 
     static var attachmentTemp: URL { FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-Attachments") }
-    static func clearAttachmentTemp() { try? FileManager.default.removeItem(at: attachmentTemp) }
+    static func clearAttachmentTemp() { try? FileManager.default.removeItem(at: attachmentTemp) }   // leftovers of earlier versions, which kept attachments in the temporary folder
 
     /// Marks a downloaded file like a browser download, so Gatekeeper checks it before it opens.
     static func quarantine(_ url: URL) {

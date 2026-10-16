@@ -71,6 +71,27 @@ extension SelfTest {
         check("clear: Clear stored mail empties the copy and the first copy starts again by itself (3 messages stored, cleared, 3 stored again, each read twice in all)",
               before == 3 && db2.storedCount() == 3 && db2.isComplete && f2.gets["a"] == 2 && f2.gets["c"] == 2)
 
+        // attachments: downloaded only when John asks, kept on the Mac, opened from there the next time, and removed with the account
+        let fa = FakeGmail(); fa.labelsJSON = lsLabels; fa.seed(["a"]); fa.attachmentFor = ["a"]
+        StubProtocol.handler = { fa.handle($0) }
+        let adb = MailDB(url: dir.appendingPathComponent("att.sqlite"))!
+        let ast = await MainActor.run { lsStore(dir: dir, db: adb, gmail: lsClient()) }
+        let base = dir.appendingPathComponent("att-kept")
+        await MainActor.run { ast.attachmentsBase = base; ast.accountEmail = "me@x.example" }
+        await ast.refresh(); await ast.engine?.waitIdle()
+        let withAtt = try? await ast.fullMessage("a")
+        let att = withAtt?.attachments.first
+        check("attachments: the first copy and a check downloaded none, and the opened email lists its attachment", fa.attachmentCalls.isEmpty && att?.name == "inv-a.pdf")
+        let p1 = await ast.saveAttachment(att!, of: withAtt!)
+        let p2 = await ast.saveAttachment(att!, of: withAtt!)
+        let bytes = p1.flatMap { try? Data(contentsOf: $0) }
+        check("attachments: clicking it downloads it once and keeps the file on this Mac; clicking again uses the kept file", fa.attachmentCalls.count == 1 && p1 == p2 && bytes == Data("PDF!!".utf8) && p1?.path.hasPrefix(base.path) == true)
+        var second = withAtt!; second.attachments = [Attachment(name: "inv-a.pdf", attachmentID: "other", size: 5), att!]
+        let pa = await ast.saveAttachment(second.attachments[0], of: second), pb = await ast.saveAttachment(second.attachments[1], of: second)
+        check("attachments: two attachments of one email with the same name are kept as two files", pa != nil && pb != nil && pa != pb)
+        await ast.removeAccount()
+        check("attachments: removing the account deletes the kept files with the rest of its mail", !FileManager.default.fileExists(atPath: base.path))
+
         // Settings > Storage
         let choices = AppSettings.textChoices.map(AppSettings.textLabel)
         check("storage settings: the menu offers 30 days, 90 days, 6 months and 1 year, 90 days is the default, and the page sits just above Updates",

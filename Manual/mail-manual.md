@@ -316,8 +316,9 @@ Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's sta
 Audrey Mail keeps a copy of your mail on your Mac, so lists and search open at once and Gmail is asked for much less. The first time, it copies your mail down slowly in the background, newest first. A thin line at the top of the list says **Getting your older mail** with a percentage. You can use Audrey Mail normally while it works, and the line goes when the copy is done.
 
 - **Full text.** Emails newer than the time you choose in Settings, **Storage**, and every email you open keep their full text on your Mac. Older mail keeps sender, subject and a short preview. Opening an older email brings its text down from Gmail and keeps it.
+- **Attachments.** The copy never downloads attachments. When you open an email, click an attachment to download and open it. Audrey Mail keeps the downloaded file on your Mac, so clicking it again opens the same file.
 - **Clear stored mail** (Settings, Storage) empties the copy and frees the space. Your mail stays safe in Gmail, and the copy starts again by itself.
-- **Removing an account** (Settings, Accounts) also deletes the mail stored on your Mac for it.
+- **Removing an account** (Settings, Accounts) also deletes the mail stored on your Mac for it, and the attachments you downloaded.
 
 Other Mac touches: **Command Center** (Command-K) lets you type what you want to do and press Return. The **menu bar envelope** shows a count and the five newest unread emails, and Audrey Mail keeps running when you close its window. The **Share** menu in Safari and Finder starts a new email from a link, text or file (files over 20 MB are skipped).
 
