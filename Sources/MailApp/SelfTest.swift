@@ -152,7 +152,7 @@ enum SelfTest {
         let rmFile = signedFile("remove.json", "RM"), rmCache = tdir.appendingPathComponent("remove-cache.json")
         try? Data("{}".utf8).write(to: rmCache)
         let rmCleared = await removeAccountCheck(rmFile, rmCache)
-        check("Remove clears the account on the card, deletes the sign-in file, keeps the saved inbox file", rmCleared && !FileManager.default.fileExists(atPath: rmFile.path) && FileManager.default.fileExists(atPath: rmCache.path))
+        check("Remove clears the account on the card, deletes the sign-in file and the saved inbox file (the stored mail goes with the account)", rmCleared && !FileManager.default.fileExists(atPath: rmFile.path) && !FileManager.default.fileExists(atPath: rmCache.path))
 
         // inbox cache: round trip, bodies dropped, corrupt file ignored, other account ignored
         let cacheOK: Bool = await MainActor.run {
@@ -228,6 +228,7 @@ enum SelfTest {
         if !(await partMulti()) { ok = false }
         if !(await partQuota()) { ok = false }
         if !(await partConversations()) { ok = false }
+        if !(await partDB()) { ok = false }
         if !(await partHelp()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }

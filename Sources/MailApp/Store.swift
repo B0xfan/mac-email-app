@@ -157,12 +157,14 @@ final class MailStore: ObservableObject {
 
     /// Last inbox list, shown at launch while Gmail refreshes. nil = no cache (tests).
     let cacheURL: URL?
+    /// Mail kept on this Mac (plan-local-mail-storage.md). nil = tests and anything that does not use it: every list is then read from Gmail as before.
+    let db: MailDB?
     /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
     let pendingDir: URL?
 
     init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(), timingServer: TimingServer? = nil,
-         blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil) {
-        self.cacheURL = cacheURL; self.pendingDir = pendingDir
+         blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil, db: MailDB? = nil) {
+        self.cacheURL = cacheURL; self.pendingDir = pendingDir; self.db = db
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.timingServer = timingServer; self.blockLabelName = blockLabelName
         SenderPictures.shared.contacts = contacts
         // a selection belongs to the list it was made in; a different tab or view is a different list
@@ -241,17 +243,21 @@ final class MailStore: ObservableObject {
         if let d = try? JSONEncoder().encode(InboxCache(account: accountEmail, mails: slim)) { try? d.write(to: url, options: .atomic) }
     }
 
-    /// Settings > Accounts "Remove": sign out and clear the account shown. Mail and the cache file stay as they are.
+    /// Settings > Accounts "Remove": sign out and clear the account shown. The mail stored on this Mac goes too (John, 2026-10-16): the database and the saved inbox file.
     /// The service keeps its jobs when a new sign-in registers again (it only swaps the key), so cancel them first or they would still go out.
     func removeAccount() async {
         for s in timing.data.scheduled where s.server != "off" { await releaseServer(s.draftID) }
         await releaseReminders()
         await auth.signOut(); accountEmail = ""
+        db?.wipe()
+        if let u = cacheURL { try? FileManager.default.removeItem(at: u) }
     }
 
     func start() async {
         guard case .signedIn(let email) = auth.state else { return }
         accountEmail = email ?? ""
+        db?.useAccount(accountEmail)   // another account's mail is dropped
+        db?.importInboxCache(at: cacheURL, account: accountEmail)   // once: the saved inbox becomes the first (unconfirmed) rows
         loadCache()
         await refresh()
         await recoverPendingSends()
