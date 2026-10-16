@@ -167,6 +167,9 @@ final class MailDB: @unchecked Sendable {
         return nil
     }
 
+    /// The same for work that gives nothing back: true when all of it went through.
+    func atomically(_ body: () -> Void) -> Bool { transaction(body) != nil }
+
     // MARK: - State (account, history id, sync place ...)
 
     func state(_ key: String) -> String? {
@@ -217,7 +220,7 @@ final class MailDB: @unchecked Sendable {
     /// false when the database refused: nothing of this call is kept.
     @discardableResult
     func upsert(_ mails: [Mail], verified: Bool, seen: Int = 0, force: Bool = false) -> Bool {
-        transaction {
+        atomically {
             for m in mails {
                 guard let d = Self.slim(m) else { continue }
                 run("""
@@ -229,7 +232,7 @@ final class MailDB: @unchecked Sendable {
                 run("DELETE FROM message_labels WHERE msg=?", [m.id])
                 for l in Set(m.labels) { run("INSERT OR IGNORE INTO message_labels(msg, label) VALUES(?,?)", [m.id, l]) }
             }
-        } != nil
+        }
     }
 
     /// Verified rows by id.
@@ -265,29 +268,29 @@ final class MailDB: @unchecked Sendable {
 
     @discardableResult
     func applyLabels(ids: [String], add: [String], remove: [String]) -> Bool {
-        transaction {
+        atomically {
             for id in ids {
                 for l in remove { run("DELETE FROM message_labels WHERE msg=? AND label=?", [id, l]) }
                 for l in add { run("INSERT OR IGNORE INTO message_labels(msg, label) SELECT id, ? FROM messages WHERE id=?", [l, id]) }
             }
-        } != nil
+        }
     }
 
     @discardableResult
     func delete(ids: [String]) -> Bool {
-        transaction {
+        atomically {
             for c in Self.chunks(ids) {
                 run("DELETE FROM message_labels WHERE msg IN (\(Self.marks(c.count)))", c.map { $0 as Any? })
                 run("DELETE FROM messages WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? })
             }
-        } != nil
+        }
     }
 
     /// Gmail has these messages now: a full sync listed them in round `epoch`, or the change list was applied to them up to its number `history`
     /// (so a read that began before that, and ends after, cannot overwrite them).
     @discardableResult
     func touch(_ ids: [String], epoch: Int, history: Int64 = 0) -> Bool {
-        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET seen=MAX(seen, ?), history_id=MAX(history_id, ?) WHERE id IN (\(Self.marks(c.count)))", [epoch as Any?, history as Any?] + c.map { $0 as Any? }) } } != nil
+        atomically { for c in Self.chunks(ids) { run("UPDATE messages SET seen=MAX(seen, ?), history_id=MAX(history_id, ?) WHERE id IN (\(Self.marks(c.count)))", [epoch as Any?, history as Any?] + c.map { $0 as Any? }) } }
     }
 
     /// The end of a full sync: whatever the round did not list is no longer in Gmail's mailbox. nil when the database refused (nothing is removed then).
@@ -304,7 +307,7 @@ final class MailDB: @unchecked Sendable {
 
     @discardableResult
     func markUnverified(_ ids: [String]) -> Bool {
-        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET verified=0 WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }) } } != nil
+        atomically { for c in Self.chunks(ids) { run("UPDATE messages SET verified=0 WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }) } }
     }
     @discardableResult
     func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }

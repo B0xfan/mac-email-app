@@ -57,7 +57,7 @@ extension MailDB {
     @discardableResult
     func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) -> Bool {
         guard !ids.isEmpty else { return true }
-        return transaction {
+        return atomically {
             let e = OutboxOp.effect(kind, add, remove)
             applyLabels(ids: ids, add: e.add, remove: e.remove)
             var last: OutboxOp?
@@ -78,7 +78,7 @@ extension MailDB {
             }
             guard let d = try? JSONEncoder().encode(Payload(ids: ids, add: add, remove: remove)) else { return }
             run("INSERT INTO outbox(kind, payload, created) VALUES(?,?,?)", [kind.rawValue, d, Date().timeIntervalSince1970])
-        } != nil
+        }
     }
 
     func retryLater(_ seq: Int64, at: Date) { run("UPDATE outbox SET retry_at=? WHERE seq=?", [at.timeIntervalSince1970, seq]) }
