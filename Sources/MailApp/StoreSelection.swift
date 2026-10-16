@@ -111,7 +111,7 @@ extension MailStore {
         do {
             let add = markRead ? [] : ["UNREAD"], remove = markRead ? ["UNREAD"] : []
             let ids = changed.flatMap { markRead ? unreadIDs($0) : [$0.id] }
-            try await gmail.modify(ids: ids, add: add, remove: remove)
+            try await change(ids: ids, add: add, remove: remove)
             for id in ids { applyLabels(id, add: add, remove: remove) }
             saveCache()
             undoArchive = ids; undoSibs = []; undoAside = false; undoUntrash = false

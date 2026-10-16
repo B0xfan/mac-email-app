@@ -177,6 +177,7 @@ final class MailStore: ObservableObject {
         if let db {
             let e = SyncEngine(gmail: gmail, db: db)
             e.onProgress = { [weak self] p in Task { @MainActor in self?.syncProgress = p } }
+            e.onChange = { [weak self] in Task { @MainActor in self?.storedChanged() } }
             engine = e
         }
     }
@@ -386,13 +387,14 @@ final class MailStore: ObservableObject {
     func autoMoreOther() async { guard autoPagesLeft > 0, otherNext != nil else { return }; autoPagesLeft -= 1; await loadMoreOther() }
 
     /// Where the current "other" list (search, Sent, folder, Smart Folder, saved search, Archive) comes from, so more of it can be fetched.
-    enum OtherSource { case query(String), labels([String]) }
+    enum OtherSource { case query(String), labels([String]), stored(DBListSpec) }   // stored: read from the mail kept on this Mac, nothing asked of Gmail
     static let otherPage = 50
 
     private func otherPage(_ src: OtherSource, token: String?) async throws -> (ids: [String], next: String?) {
         switch src {
         case .query(let q): return try await gmail.listPage(q: q, max: Self.otherPage, pageToken: token)
         case .labels(let l): return try await gmail.listPage(labels: l, max: Self.otherPage, pageToken: token)
+        case .stored: return ([], nil)   // never asked of Gmail
         }
     }
 
@@ -401,6 +403,11 @@ final class MailStore: ObservableObject {
         let writesAtStart = gmail.writes
         otherNext = nil; otherSource = nil
         let q = search.trimmingCharacters(in: .whitespaces)
+        if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
+            let rows = db.list(spec, limit: Self.otherPage)
+            other = rows; otherSource = .stored(spec); otherNext = rows.count == Self.otherPage ? String(Self.otherPage) : nil; otherWrites = writesAtStart
+            return
+        }
         do {
             var src: OtherSource?
             var read: PlainSearch.Result?
@@ -411,13 +418,13 @@ final class MailStore: ObservableObject {
                 switch mailbox {
                 case .sent: src = .labels(["SENT"])
                 case .drafts:
-                    let d = try await gmail.drafts()
-                    let got = await gmail.messages(ids: d.map { $0.messageID })
+                    let d = try await gmail.drafts()   // the list of drafts is always asked for (5 units): a draft saved a moment ago must show
+                    let got = await rows(for: d.map { $0.messageID })
                     guard gen == otherGen else { return }
                     draftMap = Dictionary(uniqueKeysWithValues: d.map { ($0.messageID, $0.draftID) }); other = got
                 case .recent:
                     let ids = seen.ids(withinDays: settings.recentDays)
-                    let got = await gmail.messages(ids: ids)
+                    let got = await rows(for: ids)
                     let byID = Dictionary(got.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                     guard gen == otherGen else { return }
                     other = ids.compactMap { byID[$0] }
@@ -457,6 +464,13 @@ final class MailStore: ObservableObject {
     func loadMoreOther() async {
         guard let tok = otherNext, let src = otherSource, !loadingOtherMore else { return }
         let gen = otherGen
+        if case .stored(let spec) = src, let db {   // the next 50 from this Mac
+            let off = Int(tok) ?? other.count, rows = db.list(spec, limit: Self.otherPage, offset: off)
+            let have = Set(other.map(\.id))
+            other += rows.filter { !have.contains($0.id) }
+            otherNext = rows.count == Self.otherPage ? String(off + Self.otherPage) : nil
+            return
+        }
         loadingOtherMore = true; defer { loadingOtherMore = false }
         do {
             let page = try await otherPage(src, token: tok)
@@ -476,13 +490,13 @@ final class MailStore: ObservableObject {
 
     func select(_ box: Mailbox) async {
         // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
-        if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: otherWrites) }
+        if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore, !otherIsStored { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: otherWrites) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
         else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() }
-        else if let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
+        else if storedSpec(box) == nil, let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
             other = kept.mails; otherNext = kept.next; otherSource = kept.source; otherWrites = kept.writes   // coming back to it: no request to Gmail
         } else { await loadOther() }
     }

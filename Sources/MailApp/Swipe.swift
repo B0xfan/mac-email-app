@@ -121,7 +121,7 @@ extension MailStore {
         let wasUnread = m.unread
         let ids = wasUnread ? unreadIDs(m) : [m.id]
         do {
-            try await gmail.modify(ids: ids, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
+            try await change(ids: ids, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : [])
             for id in ids { applyLabels(id, add: wasUnread ? [] : ["UNREAD"], remove: wasUnread ? ["UNREAD"] : []) }
             saveCache()
             undoArchive = ids; undoSibs = []; undoAside = false; undoUntrash = false

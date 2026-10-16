@@ -35,7 +35,7 @@ extension MailStore {
     }
 
     private func setRead(_ m: Mail) async {
-        try? await gmail.modify(ids: [m.id] + (m.siblings ?? []), remove: ["UNREAD"])
+        try? await change(ids: [m.id] + (m.siblings ?? []), remove: ["UNREAD"])
         for i in inbox.indices where inbox[i].id == m.id { inbox[i].labels.removeAll { $0 == "UNREAD" } }
         for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { $0 == "UNREAD" } }
         for i in aside.indices where aside[i].id == m.id { aside[i].labels.removeAll { $0 == "UNREAD" } }
@@ -81,11 +81,11 @@ extension MailStore {
         do {
             var remove = ["INBOX"] + alsoRemove
             if wasAside, let l = asideLabelID, !setAside { remove.append(l) }
-            if trashIt { try await gmail.trash(id: m.id); for s in m.siblings ?? [] { try await gmail.trash(id: s) } }
+            if trashIt { try await moveToTrash(id: m.id); for s in m.siblings ?? [] { try await moveToTrash(id: s) } }
             else {
-                try await gmail.modify(ids: [m.id], add: add, remove: remove)
+                try await change(ids: [m.id], add: add, remove: remove)
                 // the row stands for the whole conversation: its other inbox emails leave too
-                if let s = m.siblings, !s.isEmpty { try await gmail.modify(ids: s, remove: ["INBOX"]) }
+                if let s = m.siblings, !s.isEmpty { try await change(ids: s, remove: ["INBOX"]) }
             }   // Gmail documents trash/untrash for the Trash label
             inbox.removeAll { $0.id == m.id }
             if keepOther { for i in other.indices where other[i].id == m.id { other[i].labels.removeAll { remove.contains($0) }; other[i].labels += add } }
@@ -133,6 +133,7 @@ extension MailStore {
 
     func loadAside() async {
         guard let l = asideLabelID else { aside = []; return }
+        if let db, db.isComplete { aside = db.list(DBListSpec(all: [l], none: ["TRASH", "SPAM"]), limit: GmailClient.all); return }   // from this Mac, no request
         guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
         let have = Dictionary(aside.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let fresh = await gmail.messages(ids: ids.filter { have[$0] == nil })
@@ -143,7 +144,7 @@ extension MailStore {
     func backToInbox(_ ms: [Mail]) async {
         guard let l = asideLabelID, !ms.isEmpty else { return }
         do {
-            try await gmail.modify(ids: ms.map(\.id), add: ["INBOX"], remove: [l])
+            try await change(ids: ms.map(\.id), add: ["INBOX"], remove: [l])
             let ids = Set(ms.map(\.id))
             aside.removeAll { ids.contains($0.id) }
             for var x in ms { x.labels.removeAll { $0 == l }; if !x.labels.contains("INBOX") { x.labels.append("INBOX") }; inbox.append(x); asides.forget(x.id) }
@@ -160,16 +161,16 @@ extension MailStore {
         if !undoArchive.isEmpty, let u = undoFolder {
             let ids = undoArchive; undoArchive = []; undoFolder = nil
             do {
-                if undoUntrash { for id in ids { try await gmail.untrash(id: id) }; undoUntrash = false }
-                if !u.add.isEmpty || !u.remove.isEmpty { try await gmail.modify(ids: ids, add: u.add, remove: u.remove) }
-                if !undoSibs.isEmpty { try await gmail.modify(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
+                if undoUntrash { for id in ids { try await moveFromTrash(id: id) }; undoUntrash = false }
+                if !u.add.isEmpty || !u.remove.isEmpty { try await change(ids: ids, add: u.add, remove: u.remove) }
+                if !undoSibs.isEmpty { try await change(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
             } catch { note(error) }
             toast = nil
             await refresh()
         } else if !undoArchive.isEmpty {
             let ids = undoArchive; undoArchive = []
             let fromAside = undoAside; undoAside = false
-            do { try await gmail.modify(ids: ids, add: ["INBOX"], remove: fromAside ? (asideLabelID.map { [$0] } ?? []) : []) } catch { note(error) }
+            do { try await change(ids: ids, add: ["INBOX"], remove: fromAside ? (asideLabelID.map { [$0] } ?? []) : []) } catch { note(error) }
             if failed == nil && fromAside { ids.forEach { asides.forget($0) } }
             toast = nil
             await refresh()
@@ -234,7 +235,7 @@ extension MailStore {
             var ids = [m.id]
             if groupOn { ids += (m.siblings ?? []) + (unpin ? (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : []) }
             ids = ids.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
-            try await gmail.modify(ids: ids, add: unpin ? [] : [label], remove: unpin ? [label] : [])
+            try await change(ids: ids, add: unpin ? [] : [label], remove: unpin ? [label] : [])
             for i in ids { applyLabels(i, add: unpin ? [] : [label], remove: unpin ? [label] : []) }
             saveCache()
             return ids

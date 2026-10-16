@@ -20,11 +20,19 @@ final class FakeGmail: @unchecked Sendable {
     var writes: [String] = []             // changes received, e.g. "modify m1,m2 +A -B", "trash m1"
     var writeAnswer: ((String) -> (Int, String)?)?   // an answer given instead of making the change (a failure, say); must not call back into this object
     var otherCalls: [String] = []
+    var requests = 0                      // every call to Gmail (the sign-in token calls are not counted)
+    var labelsJSON = #"{"labels":[]}"#
+    var drafts: [(draft: String, message: String)] = []
 
     /// Newest first: the first id is the newest message.
     func seed(_ ids: [String], labels: [String] = ["INBOX"]) {
         lock.lock(); defer { lock.unlock() }
         for (i, id) in ids.enumerated() { msgs.append(Msg(id: id, labels: labels, date: 1_700_000_000 - i * 10)) }
+    }
+    /// One message with a chosen date (seconds); not recorded in the change list.
+    func put(_ id: String, _ labels: [String], _ date: Int) {
+        lock.lock(); defer { lock.unlock() }
+        msgs.append(Msg(id: id, labels: labels, date: date))
     }
     /// New mail (newer than everything), recorded in the change list.
     func add(_ id: String, _ labels: [String]) {
@@ -66,7 +74,7 @@ final class FakeGmail: @unchecked Sendable {
         if abs.contains("oauth2") || (abs.contains("token") && !abs.contains("gmail")) { return (200, #"{"access_token":"AT","expires_in":3600}"#) }
         lock.lock(); defer { lock.unlock() }
         let rel = u.path.replacingOccurrences(of: "/gmail/v1/users/me", with: ""), method = req.httpMethod ?? "GET"
-        units += QuotaGate.units(method: method, path: rel)
+        units += QuotaGate.units(method: method, path: rel); requests += 1
         let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func q(_ n: String) -> String? { items.first { $0.name == n }?.value }
         switch (method, rel) {
@@ -91,7 +99,9 @@ final class FakeGmail: @unchecked Sendable {
             let next = from + historyPageSize < all.count ? ",\"nextPageToken\":\"h\(from + historyPageSize)\"" : ""
             return (200, "{" + (recs.isEmpty ? "" : "\"history\":[\(recs.joined(separator: ","))],") + "\"historyId\":\"\(historyID)\"\(next)}")
         case ("GET", "/labels"):
-            return (200, #"{"labels":[]}"#)
+            return (200, labelsJSON)
+        case ("GET", "/drafts"):
+            return (200, "{\"drafts\":[\(drafts.map { "{\"id\":\"\($0.draft)\",\"message\":{\"id\":\"\($0.message)\"}}" }.joined(separator: ","))]}")
         case ("POST", "/messages/batchModify"):
             let o = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data()) as? [String: Any]) ?? [:]
             let ids = o["ids"] as? [String] ?? [], add = o["addLabelIds"] as? [String] ?? [], rem = o["removeLabelIds"] as? [String] ?? []

@@ -84,7 +84,7 @@ extension MailStore {
 
     private func moveExisting(from: String, label: String) async throws {
         let ids = try await gmail.listIDs(q: "from:\(GmailQuery.term(from)) in:inbox", max: GmailClient.all)
-        try await gmail.modify(ids: ids, add: [label], remove: ["INBOX"])
+        try await change(ids: ids, add: [label], remove: ["INBOX"])
     }
 
     func blockAllNewSenders() async {
@@ -135,7 +135,7 @@ extension MailStore {
             lifted = true
             if !covered, !e.toTrash, let label = try await ensureLabelIfExists() {   // old Spark blocks: just the filter goes; their emails stay where they are
                 let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
-                try await gmail.modify(ids: ids, add: ["INBOX"], remove: [label])
+                try await change(ids: ids, add: ["INBOX"], remove: [label])
             }
             if !e.isCompany && !covered { book.approve(e.from) }
             status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."

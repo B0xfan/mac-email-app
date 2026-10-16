@@ -54,9 +54,15 @@ extension MailStore {
 
     func loadSnoozed() async {
         guard let l = snoozeLabelID else { snoozed = []; return }
-        guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
-        let have = Dictionary(snoozed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        snoozed = ids.compactMap { have[$0] } + (await gmail.messages(ids: ids.filter { have[$0] == nil }))
+        let ids: [String]
+        if let db, db.isComplete {   // from this Mac, no request
+            snoozed = db.list(DBListSpec(all: [l], none: ["TRASH", "SPAM"]), limit: GmailClient.all); ids = snoozed.map(\.id)
+        } else {
+            guard let listed = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
+            ids = listed
+            let have = Dictionary(snoozed.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            snoozed = ids.compactMap { have[$0] } + (await gmail.messages(ids: ids.filter { have[$0] == nil }))
+        }
         // brought back some other way (Undo, the phone): forget the time
         let gone = timing.data.snoozes.keys.filter { !ids.contains($0) }
         if !gone.isEmpty { timing.change { t in gone.forEach { t.snoozes[$0] = nil } } }
@@ -66,7 +72,7 @@ extension MailStore {
     func wake(_ ids: [String], now: Date = Date()) async {
         guard let l = snoozeLabelID, !ids.isEmpty else { return }
         do {
-            try await gmail.modify(ids: ids, add: ["INBOX", "UNREAD"], remove: [l])
+            try await change(ids: ids, add: ["INBOX", "UNREAD"], remove: [l])
             timing.change { t in ids.forEach { t.snoozes[$0] = nil; t.surfaced[$0] = now } }
             for var x in snoozed where ids.contains(x.id) {
                 x.labels.removeAll { $0 == l }; x.labels += ["INBOX", "UNREAD"]; x.date = now
@@ -227,7 +233,7 @@ extension MailStore {
             else {
                 let thread = try await gmail.threadMessages(id: f.threadID)
                 if !TimingRules.hasReply(thread, after: f.sentAt, sentID: f.messageID) {
-                    try await gmail.modify(ids: [f.messageID], add: ["INBOX", "UNREAD"])
+                    try await change(ids: [f.messageID], add: ["INBOX", "UNREAD"])
                     await applyNoReply(f.messageID, now: now)
                 }
             }
