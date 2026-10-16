@@ -179,6 +179,20 @@ enum ListTest {
         }
         store.syncProgress = SyncProgress()
         check("12-first copy: the progress bar shows while the copy runs and is gone before and after it (teal pixel rows \(barRows))", barRows[1] - barRows[0] >= 4 && abs(barRows[2] - barRows[0]) <= 1)
+
+        // Settings > Storage, drawn in a window that is never shown (the picture goes with the others, for a look)
+        let app = AppModel.current ?? AppModel()
+        let sw = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 960, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)
+        sw.isReleasedWhenClosed = false
+        sw.appearance = NSAppearance(named: .aqua)
+        sw.contentView = NSHostingView(rootView: SettingsView(app: app, openBlocked: {}, start: .storage))
+        sw.orderFront(nil)
+        await LiveTest.pump(1.0)
+        let sp = "\(dir)/list-13-settings-storage.png"
+        try? FileManager.default.removeItem(atPath: sp)
+        LiveTest.grab(sw, sp)
+        sw.close()
+        check("13-storage page: the Storage settings page draws (picture is not blank)", ((try? FileManager.default.attributesOfItem(atPath: sp)[.size] as? Int) ?? 0) > 5_000)
         win.close()
         return ok
     }

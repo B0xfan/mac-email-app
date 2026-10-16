@@ -234,7 +234,7 @@ Audrey Mail reads your words on your Mac with fixed rules. They do not go to any
 
 ### All the way back, with no limit
 
-Search looks through all of your Gmail, as far back as your mail goes (2015 and older too). It does not stop at 80 emails. Scroll to the bottom of the list and the next batch (50 at a time) loads by itself. If it ever pauses, click **Show older emails**. The same is true for Sent, folders, Smart Folders, saved searches, Archive and the inbox.
+A search in plain words (for example **invoice Maria**) looks on your Mac first, once Audrey Mail has finished copying your mail down (see **Your mail on your Mac** below). The results appear at once under "Results for ... on this Mac", newest first. Under them, **Search all of Gmail too** asks Gmail for older mail, as far back as your mail goes (2015 and older too). What it finds is added under **From Gmail (older mail)**, and opening one of those keeps it on your Mac. Searches that use Gmail's own words (such as `from:bob`) or tags such as unread or last month go straight to Gmail, all the way back. It does not stop at 80 emails. Scroll to the bottom of the list and the next batch (50 at a time) loads by itself. If it ever pauses, click **Show older emails**. The same is true for Sent, folders, Smart Folders, saved searches, Archive and the inbox.
 
 The notes you wrote under emails (**Add note**) are searched too, so an email can be found by what you wrote about it.
 
@@ -309,6 +309,15 @@ Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's sta
 | Default app | **Make this my default email app**. |
 | New senders | Turns the Approve or Block check on or off. |
 | Privacy | Block hidden tracking pictures, and load normal pictures automatically or choose email by email. |
+| Storage | How long Audrey Mail keeps the full text of emails on this Mac (30 days, 90 days, 6 months or 1 year; older mail keeps sender, subject and a short preview), how much space the stored mail takes, and **Clear stored mail**. |
+
+### Your mail on your Mac
+
+Audrey Mail keeps a copy of your mail on your Mac, so lists and search open at once and Gmail is asked for much less. The first time, it copies your mail down slowly in the background, newest first. A thin line at the top of the list says **Getting your older mail** with a percentage. You can use Audrey Mail normally while it works, and the line goes when the copy is done.
+
+- **Full text.** Emails newer than the time you choose in Settings, **Storage**, and every email you open keep their full text on your Mac. Older mail keeps sender, subject and a short preview. Opening an older email brings its text down from Gmail and keeps it.
+- **Clear stored mail** (Settings, Storage) empties the copy and frees the space. Your mail stays safe in Gmail, and the copy starts again by itself.
+- **Removing an account** (Settings, Accounts) also deletes the mail stored on your Mac for it.
 
 Other Mac touches: **Command Center** (Command-K) lets you type what you want to do and press Return. The **menu bar envelope** shows a count and the five newest unread emails, and Audrey Mail keeps running when you close its window. The **Share** menu in Safari and Finder starts a new email from a link, text or file (files over 20 MB are skipped).
 

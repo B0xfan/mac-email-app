@@ -35,6 +35,29 @@ extension MailStore {
         return words.isEmpty || special ? nil : words
     }
 
+    /// "1.2 GB for 48,200 emails": what the copy of the mailbox on this Mac takes (Settings > Storage).
+    static func storageText(bytes: Int64, count: Int) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        let n = NumberFormatter(); n.numberStyle = .decimal
+        return "\(size) for \(n.string(from: NSNumber(value: count)) ?? String(count)) email\(count == 1 ? "" : "s")"
+    }
+    func storageText() async -> String {
+        guard let db else { return "Nothing is stored on this Mac." }
+        let (bytes, count) = await Task.detached { (db.diskBytes(), db.storedCount()) }.value
+        return Self.storageText(bytes: bytes, count: count)
+    }
+
+    /// Settings > Storage "Clear stored mail": the copy on this Mac is emptied and the file made small. Changes still waiting for Gmail are kept and sent. Lists and the Inbox are read
+    /// from Gmail again until the first copy has been made again, which starts straight away.
+    func clearStoredMail() async {
+        guard let db else { return }
+        await engine?.stopAndWait()   // nothing may be writing while it is emptied
+        _ = await Task.detached { db.clearMail() }.value
+        syncProgress = SyncProgress()
+        engine?.kickOutbox()
+        await refresh(reloadList: true)   // reads Gmail now, and starts the copy again
+    }
+
     /// "Search all of Gmail too": the same words are sent to Gmail; what the list does not hold yet is added under its own heading (From Gmail, older mail).
     func searchGmailToo() async {
         guard searchMore == .offer, mailbox == .search else { return }

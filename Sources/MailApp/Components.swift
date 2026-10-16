@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import WebKit
 
-enum BtnKind { case primary, neutral, block, danger }
+enum BtnKind { case primary, neutral, block, danger, warn }   // warn: amber outline (Clear stored mail)
 
 /// SwiftUI's @State is a macro this toolchain cannot expand, so small mutable view state lives in a Box.
 final class Box<T>: ObservableObject {
@@ -42,7 +42,7 @@ struct MailButtonBody: View {
     }
     private var fg: Color {
         if !enabled { return Theme.dis }
-        switch kind { case .primary: return Theme.accText; case .block, .danger: return Theme.blk; case .neutral: return Theme.text }
+        switch kind { case .primary: return Theme.accText; case .block, .danger: return Theme.blk; case .neutral: return Theme.text; case .warn: return Theme.accInk }
     }
     private func bg(_ h: Bool) -> Color {
         switch kind {
@@ -51,7 +51,7 @@ struct MailButtonBody: View {
         }
     }
     private var border: Color {
-        switch kind { case .primary: return Theme.acc; case .block, .danger: return Theme.blk; case .neutral: return Theme.sub }
+        switch kind { case .primary: return Theme.acc; case .block, .danger: return Theme.blk; case .neutral: return Theme.sub; case .warn: return Theme.accInk }
     }
 }
 

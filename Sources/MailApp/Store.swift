@@ -188,7 +188,10 @@ final class MailStore: ObservableObject {
             let e = SyncEngine(gmail: gmail, db: db)
             e.onProgress = { [weak self] p in Task { @MainActor in self?.syncProgress = p } }
             e.onChange = { [weak self] in Task { @MainActor in self?.storedChanged() } }
+            e.textDays = settings.keepTextDays
             engine = e
+            // a new choice in Settings > Storage reaches the copy at once (text of older mail is dropped, or read for the longer window)
+            pickWatch.append(settings.$keepTextDays.removeDuplicates().dropFirst().sink { [weak self] d in self?.engine?.textDays = d; self?.engine?.kickSync() })
         }
     }
 

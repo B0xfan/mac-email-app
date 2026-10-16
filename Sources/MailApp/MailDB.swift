@@ -346,12 +346,13 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Keeps the text of a message as it was read from Gmail. `kept`: John opened it, so the text stays however old the message gets.
-    /// Nothing is kept for an email with pictures inside it (their data is not stored) or one with no text at all; true then, as nothing went wrong.
+    /// An email with pictures inside it (their data is not stored) or with no text at all keeps only its words for searching: it is read from Gmail when opened.
     @discardableResult
-    func setBody(_ m: Mail, kept: Bool) -> Bool {
-        guard m.cidParts?.isEmpty ?? true, m.html != nil || m.text != nil,
-              let d = try? JSONEncoder().encode(StoredBody(html: m.html, text: m.text, attachments: m.attachments)) else { return true }
-        return run("UPDATE messages SET body=?, search_body=?, body_kept=MAX(body_kept, ?) WHERE id=?", [d, Self.bodyWords(m), kept ? 1 : 0, m.id])
+    func setBody(_ m: Mail, kept: Bool, words: String? = nil) -> Bool {   // `words`: already worked out by a caller that does not want to hold the database while it does the slow part
+        // the words are always kept (a search finds the email); the text itself only when it can be shown again as it was
+        var d: Data?
+        if (m.cidParts?.isEmpty ?? true) && (m.html != nil || m.text != nil) { d = try? JSONEncoder().encode(StoredBody(html: m.html, text: m.text, attachments: m.attachments)) }
+        return run("UPDATE messages SET body=?, search_body=?, body_kept=MAX(body_kept, ?) WHERE id=?", [d, words ?? Self.bodyWords(m), kept ? 1 : 0, m.id])
     }
 
     /// John opened this email in full: its row is stored (a message found by a Gmail search is stored now) and its text kept. A draft is not kept (Gmail rewrites it on every save).
@@ -374,6 +375,42 @@ final class MailDB: @unchecked Sendable {
             out = m
         })
         return out
+    }
+
+    /// The full text of messages older than `date` is dropped, except for mail John opened. Their sender, subject and preview stay.
+    @discardableResult
+    func pruneText(before date: Date) -> Bool {
+        run("UPDATE messages SET body=NULL, search_body=NULL WHERE body_kept=0 AND (body IS NOT NULL OR search_body IS NOT NULL) AND date < ?", [Self.ms(date)])
+    }
+
+    /// Confirmed messages newer than `date` whose full text has not been read yet (newest first): the background copy reads them. Drafts are left out (Gmail rewrites them).
+    func idsNeedingText(since date: Date, limit: Int) -> [String] {
+        var out: [String] = []
+        run("""
+            SELECT m.id FROM messages m WHERE m.verified=1 AND m.date >= ? AND m.search_body IS NULL
+              AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?, ?))
+            ORDER BY m.date DESC LIMIT ?
+            """, [Self.ms(date), "DRAFT", "TRASH", "SPAM", limit], { out.append(Self.text($0, 0)) })
+        return out
+    }
+
+    /// Settings > Storage "Clear stored mail": the copy of the mailbox is emptied and the file made small again. The account and the changes still waiting for Gmail stay.
+    /// false when the database refused (nothing is cleared then).
+    @discardableResult
+    func clearMail() -> Bool {
+        guard atomically({
+            run("DELETE FROM message_labels"); run("DELETE FROM messages")
+            run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
+        }) else { return false }
+        run("PRAGMA wal_checkpoint(TRUNCATE)"); run("VACUUM")
+        return true
+    }
+
+    /// Bytes the copy takes on disk (the file and its write-ahead file).
+    func diskBytes() -> Int64 {
+        var n: Int64 = 0
+        for s in ["", "-wal"] { if let a = try? FileManager.default.attributesOfItem(atPath: url.path + s), let size = a[.size] as? NSNumber { n += size.int64Value } }
+        return n
     }
 
     /// The Inbox as conversation rows, newest first: the same rows Gmail's conversation list gives (the newest Inbox message stands for the conversation, the other Inbox

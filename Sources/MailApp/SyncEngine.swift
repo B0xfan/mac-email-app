@@ -40,6 +40,19 @@ final class SyncEngine: @unchecked Sendable {
     private var outAgain = false
     private var retryTimer: Task<Void, Never>?
 
+    // full text (Settings > Storage)
+    private var _textDays = AppSettings.textDefault
+    private var sawOld = false
+    /// Mail newer than this many days keeps its full text (plus anything John opened); older mail keeps sender, subject and a preview.
+    var textDays: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _textDays }
+        set { lock.lock(); _textDays = newValue; lock.unlock() }
+    }
+    func textCutoff() -> Date { now().addingTimeInterval(-Double(textDays) * 86400) }
+    /// Newest first: once a read message is older than the cutoff, the rest of this pass reads metadata only (the full text of recent mail is the only text kept).
+    private func textWanted() -> Bool { lock.lock(); defer { lock.unlock() }; return !sawOld }
+    private func noteOld(_ old: Bool) { lock.lock(); sawOld = sawOld || old; lock.unlock() }
+
     /// Stored copies counted so far in this run, so a page of the copy does not count the whole table again (`publish(exact: false)`).
     private var runningStored = 0
 
@@ -79,6 +92,7 @@ final class SyncEngine: @unchecked Sendable {
     private enum SyncError: Error { case incomplete }
 
     private func syncBody() async {
+        lock.lock(); sawOld = false; lock.unlock()   // a new pass starts reading in full again
         do {
             if !db.isTracking { try await startFullSync(stale: false) }
             else {
@@ -86,7 +100,8 @@ final class SyncEngine: @unchecked Sendable {
                 catch is HistoryGap { try await startFullSync(stale: true) }   // Gmail no longer has the changes since last time: copy everything again
             }
             try await backfill()
-            if db.isComplete { try await refetchUnverified() }
+            if db.isComplete { try await refetchUnverified(); try await fillText() }
+            pruneIfDue()
             publish(.upToDate)
         } catch is CancellationError {
         } catch { publish(.waiting) }
@@ -170,17 +185,31 @@ final class SyncEngine: @unchecked Sendable {
     /// Reads these messages (metadata, no text) and stores them. A message Gmail says is gone (404) is dropped. A message Gmail refuses for good (another 4xx) is left out:
     /// the copy goes on without it, and the next full copy tries it again (every listed message that is not stored is read). Anything else (offline, Gmail busy or failing,
     /// an unreadable answer, no permission) leaves the rest stored and stops the pass, so the same page is tried again at the next check, for as long as it takes.
-    private func fetch(_ ids: [String], epoch: Int) async throws {
+    private func fetch(_ ids: [String], epoch: Int, forceFull: Bool = false) async throws {
         guard !ids.isEmpty else { return }
-        let g = gmail
-        let r = await mapLimited(ids, limit: fetchAtOnce) { id -> (id: String, mail: Mail?, outcome: Outcome) in
-            do { return (id, try await g.message(id: id, full: false), .read) }
-            catch GmailError.http(let c, _) { return (id, nil, Self.outcome(forHTTP: c)) }
-            catch { return (id, nil, .trouble) }
+        let g = gmail, cutoff = textCutoff()
+        // Recent mail is read in full (the text is kept); the same number of requests as a read of the headers. Attachments are never downloaded here: the read carries only their names.
+        let r = await mapLimited(ids, limit: fetchAtOnce) { id -> (id: String, mail: Mail?, outcome: Outcome, full: Bool) in
+            let full = forceFull || self.textWanted()
+            do {
+                let m = try await g.message(id: id, full: full)
+                if !forceFull { self.noteOld(m.date < cutoff) }
+                return (id, m, .read, full)
+            }
+            catch GmailError.http(let c, _) { return (id, nil, Self.outcome(forHTTP: c), full) }
+            catch { return (id, nil, .trouble, full) }
         }
         try Task.checkCancellation()   // a cancelled read looks like a failure: do not count it
         let got = r.compactMap { $0.mail }
-        guard db.upsert(got, verified: true, seen: epoch), db.delete(ids: r.filter { $0.outcome == .gone }.map { $0.id }) else { throw SyncError.incomplete }
+        let fullIDs = Set(r.filter { $0.full }.map { $0.id })
+        // a draft is rewritten in Gmail: its text is never kept. The words are worked out first, so the database is not held up while a page of long emails is read through.
+        let texts = got.filter { fullIDs.contains($0.id) && !$0.labels.contains("DRAFT") }
+        let words = Dictionary(texts.map { ($0.id, MailDB.bodyWords($0)) }, uniquingKeysWith: { a, _ in a })
+        let stored = db.atomically {
+            db.upsert(got, verified: true, seen: epoch)
+            for m in texts { db.setBody(m, kept: false, words: words[m.id]) }
+        }
+        guard stored, db.delete(ids: r.filter { $0.outcome == .gone }.map { $0.id }) else { throw SyncError.incomplete }
         countStored(got.count)
         db.replayOutbox()   // a change still waiting for Gmail stays applied on what was just read
         if r.contains(where: { $0.outcome == .trouble }) { throw SyncError.incomplete }
@@ -228,6 +257,23 @@ final class SyncEngine: @unchecked Sendable {
         let handled = Array(Set(changes.map { $0.id }).union(wanted).subtracting(deleted))
         guard db.touch(handled, epoch: epoch, history: Int64(latest) ?? 0), db.setState("history_id", latest) else { throw SyncError.incomplete }
         onChange?()
+    }
+
+    /// Recent mail whose full text has not been read yet (the window was made longer, or the text was dropped): read a batch of it now, newest first. Trouble here only delays the text.
+    /// shortcut: a message Gmail refuses for good (400) is asked for again at every pass; fine while that is rare, mark it as tried if it ever is not.
+    private func fillText() async throws {
+        let ids = db.idsNeedingText(since: textCutoff(), limit: 200)
+        guard !ids.isEmpty else { return }
+        do { try await fetch(ids, epoch: Int(db.state("epoch") ?? "") ?? 1, forceFull: true) }
+        catch is CancellationError { throw CancellationError() }
+        catch { }
+    }
+
+    /// The text of mail that fell out of the window is dropped (except mail John opened). Run when the choice changes and about every 6 hours, not at every check.
+    private func pruneIfDue() {
+        let days = String(textDays), last = Double(db.state("pruned_at") ?? "") ?? 0, t = now().timeIntervalSince1970
+        guard db.state("pruned_days") != days || t - last > 6 * 3600 else { return }
+        if db.pruneText(before: textCutoff()) { db.setState("pruned_days", days); db.setState("pruned_at", String(t)) }
     }
 
     /// Messages Gmail's answer contradicted (a change Gmail refused) are read again, so the stored copy agrees with Gmail.
