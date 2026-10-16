@@ -69,6 +69,10 @@ final class SyncEngine: @unchecked Sendable {
     private func syncBody() async {
         do {
             if !db.isTracking { try await startFullSync(stale: false) }
+            else {
+                do { try await applyHistory() }
+                catch is HistoryGap { try await startFullSync(stale: true) }   // Gmail no longer has the changes since last time: copy everything again
+            }
             try await backfill()
             publish(.upToDate)
         } catch is CancellationError {
@@ -148,5 +152,46 @@ final class SyncEngine: @unchecked Sendable {
         }
         db.setState("stall", String(n))
         throw SyncError.incomplete
+    }
+
+    // MARK: - Changes only (step 4)
+
+    private struct HistoryGap: Error {}
+
+    /// Google's documented partial sync: ask what changed since the stored change number (2 units), apply it, remember the new number.
+    /// A new message is read (20 units); a label change or a deletion is applied to the stored row with no request at all.
+    /// The number moves forward only after everything is applied, and every step can be done twice without harm, so a stop in the middle just repeats.
+    /// Throws HistoryGap when Gmail answers 404 (the number is too old).
+    private func applyHistory() async throws {
+        guard let start = db.state("history_id") else { return }
+        let epoch = Int(db.state("epoch") ?? "") ?? 1
+        var events: [GmailClient.HistoryEvent] = [], token: String?, latest = start
+        repeat {
+            let page: GmailClient.HistoryPage
+            do { page = try await gmail.history(since: start, pageToken: token) }
+            catch GmailError.http(404, _) { throw HistoryGap() }
+            events += page.events; token = page.next
+            if let h = page.historyID { latest = h }
+        } while token != nil
+        if events.isEmpty { db.setState("history_id", latest); return }
+        var wanted: [String] = [], deleted = Set<String>(), changes: [(id: String, add: [String], remove: [String])] = []
+        for e in events {
+            switch e {
+            case .added(let id): if !wanted.contains(id) { wanted.append(id) }; deleted.remove(id)
+            case .deleted(let id): deleted.insert(id)
+            case .labels(let id, let add, let remove): changes.append((id, add, remove))
+            }
+        }
+        // a label change for a message that is not stored (it was in Trash or Spam, or is not copied yet) means the message must be read
+        let known = db.stored(changes.map(\.id), verifiedOnly: false)
+        for c in changes where !known.contains(c.id) && !wanted.contains(c.id) { wanted.append(c.id) }
+        let toRead = Set(wanted).subtracting(deleted)
+        let have = db.stored(Array(toRead), verifiedOnly: true)   // read after the change number was noted, so already current
+        for c in changes where !toRead.contains(c.id) && !deleted.contains(c.id) { db.applyLabels(ids: [c.id], add: c.add, remove: c.remove) }
+        try await fetch(wanted.filter { toRead.contains($0) && !have.contains($0) }, epoch: epoch)
+        db.delete(ids: Array(deleted))
+        for c in changes where toRead.contains(c.id) && have.contains(c.id) { db.applyLabels(ids: [c.id], add: c.add, remove: c.remove) }
+        db.setState("history_id", latest)
+        onChange?()
     }
 }

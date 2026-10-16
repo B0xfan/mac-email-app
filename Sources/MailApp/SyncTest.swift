@@ -136,5 +136,87 @@ extension SelfTest {
         check("remove account: a copy in progress is stopped first, then everything it stored is deleted", db9.rowCount() == 0 && db9.state("history_id") == nil)
         return ok
     }
+
+    /// Changes only (plan step 4): after the first copy a check asks Gmail what changed, reads only new messages, and copies everything again only when Gmail has forgotten the old change number.
+    static func partHistory() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("history-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir); StubProtocol.handler = nil }
+        func finished(_ f: FakeGmail, _ name: String) async -> (MailDB, SyncEngine) {   // a mailbox whose first full copy is done
+            StubProtocol.handler = { f.handle($0) }
+            let db = MailDB(url: dir.appendingPathComponent(name))!
+            let e = lsEngine(db)
+            await e.syncPass()
+            return (db, e)
+        }
+
+        let f1 = FakeGmail(); f1.seed(["m1", "m2", "m3", "m4"])
+        let (db1, e1) = await finished(f1, "h1.sqlite")
+        nonisolated(unsafe) var changed = 0
+        e1.onChange = { changed += 1 }
+        let lists0 = f1.lists, u0 = f1.units
+        await e1.syncPass()
+        check("changes only: when nothing changed a check is one 2-unit request and nothing else (no list, no read, no screen refresh)", f1.units - u0 == 2 && f1.lists == lists0 && changed == 0)
+        f1.add("n1", ["INBOX", "UNREAD"]); f1.remove("m3"); f1.relabel("m1", add: ["STARRED"], remove: ["INBOX"]); f1.relabel("m2", add: ["Label_9"])
+        let u1 = f1.units
+        await e1.syncPass()
+        let labelsOf = { (id: String) in Set(db1.messages(ids: [id])[id]?.labels ?? ["MISSING"]) }
+        check("changes only: a new message is stored, a deleted one removed, label changes applied",
+              labelsOf("n1") == ["INBOX", "UNREAD"] && db1.stored(["m3"], verifiedOnly: false).isEmpty && labelsOf("m1") == ["STARRED"] && labelsOf("m2") == ["INBOX", "Label_9"] && labelsOf("m4") == ["INBOX"])
+        check("changes only: that cost 2 units for the change list plus 20 for the one new message: no list, nothing else read", f1.units - u1 == 22 && f1.gets["n1"] == 1 && f1.gets["m1"] == 1 && f1.lists == lists0 && changed == 1)
+        check("changes only: the change number moves forward", db1.state("history_id") == String(f1.historyID))
+        let u2 = f1.units
+        await e1.syncPass()
+        check("changes only: the same changes are not read twice", f1.units - u2 == 2 && labelsOf("m1") == ["STARRED"])
+
+        // a message that was in Trash (so never copied) comes back: the label change makes the app read it
+        let f2 = FakeGmail(); f2.seed(["a1", "a2"]); f2.seed(["t1"], labels: ["TRASH"])
+        let (db2, e2) = await finished(f2, "h2.sqlite")
+        let notCopied = db2.stored(["t1"], verifiedOnly: false).isEmpty
+        f2.relabel("t1", add: ["INBOX"], remove: ["TRASH"])
+        await e2.syncPass()
+        check("changes only: a message brought back from Trash is read and stored (it was never copied)", notCopied && Set(db2.messages(ids: ["t1"])["t1"]?.labels ?? []) == ["INBOX"] && f2.gets["t1"] == 1)
+
+        // the change list comes in several pages
+        let f3 = FakeGmail(); f3.seed(["m1", "m2", "m3"])
+        let (db3, e3) = await finished(f3, "h3.sqlite")
+        f3.historyPageSize = 2
+        f3.add("n1", ["INBOX"]); f3.add("n2", ["INBOX"]); f3.add("n3", ["INBOX"]); f3.remove("m1"); f3.relabel("m2", add: ["P"])
+        let calls3 = f3.historyCalls
+        await e3.syncPass()
+        check("changes only: 5 changes in pages of 2 are fetched in 3 requests and all applied", f3.historyCalls - calls3 == 3 && db3.stored(["n1", "n2", "n3"], verifiedOnly: true).count == 3 && db3.stored(["m1"], verifiedOnly: false).isEmpty && Set(db3.messages(ids: ["m2"])["m2"]?.labels ?? []) == ["INBOX", "P"])
+
+        // a read fails in the middle: the change number stays, the next check repeats everything harmlessly
+        let f4 = FakeGmail(); f4.seed(["m1", "m2"])
+        let (db4, e4) = await finished(f4, "h4.sqlite")
+        let before4 = f4.historyID
+        f4.relabel("m1", add: ["K"]); f4.add("x1", ["INBOX"]); f4.failGets = ["x1"]
+        await e4.syncPass()
+        check("changes only: when a new message cannot be read the change number stays where it was (nothing is skipped)", db4.state("history_id") == String(before4) && db4.stored(["x1"], verifiedOnly: false).isEmpty)
+        f4.failGets = []
+        await e4.syncPass()
+        check("changes only: the next check repeats it: the message arrives, the repeated label change does no harm, the number moves on",
+              db4.stored(["x1"], verifiedOnly: true) == ["x1"] && Set(db4.messages(ids: ["m1"])["m1"]?.labels ?? []) == ["INBOX", "K"] && db4.state("history_id") == String(f4.historyID))
+
+        // Gmail has forgotten the old change number (404): copy everything again, drop what is gone, and do not trust the stored lists meanwhile
+        let f5 = FakeGmail(); f5.seed(["m1", "m2", "m3", "m4"])
+        let (db5, e5) = await finished(f5, "h5.sqlite")
+        f5.remove("m4"); f5.relabel("m1", add: ["X"]); f5.add("n1", ["INBOX"])
+        f5.historyExpired = true; f5.failGets = ["m2"]
+        await e5.syncPass()
+        check("history gap: a 404 from the change list starts a new full copy at once (a new change number is noted) and the stored mail is not trusted for lists until it is done",
+              !db5.isComplete && db5.state("history_id") == String(f5.historyID) && db5.isTracking)
+        f5.failGets = []; f5.historyExpired = false
+        await e5.syncPass()
+        let l5 = Set(db5.messages(ids: ["m1"])["m1"]?.labels ?? [])
+        check("history gap: the second pass finishes the re-copy: the missed new message is there, the message deleted in the gap is gone, the missed label change is applied",
+              db5.isComplete && db5.stored(["n1"], verifiedOnly: true) == ["n1"] && db5.stored(["m4"], verifiedOnly: false).isEmpty && l5 == ["INBOX", "X"])
+        check("history gap: every message still in the mailbox was read again once (the one that failed was tried twice), none more", f5.gets["m1"] == 2 && f5.gets["m3"] == 2 && f5.gets["m2"] == 3 && f5.gets["n1"] == 1 && f5.gets["m4"] == 1)
+        let u5 = f5.units
+        await e5.syncPass()
+        check("history gap: afterwards the checks are cheap again", f5.units - u5 == 2)
+        return ok
+    }
 }
 #endif

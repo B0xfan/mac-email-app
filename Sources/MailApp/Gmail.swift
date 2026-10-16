@@ -265,6 +265,29 @@ final class GmailClient: @unchecked Sendable {
         return (ok, bad, gone)
     }
 
+    /// One change Gmail reports, in the order it happened.
+    enum HistoryEvent: Equatable, Sendable { case added(String), deleted(String), labels(id: String, add: [String], remove: [String]) }
+    struct HistoryPage: Sendable { var events: [HistoryEvent]; var next: String?; var historyID: String? }
+
+    /// "What changed since this change number?" (2 units a page). Gmail answers 404 when the number is too old (it keeps changes a week or less):
+    /// the caller then copies the mailbox again. Only the four kinds of change a stored copy needs are asked for.
+    func history(since: String, pageToken: String? = nil) async throws -> HistoryPage {
+        var q = [URLQueryItem(name: "startHistoryId", value: since), URLQueryItem(name: "maxResults", value: "500")]
+        for t in ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] { q.append(.init(name: "historyTypes", value: t)) }
+        if let pageToken { q.append(.init(name: "pageToken", value: pageToken)) }
+        let r = json(try await send("/history", query: q))
+        func id(_ x: [String: Any]) -> String? { (x["message"] as? [String: Any])?["id"] as? String }
+        var ev: [HistoryEvent] = []
+        for h in (r["history"] as? [[String: Any]]) ?? [] {
+            for x in (h["messagesAdded"] as? [[String: Any]]) ?? [] { if let i = id(x) { ev.append(.added(i)) } }
+            for x in (h["labelsAdded"] as? [[String: Any]]) ?? [] { if let i = id(x) { ev.append(.labels(id: i, add: x["labelIds"] as? [String] ?? [], remove: [])) } }
+            for x in (h["labelsRemoved"] as? [[String: Any]]) ?? [] { if let i = id(x) { ev.append(.labels(id: i, add: [], remove: x["labelIds"] as? [String] ?? [])) } }
+            for x in (h["messagesDeleted"] as? [[String: Any]]) ?? [] { if let i = id(x) { ev.append(.deleted(i)) } }
+        }
+        let hid = r["historyId"] as? String ?? (r["historyId"] as? Int).map(String.init)
+        return HistoryPage(events: ev, next: r["nextPageToken"] as? String, historyID: hid)
+    }
+
     func countEstimate(q: String) async throws -> Int {
         let r = json(try await send("/messages", query: [.init(name: "q", value: q), .init(name: "maxResults", value: "1")]))
         return r["resultSizeEstimate"] as? Int ?? 0

@@ -230,6 +230,7 @@ enum SelfTest {
         if !(await partConversations()) { ok = false }
         if !(await partDB()) { ok = false }
         if !(await partSync()) { ok = false }
+        if !(await partHistory()) { ok = false }
         if !(await partHelp()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }
