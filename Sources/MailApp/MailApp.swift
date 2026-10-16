@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set by the main window once it has appeared; opens a fresh window after the last one was closed.
     nonisolated(unsafe) static var openMainWindow: (() -> Void)?
     var openMainWindow: (() -> Void)? { Self.openMainWindow }
+    /// Set by the main window; SwiftUI's openSettings can only be called from a view.
+    nonisolated(unsafe) static var openSettings: (() -> Void)?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(
@@ -211,7 +213,8 @@ final class SignInModel: ObservableObject {
 
 struct RegisterOpenWindow: ViewModifier {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     func body(content: Content) -> some View {
-        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") } }
+        content.onAppear { AppDelegate.openMainWindow = { openWindow(id: "main") }; AppDelegate.openSettings = { openSettings() } }
     }
 }

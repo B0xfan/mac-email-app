@@ -134,7 +134,14 @@ extension MailStore {
     /// "Make a rule from this email...": open Settings on Rules with From filled in.
     func makeRule(from m: Mail) {
         rulePrefill = m.from.email
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        showSettings()
+    }
+
+    /// Opens Settings through SwiftUI's own action (registered by the main window). A hand-over nobody picked up is dropped, never left for a later visit.
+    func showSettings() {
+        guard let open = AppDelegate.openSettings else { rulePrefill = nil; return }
+        open()
+        Task { try? await Task.sleep(for: .seconds(3)); rulePrefill = nil }
     }
 }
 

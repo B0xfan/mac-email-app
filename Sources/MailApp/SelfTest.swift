@@ -177,6 +177,14 @@ enum SelfTest {
             return roundTrip && c.inbox.isEmpty && d.inbox.isEmpty && e.inbox.isEmpty
         }
         check("inbox cache: round trip, other account/corrupt/missing ignored", cacheOK)
+        let prefillCleared: Bool = await MainActor.run {
+            AppDelegate.openSettings = nil
+            let s = Snapshots.sampleStore()
+            guard let m = s.inbox.first else { return false }
+            s.makeRule(from: m)
+            return s.rulePrefill == nil
+        }
+        check("make a rule: if Settings cannot open, the handed-over From is dropped", prefillCleared)
 
         // images: trackers always removed, normal images kept, load decision
         let page = "<img src=\"https://cdn.shop.example/hero.jpg\"><img src=\"https://x.example/a.png\" width=\"1\" height=\"1\"><img src=\"https://u1.ct.sendgrid.net/wf/open?x=1\"><img src='https://s.example/i.gif' style='display:none'><img src=\"cid:logo\">"

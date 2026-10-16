@@ -64,7 +64,7 @@ extension MailStore {
         for s in organizer.smart { add("smart-\(s.id)", "Go to " + s.name, group: "Go") { Task { await self.select(.smart(s.id)) } } }
         for s in organizer.searches { add("saved-\(s.id)", "Go to " + s.name, group: "Go") { Task { await self.select(.saved(s.id)) } } }
         add("layout", settings.readerOnTop ? "Show the reading pane beside the list" : "Show the reading pane on top") { self.settings.readerOnTop.toggle() }
-        add("settings", "Settings", key: "\u{2318},") { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
+        add("settings", "Settings", key: "\u{2318},") { self.showSettings() }
         return c
     }
 }
