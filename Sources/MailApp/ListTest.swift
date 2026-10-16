@@ -165,8 +165,38 @@ enum ListTest {
         st.groupConversations = false
         check("11-conversation open: the two folded older messages add white cards to the reading pane (off \(edges[0]), on \(edges[1]))", edges[1] - edges[0] >= 30)
         check("10-conversations: the count pill shows with the switch on and not with it off", pills == [false, true])
+
+        // the first copy: a thin teal progress bar is added above the list while it runs, and it goes when the copy is done
+        store.closeReader(); store.inbox = [suz]
+        var barRows: [Int] = []
+        for p in [SyncProgress(), SyncProgress(phase: .copying, stored: 40, total: 100), SyncProgress(phase: .upToDate, stored: 100, total: 100)] {
+            store.syncProgress = p
+            await LiveTest.pump(0.8)
+            let path = "\(dir)/list-12-first-copy-\(barRows.count).png"
+            try? FileManager.default.removeItem(atPath: path)
+            LiveTest.grab(win, path)
+            barRows.append(tealRows(path, rgb: (14, 107, 115), tol: 40, need: 60))
+        }
+        store.syncProgress = SyncProgress()
+        check("12-first copy: the progress bar shows while the copy runs and is gone before and after it (teal pixel rows \(barRows))", barRows[1] - barRows[0] >= 4 && abs(barRows[2] - barRows[0]) <= 1)
         win.close()
         return ok
+    }
+
+    /// How many pixel rows of the list column hold a long run (`need` points) of one colour (the progress bar's fill).
+    static func tealRows(_ path: String, rgb: (Int, Int, Int), tol: Int, need: Double) -> Int {
+        guard let d = try? Data(contentsOf: URL(fileURLWithPath: path)), let rep = NSBitmapImageRep(data: d) else { return 0 }
+        let scale = Double(rep.pixelsWide) / 1280, longest = Int(need * scale)
+        var px = [Int](repeating: 0, count: 5), rows = 0
+        for y in 0..<rep.pixelsHigh {
+            var run = 0, hit = false
+            for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
+                rep.getPixel(&px, atX: x, y: y)
+                if abs(px[0] - rgb.0) <= tol && abs(px[1] - rgb.1) <= tol && abs(px[2] - rgb.2) <= tol { run += 1; if run >= longest { hit = true; break } } else { run = 0 }
+            }
+            if hit { rows += 1 }
+        }
+        return rows
     }
 
     /// How many pixel rows in the reading pane hold a long run of white (the folded message cards; this window's reader is otherwise the grey-green page colour).

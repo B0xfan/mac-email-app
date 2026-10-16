@@ -430,6 +430,7 @@ struct ListPane: View {
     var body: some View {
         MaybeScroll {
             ListStack(spacing: 8) {
+                if !(store.mailbox == .inbox && settings.inboxView == .smart) { SyncLine(store: store) }   // the Smart Inbox shows it under its tabs
                 if store.mailbox == .inbox { AwayStrip(store: store) }
                 if store.mailbox == .inbox || store.mailbox == .newSenders, store.settings.screenNewSenders, !store.newSenderRows.isEmpty {
                     NewSendersStrip(store: store)

@@ -157,6 +157,7 @@ struct InboxBody: View {
             // pinned header: the tab bar stays at the top of the list while the rows scroll
             LazyVStack(spacing: 8, pinnedViews: [.sectionHeaders]) {
                 Section {
+                    SyncLine(store: store)
                     let shown = groups.first { $0.id == tab.rawValue }?.mails ?? []
                     ForEach(shown) { row($0) }
                     if shown.isEmpty { Text("Nothing here").font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 24) }
