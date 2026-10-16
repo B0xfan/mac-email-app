@@ -4,7 +4,6 @@ import AppKit
 struct MailRoot: View {
     @ObservedObject var store: MailStore
     @ObservedObject var settings = AppSettings.shared
-    @AppStorage("listWidth") private var listWidth: Double = ListDivider.standard   // kept across restarts
     var body: some View {
         ZStack(alignment: .bottom) {
             TranslationHost()
@@ -38,14 +37,9 @@ struct MailRoot: View {
                             }
                         } else { ListPane(store: store).frame(maxWidth: .infinity) }
                     } else {
-                        GeometryReader { geo in
-                            HStack(spacing: 0) {
-                                ListPane(store: store)
-                                    .frame(width: ListDivider.clamp(listWidth, total: geo.size.width))
-                                    .overlay(alignment: .trailing) { ListDivider(width: $listWidth, total: geo.size.width) }
-                                if store.compose != nil { ComposeView(store: store).id(store.composeID).frame(maxWidth: .infinity) }
-                                else { ReadingPane(store: store).frame(maxWidth: .infinity) }
-                            }
+                        ListReaderSplit(store: store) {
+                            if store.compose != nil { ComposeView(store: store).id(store.composeID).frame(maxWidth: .infinity) }
+                            else { ReadingPane(store: store).frame(maxWidth: .infinity) }
                         }
                     }
                   }
@@ -246,27 +240,63 @@ struct NavRow: View {
 
 // MARK: - Draggable divider between the list and the reading pane
 
-/// The line between the list and the reading pane, wider to grab, with the usual left-right resize cursor.
+/// The list, the draggable line, and the reading pane. Own view so a drag redraws only this, not the whole window.
+struct ListReaderSplit<Reader: View>: View {
+    @ObservedObject var store: MailStore
+    let reader: Reader
+    init(store: MailStore, @ViewBuilder reader: () -> Reader) { self.store = store; self.reader = reader() }
+    @State private var saved = ListDivider.savedWidth()   // the width John chose; kept across restarts
+    @State private var live: Double?                      // the width during a drag, saved only when it ends
+    var body: some View {
+        GeometryReader { geo in
+            let w = ListDivider.clamp(live ?? saved, total: geo.size.width)
+            HStack(spacing: 0) {
+                ListPane(store: store).frame(width: w)
+                ListDivider(width: w, total: geo.size.width, live: $live, saved: $saved)
+                reader
+            }
+        }
+    }
+}
+
+/// The line between the list and the reading pane, with a little room to grab and the usual left-right resize cursor.
 struct ListDivider: View {
-    static let standard = 400.0, minList = 280.0, minReader = 360.0, maxList = 700.0
-    @Binding var width: Double
+    static let standard = 400.0, minList = 320.0, minReader = 360.0, maxList = 700.0, key = "listWidth"
+    let width: Double          // the width on screen right now
     let total: Double
+    @Binding var live: Double?
+    @Binding var saved: Double
     @State private var start: Double?
+    @State private var hovering = false
+    @State private var pushed = false
+    static func savedWidth() -> Double { UserDefaults.standard.object(forKey: key) as? Double ?? standard }
     /// Keeps the list between its smallest width and what leaves the reading pane its smallest width.
     static func clamp(_ w: Double, total: Double) -> Double {
         min(max(w, minList), min(maxList, max(minList, total - minReader)))
     }
+    /// A drag begins from the width on screen, not the stored one (they differ in a narrow window).
+    static func dragged(from onScreen: Double, by dx: Double, total: Double) -> Double { clamp(onScreen + dx, total: total) }
+    private func save(_ v: Double) { saved = v; live = nil; UserDefaults.standard.set(v, forKey: Self.key) }
+    private func setCursor() {
+        let want = hovering || start != nil
+        if want && !pushed { NSCursor.resizeLeftRight.push(); pushed = true }
+        else if !want && pushed { NSCursor.pop(); pushed = false }
+    }
     var body: some View {
-        Rectangle().fill(Theme.line).frame(width: 1)
-            .frame(width: 9, alignment: .trailing).contentShape(Rectangle())
-            .onHover { $0 ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+        Rectangle().fill(Theme.line).frame(width: 1).padding(.horizontal, 2).contentShape(Rectangle())
+            .onHover { hovering = $0; setCursor() }
+            .onDisappear { if pushed { NSCursor.pop(); pushed = false } }
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                 .onChanged { g in
-                    let s = start ?? width; start = s
-                    width = Self.clamp(s + g.translation.width, total: total)
+                    let s = start ?? width; start = s; setCursor()
+                    live = Self.dragged(from: s, by: g.translation.width, total: total)
                 }
-                .onEnded { _ in start = nil })
+                .onEnded { _ in start = nil; if let v = live { save(v) }; setCursor() })
             .accessibilityElement().accessibilityLabel("Resize the email list")
+            .accessibilityValue("\(Int(width)) points wide")
+            .accessibilityAdjustableAction { d in
+                save(Self.dragged(from: width, by: d == .increment ? 20 : -20, total: total))
+            }
     }
 }
 
