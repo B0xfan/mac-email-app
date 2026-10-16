@@ -108,6 +108,7 @@ extension SelfTest {
         rdb.enqueue(.modify, ids: ["a1"], add: ["Label_9"])   // waiting for Gmail (not sent: nothing kicks the sender)
         let got = await rst.rows(for: ["a1"])
         check("rows by id: a message read from Gmail has the change still waiting for Gmail put back on it", got.count == 1 && labels(rdb, "a1").contains("Label_9"))
+        check("rows by id: what comes back is the stored copy (the waiting change is on it too), not Gmail's raw copy", got.first?.labels.contains("Label_9") == true)
 
         // Mail starts: a pause left from the last run is over
         let odb = MailDB(url: dir.appendingPathComponent("retry.sqlite"))!
@@ -147,6 +148,49 @@ extension SelfTest {
         let shortWait = Date().timeIntervalSince(t1)
         check("long queue: a read of Gmail does not wait for a queue of 30 messages (it goes on in the background), but waits for a short one",
               longWait < 0.5 && stillQueued && shortWait >= 0.9 && qdb.outbox().isEmpty)
+
+        // a list read from the stored mail that began before one of John's changes is read again, so a message just archived does not come back
+        let adb = MailDB(url: dir.appendingPathComponent("race.sqlite"))!
+        adb.upsert([lsMail("r1", ["INBOX"]), lsMail("r2", ["INBOX"])], verified: true)
+        let ast = await MainActor.run { lsStore(dir: dir, db: adb) }
+        let counter = await MainActor.run { ast.changes }
+        nonisolated(unsafe) var reads = 0
+        let inboxSpec = DBListSpec(all: ["INBOX"])
+        let answer = await ast.storedRead { () -> [String] in
+            reads += 1
+            let rows = adb.list(inboxSpec, limit: 10).map(\.id)
+            if reads == 1 { adb.applyLabels(ids: ["r1"], add: [], remove: ["INBOX"]); counter.bump() }   // John archives r1 while the read is under way
+            return rows
+        }
+        check("stored reads: a read that began before John's change is thrown away and made again (2 reads), so the archived message does not come back", reads == 2 && answer == ["r2"])
+        nonisolated(unsafe) var busy = 0
+        _ = await ast.storedRead { () -> Int in busy += 1; counter.bump(); return busy }
+        check("stored reads: with changes arriving all the time it gives up after 3 reads instead of looping", busy == 3)
+
+        // the wait before a failed change is tried again: one rule for the whole change and for the one-message-at-a-time retry
+        check("outbox backoff: 5, 10, 20 seconds ... and never more than 15 minutes", [0, 1, 2, 7, 8, 40].map { SyncEngine.backoff(attempts: $0) } == [5, 10, 20, 640, 900, 900])
+        let f5 = FakeGmail(); f5.seed(["a", "b"]); StubProtocol.handler = { f5.handle($0) }
+        f5.writeAnswer = { w in w.hasPrefix("modify a,b") ? (400, #"{"error":{"code":400,"message":"bad"}}"#) : (403, #"{"error":{"code":403,"message":"no","errors":[{"reason":"forbidden"}]}}"#) }
+        let spdb = MailDB(url: dir.appendingPathComponent("split.sqlite"))!
+        let spe = lsEngine(spdb); spe.autoRetry = false
+        let t5 = Date(timeIntervalSince1970: 1_800_000_000); spe.now = { t5 }
+        spdb.enqueue(.modify, ids: ["a", "b"], add: ["L"])
+        let first = spdb.claimNextOutbox(now: t5)!; spdb.retryLater(first.seq, at: Date(timeIntervalSince1970: 0))   // one try already made
+        await spe.flushOutbox()
+        let kept5 = spdb.outbox()
+        check("outbox backoff: when Gmail refuses a change for two messages and then cannot take the single ones just now, the retry waits as long as for any failed change (10 seconds after one earlier try), not a fixed 5",
+              kept5.count == 1 && kept5[0].retryAt == t5.addingTimeInterval(10))
+
+        // the file: an early schema-1 file is only a copy of Gmail, so it is started again
+        var old: MailDB? = MailDB(url: dir.appendingPathComponent("v1.sqlite"))
+        old?.run("DROP TABLE messages"); old?.run("CREATE TABLE messages (id TEXT PRIMARY KEY, payload BLOB)"); old?.run("INSERT INTO messages(id, payload) VALUES(?, ?)", ["x", Data()]); old?.run("PRAGMA user_version = 1")
+        old = nil
+        let up = MailDB(url: dir.appendingPathComponent("v1.sqlite"))
+        var ver: Int32 = 0, hasVerified = false
+        up?.run("PRAGMA user_version", [], { ver = sqlite3_column_int($0, 0) })
+        up?.run("SELECT 1 FROM pragma_table_info('messages') WHERE name='verified'", [], { _ in hasVerified = true })
+        check("schema 2: a schema-1 file is rebuilt with the current columns and works (version 2, empty, a message can be saved)",
+              up != nil && ver == 2 && MailDB.schemaVersion == 2 && hasVerified && up?.rowCount() == 0 && up?.upsert([lsMail("n1", ["INBOX"])], verified: true) == true && up?.rowCount() == 1)
         return ok
     }
 }

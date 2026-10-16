@@ -13,7 +13,7 @@ import SQLite3
 struct DBListSpec: Equatable { var all: [String]; var none: [String] = [] }
 
 final class MailDB: @unchecked Sendable {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
     static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     let url: URL
     private var handle: OpaquePointer?
@@ -63,6 +63,7 @@ final class MailDB: @unchecked Sendable {
         run("PRAGMA user_version", [], { v = sqlite3_column_int($0, 0) })
         if v > Int32(Self.schemaVersion) { return .failed }   // a newer Mail wrote it: not ours to change
         if v < 1 { guard createSchema() else { return .failed } }
+        else if v < Int32(Self.schemaVersion) { guard rebuild() else { return .failed } }
         for s in ["", "-wal", "-shm"] { chmod(url.path + s, 0o600) }
         return .ok
     }
@@ -100,6 +101,12 @@ final class MailDB: @unchecked Sendable {
             for s in steps { guard run(s) else { return false } }
             return run("PRAGMA user_version = \(Self.schemaVersion)")
         } ?? false
+    }
+
+    /// A file from schema 1 (an early build of this work, never released) has other columns. It is only a copy of Gmail, so its tables are dropped and started again.
+    private func rebuild() -> Bool {
+        guard atomically({ for t in ["messages", "message_labels", "sync_state", "outbox"] { run("DROP TABLE IF EXISTS \(t)") } }) else { return false }
+        return createSchema()
     }
 
     /// Settings > Accounts "Remove" (John's decision): the file and everything in it is deleted, then a fresh empty one starts.
@@ -146,7 +153,8 @@ final class MailDB: @unchecked Sendable {
     static func ms(_ d: Date) -> Int64 { Int64(d.timeIntervalSince1970 * 1000) }
 
     /// All the work inside happens together or not at all: nil when a statement failed (everything inside is then undone). A call inside a running transaction is a
-    /// savepoint, so a failure there undoes only that part and the caller learns of it from the nil.
+    /// savepoint: a failure there is undone at once and that call gives nil, but the failure also counts against the outer transaction, so the outer one fails as a whole too
+    /// and nothing of it is kept (the caller of the outer one learns of it from its nil).
     @discardableResult
     func transaction<T>(_ body: () -> T) -> T? {
         lock.lock(); defer { lock.unlock() }

@@ -161,6 +161,8 @@ final class MailStore: ObservableObject {
     let db: MailDB?
     /// Copies the mailbox into `db` in the background and keeps it current (nil without a database).
     var engine: SyncEngine?
+    /// John's own changes so far (see `storedRead`).
+    let changes = ChangeCounter()
     /// How far the first full copy has come. No screen shows it yet (it needs an approved drawing first).
     @Published var syncProgress = SyncProgress()
     /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
@@ -407,7 +409,7 @@ final class MailStore: ObservableObject {
         let q = search.trimmingCharacters(in: .whitespaces)
         if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
             let page = Self.otherPage
-            let rows = await Task.detached { db.list(spec, limit: page) }.value   // off the main thread: a big mailbox must not freeze the window
+            let rows = await storedRead { db.list(spec, limit: page) }   // off the main thread: a big mailbox must not freeze the window
             guard gen == otherGen else { return }
             other = rows; otherSource = .stored(spec); otherNext = rows.count == Self.otherPage ? String(Self.otherPage) : nil; otherWrites = writesAtStart
             return
@@ -472,7 +474,7 @@ final class MailStore: ObservableObject {
         if case .stored(let spec) = src, let db {   // the next 50 from this Mac
             let off = Int(tok) ?? other.count, page = Self.otherPage
             loadingOtherMore = true; defer { loadingOtherMore = false }
-            let rows = await Task.detached { db.list(spec, limit: page, offset: off) }.value
+            let rows = await storedRead { db.list(spec, limit: page, offset: off) }
             guard gen == otherGen else { return }
             let have = Set(other.map(\.id))
             other += rows.filter { !have.contains($0.id) }

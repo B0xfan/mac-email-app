@@ -135,7 +135,7 @@ extension MailStore {
         guard let l = asideLabelID else { aside = []; return }
         if let db, db.isComplete {   // from this Mac, no request
             let spec = DBListSpec(all: [l], none: ["TRASH", "SPAM"])
-            aside = await Task.detached { db.list(spec, limit: GmailClient.all) }.value
+            aside = await storedRead { db.list(spec, limit: GmailClient.all) }
             return
         }
         guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }

@@ -303,14 +303,17 @@ final class SyncEngine: @unchecked Sendable {
         return true   // anything unknown is kept and tried again: a change is never thrown away by accident
     }
 
+    /// The wait before a change is tried again: 5, 10, 20 ... seconds up to 15 minutes. `attempts` = tries made before this one.
+    static func backoff(attempts: Int) -> Double { min(5 * pow(2, Double(min(attempts, 30))), 900) }
+
     func drain() async {
         while !Task.isCancelled, let op = db.claimNextOutbox(now: now()) {   // cancelled first: claiming counts a try
             do { try await send(op); guard db.finish(op.seq) else { return } }   // could not be taken off the list: stop here rather than send it again and again
             catch {
                 if error is CancellationError || Task.isCancelled { db.retryLater(op.seq, at: now()); return }   // stopped (Remove account, quit): tried again at the next start
                 if Self.isRetryable(error) {
-                    // 5, 10, 20 ... seconds up to 15 minutes; a quit does not lose it, the next start tries at once
-                    let delay = min(5 * pow(2, Double(op.attempts)), 900)
+                    // a quit does not lose it, the next start tries at once
+                    let delay = Self.backoff(attempts: op.attempts)
                     db.retryLater(op.seq, at: now().addingTimeInterval(delay))
                     startTimer(after: delay)
                     return
@@ -322,7 +325,7 @@ final class SyncEngine: @unchecked Sendable {
                     bad = []
                     for id in op.ids {
                         do { try await gmail.modify(ids: [id], add: op.add, remove: op.remove) }
-                        catch { if Self.isRetryable(error) { db.retryLater(op.seq, at: now().addingTimeInterval(5)); startTimer(after: 5); return }; bad.append(id) }
+                        catch { if Self.isRetryable(error) { let delay = Self.backoff(attempts: op.attempts); db.retryLater(op.seq, at: now().addingTimeInterval(delay)); startTimer(after: delay); return }; bad.append(id) }
                     }
                 }
                 guard db.finish(op.seq) else { return }

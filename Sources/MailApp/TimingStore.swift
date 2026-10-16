@@ -56,7 +56,8 @@ extension MailStore {
         guard let l = snoozeLabelID else { snoozed = []; return }
         let ids: [String]
         if let db, db.isComplete {   // from this Mac, no request
-            snoozed = db.list(DBListSpec(all: [l], none: ["TRASH", "SPAM"]), limit: GmailClient.all); ids = snoozed.map(\.id)
+            let spec = DBListSpec(all: [l], none: ["TRASH", "SPAM"])
+            snoozed = await storedRead { db.list(spec, limit: GmailClient.all) }; ids = snoozed.map(\.id)
         } else {
             guard let listed = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
             ids = listed

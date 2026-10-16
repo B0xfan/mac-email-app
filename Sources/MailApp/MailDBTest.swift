@@ -37,7 +37,7 @@ extension SelfTest {
         let perm = { (p: String) in (try? FileManager.default.attributesOfItem(atPath: p)[.posixPermissions] as? Int) ?? -1 }
         var version = 0
         db.run("PRAGMA user_version", [], { version = Int(sqlite3_column_int($0, 0)) })
-        check("stored mail: a new file is created private (0600) with schema version 1", perm(f.path) == 0o600 && version == 1)
+        check("stored mail: a new file is created private (0600) with the current schema version", perm(f.path) == 0o600 && version == MailDB.schemaVersion)
 
         let all = [lsMail("m1", ["INBOX", "UNREAD"], age: 10), lsMail("m2", ["SENT"], age: 20), lsMail("m3", [], age: 30), lsMail("m4", ["Label_1"], age: 40), lsMail("m5", ["INBOX", "TRASH"], age: 5)]
         db.upsert(all, verified: true)
