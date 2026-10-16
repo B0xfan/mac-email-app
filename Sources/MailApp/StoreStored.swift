@@ -43,8 +43,15 @@ extension MailStore {
     }
     func storageText() async -> String {
         guard let db else { return "Nothing is stored on this Mac." }
-        let (bytes, count) = await Task.detached { (db.diskBytes(), db.storedCount()) }.value
+        let base = attachmentsBase
+        let (bytes, count) = await Task.detached { (db.diskBytes() + Self.folderBytes(base), db.storedCount()) }.value   // downloaded attachments count too
         return Self.storageText(bytes: bytes, count: count)
+    }
+
+    /// Bytes of every file under a folder (0 when there is none).
+    static func folderBytes(_ url: URL) -> Int64 {
+        guard let e = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+        return e.compactMap { ($0 as? URL)?.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0) { $0 + Int64($1) }
     }
 
     /// Settings > Storage "Clear stored mail": the copy on this Mac is emptied and the file made small. Changes still waiting for Gmail are kept and sent. Lists and the Inbox are read
@@ -53,6 +60,7 @@ extension MailStore {
         guard let db else { return }
         await engine?.stopAndWait()   // nothing may be writing while it is emptied
         _ = await Task.detached { db.clearMail() }.value
+        try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments John downloaded are part of the stored mail
         syncProgress = SyncProgress()
         engine?.kickOutbox()
         await refresh(reloadList: true)   // reads Gmail now, and starts the copy again
@@ -139,7 +147,7 @@ extension MailStore {
             }
         }
         Task { await loadAside(); await loadSnoozed() }
-        if inboxIsStored { Task { await readStoredInbox(); pruneSurfaced(); saveCache() } }   // the Inbox follows the changes a check found (a new email, one archived on the phone)
+        if inboxIsStored { Task { if await readStoredInbox() { pruneSurfaced(); saveCache() } } }   // the Inbox follows the changes a check found (a new email, one archived on the phone)
     }
 
     // MARK: - Changes to Gmail

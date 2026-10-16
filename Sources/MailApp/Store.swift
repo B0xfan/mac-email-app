@@ -305,11 +305,11 @@ final class MailStore: ObservableObject {
         do {
             // the list and (every few minutes) the labels are asked for at the same moment
             let labelsDue = labelList.isEmpty || lastLabelsAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
-            var failedCount = 0
+            var failedCount = 0, inboxRead = true   // inboxRead false: the stored mail could not be read, so the Inbox on screen is not saved over the saved one
             if inboxIsStored {
                 // the Inbox comes from the mail kept on this Mac: the only request is the label list (1 unit, every few minutes)
                 if labelsDue, let ls = try? await gmail.labels() { applyLabelList(ls) }
-                await readStoredInbox()
+                inboxRead = await readStoredInbox()
                 await loadAside(); await loadSnoozed()
             } else {
                 inboxFromMac = false
@@ -343,7 +343,7 @@ final class MailStore: ObservableObject {
                 failedCount = got.failed.count
             }
             pruneSurfaced()
-            saveCache()
+            if inboxRead { saveCache() }
             engine?.kickSync()   // the background copy of the mailbox (and, once it is complete, the check for changes)
             error = failedCount == 0 ? nil : "\(failedCount) conversation\(failedCount == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
@@ -372,13 +372,16 @@ final class MailStore: ObservableObject {
     }
 
     /// The Inbox from the stored mail: the same conversation rows Gmail gives, with no request. Conversations already loaded ("Show older emails") stay loaded, and `more` loads that many further.
-    func readStoredInbox(more: Int = 0) async {
-        guard let db else { return }
+    /// false when the stored mail could not be read: the Inbox on screen stays as it is (and the callers do not save it as the saved Inbox).
+    @discardableResult
+    func readStoredInbox(more: Int = 0) async -> Bool {
+        guard let db else { return false }
         let n = max(Self.inboxPage, inbox.count + more)
-        let rows = await storedRead { db.inboxThreads(limit: n) }
+        guard let rows = await storedRead({ db.inboxThreads(limit: n) }) else { return false }
         inbox = applySurfaced(rows).sorted { $0.date > $1.date }
         inboxNext = rows.count == n ? String(n) : nil
         inboxFromMac = true
+        return true
     }
 
     /// The next batch of older conversations ("Show older emails" at the bottom of the inbox).
@@ -386,7 +389,7 @@ final class MailStore: ObservableObject {
         guard let tok = inboxNext, !loadingMore else { return }
         loadingMore = true; defer { loadingMore = false }
         if inboxFromMac {   // the next conversations come from this Mac; if the copy is being redone, Gmail's list is read from the top instead
-            if inboxIsStored { await readStoredInbox(more: Self.inboxPage); saveCache(); Task { await classifySenders() } } else { inboxFromMac = false; await refresh() }
+            if inboxIsStored { if await readStoredInbox(more: Self.inboxPage) { saveCache() }; Task { await classifySenders() } } else { inboxFromMac = false; await refresh() }
             return
         }
         do {

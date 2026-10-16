@@ -197,8 +197,23 @@ extension MailStore {
     /// The attachment button under an open email: the file is downloaded the first time and kept on this Mac (in Audrey Mail's folder), then opened. Opening it again opens the kept copy.
     /// Nothing else ever downloads an attachment: the first copy of the mailbox and the background check only learn the names.
     func openAttachment(_ a: Attachment, of m: Mail) async {
-        if let url = await saveAttachment(a, of: m) { NSWorkspace.shared.open(url) }
+        if let url = await attachmentURL(a, of: m) { NSWorkspace.shared.open(url) }
     }
+
+    /// The kept copy of an attachment for the button; nil after an error has been shown.
+    func attachmentURL(_ a: Attachment, of m: Mail) async -> URL? {
+        if let url = await saveAttachment(a, of: m) { return url }
+        guard error != Self.saveFailed else { return nil }   // the failure was saving on this Mac (already shown)
+        // Gmail may have changed the attachment's id since the email was read (it is not stable): read the email again and try the same attachment (same place in the list) once more
+        if let i = m.attachments.firstIndex(of: a), let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) {
+            if let db, db.isTracking { let epoch = Int(db.state("epoch") ?? "") ?? 0; _ = await Task.detached { db.keepOpened(fresh, seen: epoch) }.value }   // the kept copy gets the new id too
+            if let url = await saveAttachment(fresh.attachments[i], of: fresh) { return url }
+        }
+        error = "Could not download the attachment. Check the connection and try again."
+        return nil
+    }
+
+    static let saveFailed = "Could not save the attachment on this Mac."
 
     /// The kept copy of an attachment, downloaded now if this Mac does not have it yet. nil if it could not be downloaded or saved.
     func saveAttachment(_ a: Attachment, of m: Mail) async -> URL? {
@@ -208,7 +223,7 @@ extension MailStore {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try data.write(to: url, options: .atomic)
-        } catch { self.error = "Could not save the attachment on this Mac."; return nil }
+        } catch { self.error = Self.saveFailed; return nil }
         Self.quarantine(url)
         return url
     }

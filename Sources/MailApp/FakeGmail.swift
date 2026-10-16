@@ -13,6 +13,7 @@ final class FakeGmail: @unchecked Sendable {
     var fullGets: [String: Int] = [:]     // reads that asked for the whole message (format=full), by id
     var searchAnswers: [String: [String]] = [:]   // a list call with this q answers these ids (the pretend Gmail has no search of its own)
     var attachmentFor: Set<String> = []   // a whole-message read of these ids carries one attachment (named inv-<id>.pdf)
+    var badAttachmentIDs: Set<String> = []   // downloading these attachment ids answers 404 (an id Gmail no longer knows)
     var attachmentCalls: [String] = []    // attachment downloads asked for
     var lists = 0, historyCalls = 0, profiles = 0, units = 0
     var failGets: Set<String> = []        // reading these answers 403 (no permission just now: the copy waits and tries again, it never skips them)
@@ -143,6 +144,7 @@ final class FakeGmail: @unchecked Sendable {
         }
         if method == "GET", rel.hasPrefix("/messages/"), rel.contains("/attachments/") {
             attachmentCalls.append(rel)
+            if badAttachmentIDs.contains(where: { rel.hasSuffix("/" + $0) }) { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
             return (200, "{\"size\":5,\"data\":\"\(b64url("PDF!!"))\"}")
         }
         if method == "GET", rel.hasPrefix("/messages/") {

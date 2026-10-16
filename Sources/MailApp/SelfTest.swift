@@ -237,6 +237,7 @@ enum SelfTest {
         if !(await partStoredInbox()) { ok = false }
         if !(await partStoredSearch()) { ok = false }
         if !(await partStorage()) { ok = false }
+        if !(await partFinalFixes()) { ok = false }
         if !(await partHelp()) { ok = false }
         if !(await sidebarChecks()) { ok = false }
         if !(await awayPickers()) { ok = false }

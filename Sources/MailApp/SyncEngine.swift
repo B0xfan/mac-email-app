@@ -211,6 +211,8 @@ final class SyncEngine: @unchecked Sendable {
         }
         guard stored, db.delete(ids: r.filter { $0.outcome == .gone }.map { $0.id }) else { throw SyncError.incomplete }
         countStored(got.count)
+        // a message Gmail refuses for good is marked as read-with-nothing-to-keep, so it stops taking one of the 200 places of every text pass and older mail gets its turn
+        if forceFull { for id in r.filter({ $0.outcome == .refused }).map({ $0.id }) { db.run("UPDATE messages SET search_body='' WHERE id=? AND search_body IS NULL", [id]) } }
         db.replayOutbox()   // a change still waiting for Gmail stays applied on what was just read
         if r.contains(where: { $0.outcome == .trouble }) { throw SyncError.incomplete }
     }
@@ -260,7 +262,6 @@ final class SyncEngine: @unchecked Sendable {
     }
 
     /// Recent mail whose full text has not been read yet (the window was made longer, or the text was dropped): read a batch of it now, newest first. Trouble here only delays the text.
-    /// shortcut: a message Gmail refuses for good (400) is asked for again at every pass; fine while that is rare, mark it as tried if it ever is not.
     private func fillText() async throws {
         let ids = db.idsNeedingText(since: textCutoff(), limit: 200)
         guard !ids.isEmpty else { return }

@@ -22,9 +22,21 @@ final class MailDB: @unchecked Sendable {
     private var depth = 0
     /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
     private var errors = 0
+    private var failures: Int { lock.lock(); defer { lock.unlock() }; return errors }
     private var lastCode: Int32 = SQLITE_OK
 
     private enum Opened { case ok, damaged, failed }
+
+    /// The three places the main thread asks about all the time (copy complete? changes followed? which round?) are kept in memory, so those reads never wait for the database
+    /// while a search or the file compaction holds it. Updated by `setState`, read again from the file after a stopped transaction, a clear or a wipe.
+    private static let hotKeys: Set<String> = ["backfill_done", "history_id", "epoch"]
+    private let hotLock = NSLock()
+    private var hot: [String: String] = [:]
+    private func reloadHot() {
+        var h: [String: String] = [:]
+        for k in Self.hotKeys { run("SELECT value FROM sync_state WHERE key=?", [k], { h[k] = Self.text($0, 0) }) }
+        hotLock.lock(); hot = h; hotLock.unlock()
+    }
 
     /// Opens or creates the file. A file SQLite calls corrupt or not a database is put aside as ".damaged" and a fresh one is started.
     /// nil when the file cannot be used right now (busy, no permission, written by a newer Mail, or not even a fresh file can be made): the file is left as it is and the app works without stored mail.
@@ -66,6 +78,7 @@ final class MailDB: @unchecked Sendable {
         else if v == 1 { guard rebuild() else { return .failed } }
         else if v < Int32(Self.schemaVersion) { guard migrate(from: v) else { return .failed } }
         for s in ["", "-wal", "-shm"] { chmod(url.path + s, 0o600) }
+        reloadHot()
         return .ok
     }
 
@@ -96,7 +109,7 @@ final class MailDB: @unchecked Sendable {
             "CREATE TABLE message_labels (msg TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (msg, label)) WITHOUT ROWID",
             "CREATE INDEX labels_by_label ON message_labels(label, msg)",
             "CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-            "CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, payload BLOB NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0, created REAL NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, payload BLOB NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0, created REAL NOT NULL)",
         ]
         guard transaction({
             for s in steps { guard run(s) else { return false } }
@@ -126,7 +139,8 @@ final class MailDB: @unchecked Sendable {
                 guard let last = batch.last else { break }
                 after = last.rowid
                 for b in batch {
-                    guard let m = try? JSONDecoder().decode(Mail.self, from: b.payload) else { continue }
+                    // a saved copy that cannot be read has no sender or subject to search in: it is marked unconfirmed, so the background check reads it from Gmail again
+                    guard let m = try? JSONDecoder().decode(Mail.self, from: b.payload) else { guard run("UPDATE messages SET verified=0 WHERE id=?", [b.id]) else { return false }; continue }
                     guard run("UPDATE messages SET search_head=? WHERE id=?", [Self.head(m), b.id]) else { return false }
                 }
             }
@@ -138,8 +152,12 @@ final class MailDB: @unchecked Sendable {
     static func head(_ m: Mail) -> String { "\(m.from.display) \(m.from.email) \(m.to) \(m.cc) \(m.subject) \(m.snippet)".lowercased() }
 
     /// A file from schema 1 (an early build of this work, never released) has other columns. It is only a copy of Gmail, so its tables are dropped and started again.
+    /// Changes still waiting for Gmail (the outbox) are kept when that file has the same columns as now: they are John's, not a copy.
     private func rebuild() -> Bool {
-        guard atomically({ for t in ["messages", "message_labels", "sync_state", "outbox"] { run("DROP TABLE IF EXISTS \(t)") } }) else { return false }
+        var cols = Set<String>()
+        run("SELECT name FROM pragma_table_info('outbox')", [], { cols.insert(Self.text($0, 0)) })
+        let keep = cols == ["seq", "kind", "payload", "attempts", "retry_at", "created"]
+        guard atomically({ for t in ["messages", "message_labels", "sync_state"] + (keep ? [] : ["outbox"]) { run("DROP TABLE IF EXISTS \(t)") } }) else { return false }
         return createSchema()
     }
 
@@ -198,14 +216,14 @@ final class MailDB: @unchecked Sendable {
             depth = 1; defer { depth = 0 }
             let r = body()
             if errors == before, run("COMMIT") { return r }
-            run("ROLLBACK"); return nil
+            run("ROLLBACK"); reloadHot(); return nil
         }
         let name = "sp\(depth)"
         depth += 1; defer { depth -= 1 }
         guard run("SAVEPOINT \(name)") else { return nil }
         let r = body()
         if errors == before, run("RELEASE \(name)") { return r }
-        run("ROLLBACK TO \(name)"); run("RELEASE \(name)")
+        run("ROLLBACK TO \(name)"); run("RELEASE \(name)"); reloadHot()
         return nil
     }
 
@@ -215,6 +233,7 @@ final class MailDB: @unchecked Sendable {
     // MARK: - State (account, history id, sync place ...)
 
     func state(_ key: String) -> String? {
+        if Self.hotKeys.contains(key) { hotLock.lock(); defer { hotLock.unlock() }; return hot[key] }
         var v: String?
         run("SELECT value FROM sync_state WHERE key=?", [key], { v = Self.text($0, 0) })
         return v
@@ -222,8 +241,9 @@ final class MailDB: @unchecked Sendable {
     /// false when the database refused: the caller must not go on as if the place were written down.
     @discardableResult
     func setState(_ key: String, _ value: String?) -> Bool {
-        if let value { return run("INSERT INTO sync_state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, value]) }
-        return run("DELETE FROM sync_state WHERE key=?", [key])
+        let done = value.map { run("INSERT INTO sync_state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, $0]) } ?? run("DELETE FROM sync_state WHERE key=?", [key])
+        if done, Self.hotKeys.contains(key) { hotLock.lock(); hot[key] = value; hotLock.unlock() }
+        return done
     }
     /// Every message has been copied down once: lists may be read from here.
     var isComplete: Bool { state("backfill_done") == "1" }
@@ -312,18 +332,30 @@ final class MailDB: @unchecked Sendable {
 
     /// Messages whose sender, recipients, subject, preview or kept text hold every one of these words (any letter case), newest first. Only confirmed rows, never Trash or Spam.
     /// shortcut: a scan of the table, not an index (FTS5); fine to tens of thousands of messages, upgrade if a search over a very large mailbox is felt to be slow.
+    /// The head (sender, subject ...) is looked through first, which does not touch the long text; the text is looked through too only when the head finds fewer than `headEnough` messages
+    /// (the same choice for every page of one search, so the pages fit together).
+    static let headEnough = 200
     func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
-        var sql = Self.selectRows + " WHERE m.verified=1 AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))"
-        var args: [Any?] = ["TRASH", "SPAM"]
-        for w in words where !w.isEmpty {
-            sql += " AND (m.search_head || ' ' || COALESCE(m.search_body, '')) LIKE ? ESCAPE '\\'"
-            args.append("%" + Self.likeEscaped(w.lowercased()) + "%")
-        }
-        sql += " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
-        args.append(limit); args.append(offset)
+        let w = words.filter { !$0.isEmpty }
+        var n = 0
+        let (hs, ha) = Self.searchWhere(w, withText: false)
+        run("SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE \(hs) LIMIT ?)", ha + [Self.headEnough], { n = Int(sqlite3_column_int64($0, 0)) })
+        let (cond, cargs) = n >= Self.headEnough ? (hs, ha) : Self.searchWhere(w, withText: true)
+        let sql = Self.selectRows + " WHERE " + cond + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
+        let args: [Any?] = cargs + [limit, offset]
         var out: [Mail] = []
         run(sql, args, { if let m = Self.mail($0) { out.append(m) } })
         return out
+    }
+
+    private static func searchWhere(_ words: [String], withText: Bool) -> (String, [Any?]) {
+        var sql = "m.verified=1 AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))"
+        var args: [Any?] = ["TRASH", "SPAM"]
+        for w in words {
+            sql += withText ? " AND (m.search_head || ' ' || COALESCE(m.search_body, '')) LIKE ? ESCAPE '\\'" : " AND m.search_head LIKE ? ESCAPE '\\'"
+            args.append("%" + likeEscaped(w.lowercased()) + "%")
+        }
+        return (sql, args)
     }
 
     /// The word as a LIKE pattern body: % and _ mean themselves.
@@ -363,6 +395,7 @@ final class MailDB: @unchecked Sendable {
         return atomically {
             upsert([m], verified: true, seen: seen)
             setBody(m, kept: true)
+            replayOutbox()   // Gmail's labels must not undo an archive or mark-read still waiting to be sent
         }
     }
 
@@ -402,6 +435,7 @@ final class MailDB: @unchecked Sendable {
             run("DELETE FROM message_labels"); run("DELETE FROM messages")
             run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
         }) else { return false }
+        reloadHot()
         run("PRAGMA wal_checkpoint(TRUNCATE)"); run("VACUUM")
         return true
     }
@@ -414,19 +448,21 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// The Inbox as conversation rows, newest first: the same rows Gmail's conversation list gives (the newest Inbox message stands for the conversation, the other Inbox
-    /// messages are its siblings, every message is in `convo`), built from the stored messages with no request. Only confirmed rows. `limit` conversations after `offset`.
-    func inboxThreads(limit: Int, offset: Int = 0) -> [Mail] {
+    /// messages are its siblings, every message is in `convo`), built from the stored messages with no request. Unconfirmed rows count too, with the labels kept here (the background check
+    /// confirms them soon). `limit` conversations after `offset`. nil when the database failed: the caller keeps what it shows.
+    func inboxThreads(limit: Int, offset: Int = 0) -> [Mail]? {
         var threads: [String] = []
+        let before = failures
         run("""
-            SELECT m.thread_id FROM messages m WHERE m.verified=1
-              AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)
+            SELECT m.thread_id FROM messages m WHERE EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)
               AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))
             GROUP BY m.thread_id ORDER BY MAX(m.date) DESC, m.thread_id DESC LIMIT ? OFFSET ?
             """, ["INBOX", "TRASH", "SPAM", limit, offset], { threads.append(Self.text($0, 0)) })
         var byThread: [String: [Mail]] = [:]
         for c in Self.chunks(threads) {
-            run(Self.selectRows + " WHERE m.verified=1 AND m.thread_id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }, { if let m = Self.mail($0) { byThread[m.threadID, default: []].append(m) } })
+            run(Self.selectRows + " WHERE m.thread_id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }, { if let m = Self.mail($0) { byThread[m.threadID, default: []].append(m) } })
         }
+        guard failures == before else { return nil }
         return threads.compactMap { Self.threadRow(byThread[$0] ?? []) }
     }
 
