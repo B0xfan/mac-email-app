@@ -59,6 +59,7 @@ extension MailStore {
             }
         }
         Task { await loadAside(); await loadSnoozed() }
+        if inboxIsStored { Task { await readStoredInbox(); pruneSurfaced(); saveCache() } }   // the Inbox follows the changes a check found (a new email, one archived on the phone)
     }
 
     // MARK: - Changes to Gmail

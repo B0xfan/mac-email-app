@@ -274,6 +274,35 @@ final class MailDB: @unchecked Sendable {
         return out
     }
 
+    /// The Inbox as conversation rows, newest first: the same rows Gmail's conversation list gives (the newest Inbox message stands for the conversation, the other Inbox
+    /// messages are its siblings, every message is in `convo`), built from the stored messages with no request. Only confirmed rows. `limit` conversations after `offset`.
+    func inboxThreads(limit: Int, offset: Int = 0) -> [Mail] {
+        var threads: [String] = []
+        run("""
+            SELECT m.thread_id FROM messages m WHERE m.verified=1
+              AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)
+              AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))
+            GROUP BY m.thread_id ORDER BY MAX(m.date) DESC, m.thread_id DESC LIMIT ? OFFSET ?
+            """, ["INBOX", "TRASH", "SPAM", limit, offset], { threads.append(Self.text($0, 0)) })
+        var byThread: [String: [Mail]] = [:]
+        for c in Self.chunks(threads) {
+            run(Self.selectRows + " WHERE m.verified=1 AND m.thread_id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }, { if let m = Self.mail($0) { byThread[m.threadID, default: []].append(m) } })
+        }
+        return threads.compactMap { Self.threadRow(byThread[$0] ?? []) }
+    }
+
+    /// One conversation row from all the stored messages of the conversation (nil when none of them is in the Inbox).
+    static func threadRow(_ all: [Mail]) -> Mail? {
+        let gone: Set<String> = ["TRASH", "SPAM"]
+        let mine = all.filter { $0.labels.contains("INBOX") && gone.isDisjoint(with: $0.labels) }
+        guard let rep = mine.max(by: { ($0.date, $0.id) < ($1.date, $1.id) }) else { return nil }
+        var m = rep
+        if mine.contains(where: { $0.unread }) && !m.unread { m.labels.append("UNREAD") }   // unread if any Inbox message of the conversation is
+        m.siblings = mine.map(\.id).filter { $0 != rep.id }
+        m.convo = all.filter { Set($0.labels).isDisjoint(with: ["DRAFT", "TRASH", "SPAM"]) }.sorted { ($0.date, $0.id) < ($1.date, $1.id) }.map { ConvMsg($0) }
+        return m
+    }
+
     @discardableResult
     func applyLabels(ids: [String], add: [String], remove: [String]) -> Bool {
         atomically {

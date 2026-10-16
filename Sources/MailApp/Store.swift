@@ -143,7 +143,9 @@ final class MailStore: ObservableObject {
     let blockLabelName: String
     var knownCache: [String: Bool] = [:]
     var sendersChecked = false   // false until the first new-sender check has run since launch
-    @Published var inboxNext: String?            // Gmail page token for the next batch of inbox conversations
+    @Published var inboxNext: String?            // Gmail page token for the next batch of inbox conversations (from the mail kept on this Mac: how many are shown now)
+    var inboxFromMac = false                     // the Inbox on screen was read from the mail kept on this Mac, so `inboxNext` is not a Gmail token
+    static let inboxPage = 80
     @Published var loadingMore = false
     var lastLabelsAt: Date?, lastSmartAt: Date?
     static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
@@ -291,43 +293,47 @@ final class MailStore: ObservableObject {
         do {
             // the list and (every few minutes) the labels are asked for at the same moment
             let labelsDue = labelList.isEmpty || lastLabelsAt.map { Date().timeIntervalSince($0) > Self.slowRefresh } ?? true
-            async let pageR = gmail.threadPage(labels: ["INBOX"], max: 80)
-            async let labelsR: [GLabel]? = labelsDue ? try? await gmail.labels() : nil
-            var page = try await pageR
-            // older conversations the user already loaded ("Show older emails") stay loaded: walk as many pages as were showing
-            let depth = inbox.count
-            var walked = 1
-            while page.refs.count < depth, walked < Self.refreshPages, let tok = page.next {
-                walked += 1
-                guard let more = try? await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok) else { break }
-                page = (refs: page.refs + more.refs, next: more.next)
+            var failedCount = 0
+            if inboxIsStored {
+                // the Inbox comes from the mail kept on this Mac: the only request is the label list (1 unit, every few minutes)
+                if labelsDue, let ls = try? await gmail.labels() { applyLabelList(ls) }
+                await readStoredInbox()
+                await loadAside(); await loadSnoozed()
+            } else {
+                inboxFromMac = false
+                async let pageR = gmail.threadPage(labels: ["INBOX"], max: Self.inboxPage)
+                async let labelsR: [GLabel]? = labelsDue ? try? await gmail.labels() : nil
+                var page = try await pageR
+                // older conversations the user already loaded ("Show older emails") stay loaded: walk as many pages as were showing
+                let depth = inbox.count
+                var walked = 1
+                while page.refs.count < depth, walked < Self.refreshPages, let tok = page.next {
+                    walked += 1
+                    guard let more = try? await gmail.threadPage(labels: ["INBOX"], max: Self.inboxPage, pageToken: tok) else { break }
+                    page = (refs: page.refs + more.refs, next: more.next)
+                }
+                if let ls = await labelsR { applyLabelList(ls) }
+                // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
+                let have = Dictionary(inbox.filter(\.inInbox).map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
+                let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID || (settings.groupConversations && have[$0.id]?.convo == nil) }.map(\.id)
+                async let aside: Void = loadAside()
+                async let snz: Void = loadSnoozed()
+                let got = await gmail.threads(need)
+                await aside; await snz
+                // a conversation that failed to load keeps its old row instead of vanishing
+                let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
+                // pages deeper than the few walked above stay as they were; the next-page token then still points past them
+                let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
+                let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
+                inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
+                replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
+                if deeper.isEmpty { inboxNext = page.next }
+                failedCount = got.failed.count
             }
-            if let ls = await labelsR {
-                lastLabelsAt = Date()
-                pinLabelID = ls.first { $0.name == MailStore.pinLabelName }?.id
-                asideLabelID = ls.first { $0.name == MailStore.asideLabelName }?.id
-                snoozeLabelID = MailStore.snoozeLabelNames.lazy.compactMap { n in ls.first { $0.name == n }?.id }.first
-                setLabels(ls)
-            }
-            // a conversation is refetched when Gmail's version tag for it changed (read/unread, labels, new reply), including changes made on the phone
-            let have = Dictionary(inbox.filter(\.inInbox).map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
-            let need = page.refs.filter { have[$0.id]?.historyID != $0.historyID || (settings.groupConversations && have[$0.id]?.convo == nil) }.map(\.id)
-            async let aside: Void = loadAside()
-            async let snz: Void = loadSnoozed()
-            let got = await gmail.threads(need)
-            await aside; await snz
-            // a conversation that failed to load keeps its old row instead of vanishing
-            let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
-            // pages deeper than the few walked above stay as they were; the next-page token then still points past them
-            let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
-            let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
-            inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
-            replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
-            if deeper.isEmpty { inboxNext = page.next }
             pruneSurfaced()
             saveCache()
             engine?.kickSync()   // the background copy of the mailbox (and, once it is complete, the check for changes)
-            error = got.failed.isEmpty ? nil : "\(got.failed.count) conversation\(got.failed.count == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
+            error = failedCount == 0 ? nil : "\(failedCount) conversation\(failedCount == 1 ? "" : "s") could not be loaded just now. Check again in a moment."
             async let cls: Void = classifySenders()
             let keepPaged = otherSource != nil && other.count > Self.otherPage && mailbox != .inbox   // a list paged in deeper keeps its rows
             let listBare = other.isEmpty && otherSource == nil   // nothing was ever read (failed or offline): read it now
@@ -341,10 +347,36 @@ final class MailStore: ObservableObject {
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not load mail." }
     }
 
+    /// The Inbox is read from the mail kept on this Mac once the first copy is complete (no request to Gmail); until then, and while a copy is redone after a gap, from Gmail as before.
+    var inboxIsStored: Bool { db?.isComplete == true }
+
+    /// The label list Gmail just gave: the ids of the labels Mail itself uses are picked out of it.
+    func applyLabelList(_ ls: [GLabel]) {
+        lastLabelsAt = Date()
+        pinLabelID = ls.first { $0.name == MailStore.pinLabelName }?.id
+        asideLabelID = ls.first { $0.name == MailStore.asideLabelName }?.id
+        snoozeLabelID = MailStore.snoozeLabelNames.lazy.compactMap { n in ls.first { $0.name == n }?.id }.first
+        setLabels(ls)
+    }
+
+    /// The Inbox from the stored mail: the same conversation rows Gmail gives, with no request. Conversations already loaded ("Show older emails") stay loaded, and `more` loads that many further.
+    func readStoredInbox(more: Int = 0) async {
+        guard let db else { return }
+        let n = max(Self.inboxPage, inbox.count + more)
+        let rows = await storedRead { db.inboxThreads(limit: n) }
+        inbox = applySurfaced(rows).sorted { $0.date > $1.date }
+        inboxNext = rows.count == n ? String(n) : nil
+        inboxFromMac = true
+    }
+
     /// The next batch of older conversations ("Show older emails" at the bottom of the inbox).
     func loadMoreInbox() async {
         guard let tok = inboxNext, !loadingMore else { return }
         loadingMore = true; defer { loadingMore = false }
+        if inboxFromMac {   // the next conversations come from this Mac; if the copy is being redone, Gmail's list is read from the top instead
+            if inboxIsStored { await readStoredInbox(more: Self.inboxPage); saveCache(); Task { await classifySenders() } } else { inboxFromMac = false; await refresh() }
+            return
+        }
         do {
             let page = try await gmail.threadPage(labels: ["INBOX"], max: 80, pageToken: tok)
             let have = Set(inbox.map(\.threadID))

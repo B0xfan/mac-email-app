@@ -4,7 +4,7 @@ import Foundation
 /// A pretend Gmail for the stored-mail checks: a mailbox that answers list, read, change-list and change calls the way Gmail does,
 /// and counts what it was asked (including the Gmail "units" the calls cost).
 final class FakeGmail: @unchecked Sendable {
-    struct Msg { var id: String; var labels: [String]; var date: Int; var hid = 1 }   // hid: the change number of its last change, as Gmail's historyId on a message
+    struct Msg { var id: String; var labels: [String]; var date: Int; var hid = 1; var thread: String? = nil }   // thread: the conversation it belongs to (alone by default)   // hid: the change number of its last change, as Gmail's historyId on a message
     private let lock = NSLock()
     private(set) var msgs: [Msg] = []
     private var events: [(id: Int, json: String)] = []
@@ -34,9 +34,9 @@ final class FakeGmail: @unchecked Sendable {
         for (i, id) in ids.enumerated() { msgs.append(Msg(id: id, labels: labels, date: 1_700_000_000 - i * 10)) }
     }
     /// One message with a chosen date (seconds); not recorded in the change list.
-    func put(_ id: String, _ labels: [String], _ date: Int) {
+    func put(_ id: String, _ labels: [String], _ date: Int, thread: String? = nil) {
         lock.lock(); defer { lock.unlock() }
-        msgs.append(Msg(id: id, labels: labels, date: date))
+        msgs.append(Msg(id: id, labels: labels, date: date, thread: thread))
     }
     /// New mail (newer than everything), recorded in the change list.
     func add(_ id: String, _ labels: [String]) {
@@ -72,7 +72,8 @@ final class FakeGmail: @unchecked Sendable {
     }
     private func arr(_ a: [String]) -> String { "[" + a.map { "\"\($0)\"" }.joined(separator: ",") + "]" }
     private func json(_ m: Msg) -> String {
-        "{\"id\":\"\(m.id)\",\"threadId\":\"T\(m.id)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
+        let tid = m.thread ?? "T" + m.id
+        return "{\"id\":\"\(m.id)\",\"threadId\":\"\(tid)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
     }
 
     func handle(_ req: URLRequest) -> (Int, String) {
