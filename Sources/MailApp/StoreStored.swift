@@ -49,9 +49,9 @@ extension MailStore {
     }
 
     /// Bytes of every file under a folder (0 when there is none).
-    static func folderBytes(_ url: URL) -> Int64 {
+    nonisolated static func folderBytes(_ url: URL) -> Int64 {
         guard let e = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
-        return e.compactMap { ($0 as? URL)?.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0) { $0 + Int64($1) }
+        return e.compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }.reduce(0) { $0 + Int64($1) }
     }
 
     /// Settings > Storage "Clear stored mail": the copy on this Mac is emptied and the file made small. Changes still waiting for Gmail are kept and sent. Lists and the Inbox are read
