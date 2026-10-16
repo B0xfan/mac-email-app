@@ -24,7 +24,7 @@ extension MailStore {
         openMail = m
         seen.record(m.id)
         await contacts.loadIfNeeded(ask: false)   // known names for "Name doesn't match address"
-        if var full = try? await gmail.message(id: m.id, full: true), selectedID == m.id {
+        if var full = try? await fullMessage(m.id), selectedID == m.id {
             full.convo = m.convo; full.siblings = m.siblings; full.historyID = m.historyID   // the fetched message is one email; the row knows its conversation
             openMail = full
             var withPictures = await withInlineImages(full)   // pictures that are part of the email itself

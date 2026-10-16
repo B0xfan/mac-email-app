@@ -21,7 +21,7 @@ extension MailStore {
     func showConvoMessage(_ c: ConvMsg) async {
         guard let o = openMail else { return }
         if c.id == o.id { convoShown = nil; return }
-        guard let full = try? await gmail.message(id: c.id, full: true), openMail?.id == o.id else { return }
+        guard let full = try? await fullMessage(c.id), openMail?.id == o.id else { return }
         let withPictures = await withInlineImages(full)
         if openMail?.id == o.id { convoShown = withPictures }
     }

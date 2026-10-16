@@ -13,7 +13,7 @@ import SQLite3
 struct DBListSpec: Equatable { var all: [String]; var none: [String] = [] }
 
 final class MailDB: @unchecked Sendable {
-    static let schemaVersion = 2
+    static let schemaVersion = 3
     static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     let url: URL
     private var handle: OpaquePointer?
@@ -63,7 +63,8 @@ final class MailDB: @unchecked Sendable {
         run("PRAGMA user_version", [], { v = sqlite3_column_int($0, 0) })
         if v > Int32(Self.schemaVersion) { return .failed }   // a newer Mail wrote it: not ours to change
         if v < 1 { guard createSchema() else { return .failed } }
-        else if v < Int32(Self.schemaVersion) { guard rebuild() else { return .failed } }
+        else if v == 1 { guard rebuild() else { return .failed } }
+        else if v < Int32(Self.schemaVersion) { guard migrate(from: v) else { return .failed } }
         for s in ["", "-wal", "-shm"] { chmod(url.path + s, 0o600) }
         return .ok
     }
@@ -97,11 +98,44 @@ final class MailDB: @unchecked Sendable {
             "CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
             "CREATE TABLE outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, payload BLOB NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at REAL NOT NULL DEFAULT 0, created REAL NOT NULL)",
         ]
-        return transaction {
+        guard transaction({
             for s in steps { guard run(s) else { return false } }
-            return run("PRAGMA user_version = \(Self.schemaVersion)")
+            return run("PRAGMA user_version = 2")   // the first layout; the steps up from it follow
+        }) ?? false else { return false }
+        return migrate(from: 2)
+    }
+
+    /// The steps up from schema 2. Each runs in one transaction and writes its own version, so a stop in the middle repeats that step only.
+    private func migrate(from v: Int32) -> Bool {
+        if v < 3 { guard upgradeTo3() else { return false } }
+        return true
+    }
+
+    /// Schema 3: what the Mac needs to search and to keep the text of emails (approved drawing, 2026-10-16).
+    /// `search_head`: sender, recipients, subject and preview in lower case, for every message. `search_body` and `body`: the words and the text of a message whose full text is kept
+    /// (recent mail, and mail John opened); both are emptied when the text is dropped. `body_kept`: 1 = John opened it, so its text stays however old it gets.
+    private func upgradeTo3() -> Bool {
+        transaction { () -> Bool in
+            for s in ["ALTER TABLE messages ADD COLUMN search_head TEXT NOT NULL DEFAULT ''", "ALTER TABLE messages ADD COLUMN search_body TEXT",
+                      "ALTER TABLE messages ADD COLUMN body BLOB", "ALTER TABLE messages ADD COLUMN body_kept INTEGER NOT NULL DEFAULT 0"] { guard run(s) else { return false } }
+            // rows already stored get their search text from their saved copy, a few hundred at a time
+            var after = -1 as Int64
+            while true {
+                var batch: [(rowid: Int64, id: String, payload: Data)] = []
+                run("SELECT rowid, id, payload FROM messages WHERE rowid > ? ORDER BY rowid LIMIT 500", [after], { batch.append((sqlite3_column_int64($0, 0), Self.text($0, 1), Self.blob($0, 2))) })
+                guard let last = batch.last else { break }
+                after = last.rowid
+                for b in batch {
+                    guard let m = try? JSONDecoder().decode(Mail.self, from: b.payload) else { continue }
+                    guard run("UPDATE messages SET search_head=? WHERE id=?", [Self.head(m), b.id]) else { return false }
+                }
+            }
+            return run("PRAGMA user_version = 3")
         } ?? false
     }
+
+    /// What a search looks in for a message that has no stored text: sender, recipients, subject and preview, lower case.
+    static func head(_ m: Mail) -> String { "\(m.from.display) \(m.from.email) \(m.to) \(m.cc) \(m.subject) \(m.snippet)".lowercased() }
 
     /// A file from schema 1 (an early build of this work, never released) has other columns. It is only a copy of Gmail, so its tables are dropped and started again.
     private func rebuild() -> Bool {
@@ -232,10 +266,10 @@ final class MailDB: @unchecked Sendable {
             for m in mails {
                 guard let d = Self.slim(m) else { continue }
                 run("""
-                    INSERT INTO messages(id, thread_id, date, payload, verified, seen, history_id) VALUES(?,?,?,?,?,?,?)
-                    ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id, date=excluded.date, payload=excluded.payload, verified=excluded.verified, seen=MAX(seen, excluded.seen), history_id=excluded.history_id
-                    WHERE ?8 = 1 OR messages.verified = 0 OR excluded.history_id >= messages.history_id
-                    """, [m.id, m.threadID, Self.ms(m.date), d, verified ? 1 : 0, seen, m.msgHistory ?? 0, force ? 1 : 0])
+                    INSERT INTO messages(id, thread_id, date, payload, verified, seen, history_id, search_head) VALUES(?,?,?,?,?,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id, date=excluded.date, payload=excluded.payload, verified=excluded.verified, seen=MAX(seen, excluded.seen), history_id=excluded.history_id, search_head=excluded.search_head
+                    WHERE ?9 = 1 OR messages.verified = 0 OR excluded.history_id >= messages.history_id
+                    """, [m.id, m.threadID, Self.ms(m.date), d, verified ? 1 : 0, seen, m.msgHistory ?? 0, Self.head(m), force ? 1 : 0])
                 guard sqlite3_changes(handle) > 0 else { continue }   // skipped as older: the row and its labels stay
                 run("DELETE FROM message_labels WHERE msg=?", [m.id])
                 for l in Set(m.labels) { run("INSERT OR IGNORE INTO message_labels(msg, label) VALUES(?,?)", [m.id, l]) }
@@ -271,6 +305,74 @@ final class MailDB: @unchecked Sendable {
         args.append(limit); args.append(offset)
         var out: [Mail] = []
         run(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+        return out
+    }
+
+    // MARK: - Search and the text of emails
+
+    /// Messages whose sender, recipients, subject, preview or kept text hold every one of these words (any letter case), newest first. Only confirmed rows, never Trash or Spam.
+    /// shortcut: a scan of the table, not an index (FTS5); fine to tens of thousands of messages, upgrade if a search over a very large mailbox is felt to be slow.
+    func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
+        var sql = Self.selectRows + " WHERE m.verified=1 AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))"
+        var args: [Any?] = ["TRASH", "SPAM"]
+        for w in words where !w.isEmpty {
+            sql += " AND (m.search_head || ' ' || COALESCE(m.search_body, '')) LIKE ? ESCAPE '\\'"
+            args.append("%" + Self.likeEscaped(w.lowercased()) + "%")
+        }
+        sql += " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
+        args.append(limit); args.append(offset)
+        var out: [Mail] = []
+        run(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+        return out
+    }
+
+    /// The word as a LIKE pattern body: % and _ mean themselves.
+    static func likeEscaped(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
+    }
+
+    /// The kept text of a message: what is shown when it is opened.
+    struct StoredBody: Codable { var html: String?; var text: String?; var attachments: [Attachment] }
+
+    /// The words a search looks in for a message's text (lower case; tags, styles and scripts left out of HTML).
+    /// shortcut: HTML entities are not decoded and the text is cut at 200,000 characters; fine for searching, upgrade if odd matches show up.
+    static func bodyWords(_ m: Mail) -> String {
+        var t = m.text ?? ""
+        if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let h = m.html {
+            t = h.replacingOccurrences(of: "(?s)<(style|script|head)[^>]*>.*?</\\1>", with: " ", options: [.regularExpression, .caseInsensitive])
+                 .replacingOccurrences(of: "<[^<>]*>", with: " ", options: .regularExpression)
+        }
+        return String(t.lowercased().prefix(200_000))
+    }
+
+    /// Keeps the text of a message as it was read from Gmail. `kept`: John opened it, so the text stays however old the message gets.
+    /// Nothing is kept for an email with pictures inside it (their data is not stored) or one with no text at all; true then, as nothing went wrong.
+    @discardableResult
+    func setBody(_ m: Mail, kept: Bool) -> Bool {
+        guard m.cidParts?.isEmpty ?? true, m.html != nil || m.text != nil,
+              let d = try? JSONEncoder().encode(StoredBody(html: m.html, text: m.text, attachments: m.attachments)) else { return true }
+        return run("UPDATE messages SET body=?, search_body=?, body_kept=MAX(body_kept, ?) WHERE id=?", [d, Self.bodyWords(m), kept ? 1 : 0, m.id])
+    }
+
+    /// John opened this email in full: its row is stored (a message found by a Gmail search is stored now) and its text kept. A draft is not kept (Gmail rewrites it on every save).
+    /// false when the database refused: nothing of this call is kept.
+    @discardableResult
+    func keepOpened(_ m: Mail, seen: Int) -> Bool {
+        guard !m.labels.contains("DRAFT") else { return true }
+        return atomically {
+            upsert([m], verified: true, seen: seen)
+            setBody(m, kept: true)
+        }
+    }
+
+    /// An email with its kept text, as it was read from Gmail, or nil when its text is not kept (or the row is not confirmed, or it is a draft).
+    func openedMail(_ id: String) -> Mail? {
+        var out: Mail?
+        run("SELECT m.payload, (SELECT group_concat(label, char(31)) FROM message_labels l WHERE l.msg = m.id), m.body FROM messages m WHERE m.id=? AND m.verified=1 AND m.body IS NOT NULL", [id], {
+            guard var m = Self.mail($0), !m.labels.contains("DRAFT"), let b = try? JSONDecoder().decode(StoredBody.self, from: Self.blob($0, 2)) else { return }
+            m.html = b.html; m.text = b.text; m.attachments = b.attachments
+            out = m
+        })
         return out
     }
 

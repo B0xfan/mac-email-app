@@ -53,9 +53,9 @@ extension SelfTest {
 
         // searching stays with Gmail; a half-known label list stays with Gmail; a re-copy after a gap stays with Gmail until it is done
         let r1 = f.requests
-        await MainActor.run { st.search = "invoice" }
+        await MainActor.run { st.search = "from:invoice" }
         await st.runSearch()
-        check("lists from this Mac: a search still asks Gmail", f.requests > r1)
+        check("lists from this Mac: a search with Gmail's own words (from:) still asks Gmail", f.requests > r1)
         await st.select(.inbox)
         let saved = await MainActor.run { () -> [GLabel] in let l = st.labelList; st.labelList = []; return l }
         await MainActor.run { st.forgetKeptLists() }   // a list read from Gmail a moment ago is kept for 2 minutes and would answer without a request

@@ -32,11 +32,11 @@ extension SelfTest {
         db.transaction { db.transaction { db.setState("c", "1") }; db.setState("d", "1") }
         check("transaction: nested steps that all work are kept together", db.state("c") == "1" && db.state("d") == "1")
 
-        // the schema: an index on the round marker, and no unused body columns
-        var hasIndex = false, bodyColumns = 0
+        // the schema: an index on the round marker, and the columns for search and kept text
+        var hasIndex = false, textColumns = 0
         db.run("SELECT 1 FROM sqlite_master WHERE type='index' AND name='messages_seen'", [], { _ in hasIndex = true })
-        db.run("SELECT name FROM pragma_table_info('messages') WHERE name LIKE 'body%'", [], { _ in bodyColumns += 1 })
-        check("schema: the round marker is indexed and the unused body columns are gone", hasIndex && bodyColumns == 0)
+        db.run("SELECT name FROM pragma_table_info('messages') WHERE name IN ('search_head', 'search_body', 'body', 'body_kept')", [], { _ in textColumns += 1 })
+        check("schema: the round marker is indexed and the four columns for search and kept text exist", hasIndex && textColumns == 4)
 
         // an older read never replaces a newer one
         func hm(_ id: String, _ labels: [String], _ h: Int64?) -> Mail { var m = lsMail(id, labels); m.msgHistory = h; return m }
@@ -189,8 +189,8 @@ extension SelfTest {
         var ver: Int32 = 0, hasVerified = false
         up?.run("PRAGMA user_version", [], { ver = sqlite3_column_int($0, 0) })
         up?.run("SELECT 1 FROM pragma_table_info('messages') WHERE name='verified'", [], { _ in hasVerified = true })
-        check("schema 2: a schema-1 file is rebuilt with the current columns and works (version 2, empty, a message can be saved)",
-              up != nil && ver == 2 && MailDB.schemaVersion == 2 && hasVerified && up?.rowCount() == 0 && up?.upsert([lsMail("n1", ["INBOX"])], verified: true) == true && up?.rowCount() == 1)
+        check("schema 1: a schema-1 file is rebuilt with the current columns and works (current version, empty, a message can be saved)",
+              up != nil && ver == Int32(MailDB.schemaVersion) && hasVerified && up?.rowCount() == 0 && up?.upsert([lsMail("n1", ["INBOX"])], verified: true) == true && up?.rowCount() == 1)
         return ok
     }
 }

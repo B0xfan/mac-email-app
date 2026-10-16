@@ -10,6 +10,10 @@ final class FakeGmail: @unchecked Sendable {
     private var events: [(id: Int, json: String)] = []
     private(set) var historyID = 1000
     var gets: [String: Int] = [:], getOrder: [String] = []
+    var fullGets: [String: Int] = [:]     // reads that asked for the whole message (format=full), by id
+    var searchAnswers: [String: [String]] = [:]   // a list call with this q answers these ids (the pretend Gmail has no search of its own)
+    var attachmentFor: Set<String> = []   // a whole-message read of these ids carries one attachment (named inv-<id>.pdf)
+    var attachmentCalls: [String] = []    // attachment downloads asked for
     var lists = 0, historyCalls = 0, profiles = 0, units = 0
     var failGets: Set<String> = []        // reading these answers 403 (no permission just now: the copy waits and tries again, it never skips them)
     var refuseGets: Set<String> = []      // reading these answers 400 (can never be read: the copy goes on without them)
@@ -71,9 +75,17 @@ final class FakeGmail: @unchecked Sendable {
         events.append((historyID, "{\"id\":\"\(historyID)\"," + String(body.dropFirst())))
     }
     private func arr(_ a: [String]) -> String { "[" + a.map { "\"\($0)\"" }.joined(separator: ",") + "]" }
-    private func json(_ m: Msg) -> String {
+    private func b64url(_ s: String) -> String { Data(s.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") }
+    private func json(_ m: Msg, full: Bool = false) -> String {
         let tid = m.thread ?? "T" + m.id
-        return "{\"id\":\"\(m.id)\",\"threadId\":\"\(tid)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
+        let headers = "[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]"
+        var payload = "{\"headers\":\(headers)}"
+        if full {   // the whole message: its text, and an attachment for some (only its name and number, as Gmail gives it)
+            let text = "{\"mimeType\":\"text/plain\",\"body\":{\"size\":20,\"data\":\"\(b64url("body of \(m.id)"))\"}}"
+            let att = "{\"mimeType\":\"application/pdf\",\"filename\":\"inv-\(m.id).pdf\",\"body\":{\"attachmentId\":\"A-\(m.id)\",\"size\":1234}}"
+            payload = "{\"mimeType\":\"multipart/mixed\",\"headers\":\(headers),\"parts\":[\(text)\(attachmentFor.contains(m.id) ? "," + att : "")]}"
+        }
+        return "{\"id\":\"\(m.id)\",\"threadId\":\"\(tid)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":\(payload)}"
     }
 
     func handle(_ req: URLRequest) -> (Int, String) {
@@ -92,6 +104,7 @@ final class FakeGmail: @unchecked Sendable {
             lists += 1
             if let hook = onList { lock.unlock(); hook(lists); lock.lock() }   // the hook changes the mailbox through the methods above, which take the lock
             if rejectNextToken, q("pageToken") != nil { rejectNextToken = false; return (400, #"{"error":{"code":400,"message":"Invalid pageToken"}}"#) }
+            if let qq = q("q"), let hits = searchAnswers[qq] { return (200, "{\"messages\":[\(hits.map { "{\"id\":\"\($0)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(hits.count)}") }
             let want = items.filter { $0.name == "labelIds" }.compactMap(\.value)
             let sorted = msgs.filter { m in !m.labels.contains("TRASH") && !m.labels.contains("SPAM") && want.allSatisfy { m.labels.contains($0) } }.sorted { $0.date > $1.date }
             let size = Int(q("maxResults") ?? "100") ?? 100, start = Int((q("pageToken") ?? "t0").dropFirst()) ?? 0
@@ -128,9 +141,14 @@ final class FakeGmail: @unchecked Sendable {
             if trash { change(id, ["TRASH"], ["INBOX"]) } else { change(id, [], ["TRASH"]) }
             return (200, "{}")
         }
+        if method == "GET", rel.hasPrefix("/messages/"), rel.contains("/attachments/") {
+            attachmentCalls.append(rel)
+            return (200, "{\"size\":5,\"data\":\"\(b64url("PDF!!"))\"}")
+        }
         if method == "GET", rel.hasPrefix("/messages/") {
             let id = String(rel.dropFirst("/messages/".count))
             gets[id, default: 0] += 1; getOrder.append(id)
+            if q("format") == "full" { fullGets[id, default: 0] += 1 }
             if timeoutGets.contains(id) { return (-1, "") }
             if failGets.contains(id) { return (403, #"{"error":{"code":403,"message":"The caller does not have permission","errors":[{"reason":"forbidden"}]}}"#) }
             if refuseGets.contains(id) { return (400, #"{"error":{"code":400,"message":"bad"}}"#) }
@@ -138,7 +156,7 @@ final class FakeGmail: @unchecked Sendable {
             if garbleGets.contains(id) { return (200, "<html>not a message</html>") }
             if gone404.contains(id) { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
             guard let m = msgs.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
-            return (200, json(m))
+            return (200, json(m, full: q("format") == "full"))
         }
         otherCalls.append("\(method) \(rel)")
         return (200, "{}")

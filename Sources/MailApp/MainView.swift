@@ -444,7 +444,7 @@ struct ListPane: View {
                 }
                 if store.mailbox == .search, store.isSearching {
                     HStack(spacing: 8) {
-                        Text("Results for \u{201C}\(store.search.trimmingCharacters(in: .whitespaces))\u{201D}").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
+                        Text("Results for \u{201C}\(store.search.trimmingCharacters(in: .whitespaces))\u{201D}" + (store.searchMore != .hidden && store.extraIDs.isEmpty ? " on this Mac" : "")).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
                         Spacer()
                         if !store.currentSearchIsSaved {
                             Button("Save this search") { store.editorMessage = nil; store.editor = .saveSearch(store.search.trimmingCharacters(in: .whitespaces)) }
@@ -483,14 +483,19 @@ struct ListPane: View {
                         }
                         if store.listMails.isEmpty { Text(emptyText).font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 32) }
                     }
-                    else { ForEach(store.listMails) { m in
-                        MessageRow(mail: m, selected: store.selectedID == m.id, swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
-                            .contextMenu { moveToFolderMenu(store, m) }
-                    } }
+                    else {
+                        let firstExtra = store.extraFirstID
+                        ForEach(store.listMails) { m in
+                            if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
+                            MessageRow(mail: m, selected: store.selectedID == m.id, swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
+                                .contextMenu { moveToFolderMenu(store, m) }
+                        }
+                    }
                     if store.mailbox != .inbox, store.otherNext != nil { MoreRow(loading: store.loadingOtherMore, page: store.otherNext, resetKey: "", auto: { await store.autoMoreOther() }, manual: { store.resetAutoPages(); await store.loadMoreOther() }, reset: { store.resetAutoPages() }) }
                     if store.listMails.isEmpty && !store.loading && store.mailbox != .snoozed && store.mailbox != .scheduled {
                         Text(emptyText).font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 32)
                     }
+                    if store.mailbox == .search { SearchMoreCard(store: store) }
                 }
             }
             .padding(16)
@@ -533,6 +538,31 @@ struct ListPane: View {
         case .smart: return "No emails match these rules."
         case .saved: return "Nothing found."
         default: return "Nothing here yet."
+        }
+    }
+}
+
+/// Under the results from this Mac: the clear way to search all of Gmail too (the approved drawing, panel 2). After it, a note about opening what it found.
+struct SearchMoreCard: View {
+    @ObservedObject var store: MailStore
+    var body: some View {
+        switch store.searchMore {
+        case .offer, .searching:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Looking for something older?").font(Theme.bodyStrong)
+                Text("These are the results on this Mac. Gmail has more going back years.").font(Theme.small).foregroundStyle(Theme.sub)
+                Button(store.searchMore == .searching ? "Searching Gmail\u{2026}" : "Search all of Gmail too") { Task { await store.searchGmailToo() } }
+                    .buttonStyle(MailButtonStyle(kind: .primary)).disabled(store.searchMore == .searching).padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+            .padding(.top, 8)
+        case .done:
+            Text(store.extraIDs.isEmpty ? "Nothing older found in Gmail." : "Opening one of these downloads it, so it stays on your Mac from then on.")
+                .font(Theme.small).foregroundStyle(Theme.sub).padding(12)
+        case .hidden:
+            EmptyView()
         }
     }
 }

@@ -20,7 +20,64 @@ extension MailStore {
         }
     }
 
-    var otherIsStored: Bool { if case .stored? = otherSource { return true }; return false }
+    var otherIsStored: Bool {
+        switch otherSource { case .stored?, .storedSearch?: return true; default: return false }
+    }
+
+    /// The words of a typed search that the stored mail can answer by itself: plain words only. Typed Gmail words (from:), tags Mail understood ("unread", "last month") and
+    /// OR, AND, minus or brackets go to Gmail as before. nil = ask Gmail.
+    static func localWords(_ q: String) -> [String]? {
+        let r = PlainSearch.parse(q)
+        guard !r.passthrough, r.chips.isEmpty else { return nil }
+        let quotes = CharacterSet(charactersIn: "\"'\u{201C}\u{201D}\u{2018}\u{2019}")
+        let words = r.words.map { $0.trimmingCharacters(in: quotes) }.filter { !$0.isEmpty }
+        let special = r.words.contains { w in w == "OR" || w == "AND" || w.hasPrefix("-") || w.contains { "(){}".contains($0) } }
+        return words.isEmpty || special ? nil : words
+    }
+
+    /// "Search all of Gmail too": the same words are sent to Gmail; what the list does not hold yet is added under its own heading (From Gmail, older mail).
+    func searchGmailToo() async {
+        guard searchMore == .offer, mailbox == .search else { return }
+        let q = search.trimmingCharacters(in: .whitespaces)
+        let r = PlainSearch.parse(q), gq = r.gmail.isEmpty ? q : r.gmail
+        let gen = otherGen
+        searchMore = .searching
+        do {
+            let page = try await gmail.listPage(q: gq, max: Self.otherPage, pageToken: nil)
+            let have = Set(other.map(\.id))
+            let got = await gmail.messages(ids: page.ids.filter { !have.contains($0) })
+            try Task.checkCancellation()   // messages() swallows errors: a cancelled read must not look like "nothing older"
+            guard gen == otherGen else { return }
+            addExtras(got)
+            otherSource = .query(gq); otherNext = page.next   // "Show older emails" now asks Gmail for the next page
+            searchMore = .done
+        } catch {
+            guard gen == otherGen else { return }
+            searchMore = .offer
+            if !Self.wasCancelled(error) { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not search Gmail." }
+        }
+    }
+
+    /// Results from Gmail go below the Mac's own, newest first among themselves.
+    func addExtras(_ more: [Mail]) {
+        let have = Set(other.map(\.id))
+        let fresh = more.filter { !have.contains($0.id) }
+        let own = other.filter { !extraIDs.contains($0.id) }, older = other.filter { extraIDs.contains($0.id) }
+        extraIDs.formUnion(fresh.map(\.id))
+        other = own + (older + fresh).sorted { $0.date > $1.date }
+    }
+
+    /// An email in full: from this Mac when its text is kept (no request), otherwise from Gmail, and then kept here (John opened it, so it stays however old it gets).
+    /// A message found by a Gmail search is stored by this too.
+    func fullMessage(_ id: String) async throws -> Mail {
+        if let db, db.isTracking, let m = await storedRead({ db.openedMail(id) }) { return m }
+        let m = try await gmail.message(id: id, full: true)
+        if let db, db.isTracking {
+            let epoch = Int(db.state("epoch") ?? "") ?? 0
+            _ = await Task.detached { db.keepOpened(m, seen: epoch) }.value
+        }
+        return m
+    }
 
     /// Reads from the stored mail on a background thread (the copy in the background may be writing). If one of John's own changes (archive, move, trash ...) was made while the
     /// read was under way, its answer may still show the message where it was: it is thrown away and the read is made again (up to 3 times; a fourth change in the same moment
