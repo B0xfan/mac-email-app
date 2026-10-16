@@ -59,8 +59,9 @@ extension MailStore {
     func clearStoredMail() async {
         guard let db else { return }
         await engine?.stopAndWait()   // nothing may be writing while it is emptied
-        _ = await Task.detached { db.clearMail() }.value
-        try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments John downloaded are part of the stored mail
+        if await Task.detached({ db.clearMail() }).value {   // a failed clear keeps the attachments too
+            try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments John downloaded are part of the stored mail
+        }
         syncProgress = SyncProgress()
         engine?.kickOutbox()
         await refresh(reloadList: true)   // reads Gmail now, and starts the copy again

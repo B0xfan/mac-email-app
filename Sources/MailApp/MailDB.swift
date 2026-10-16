@@ -164,6 +164,7 @@ final class MailDB: @unchecked Sendable {
     /// Settings > Accounts "Remove" (John's decision): the file and everything in it is deleted, then a fresh empty one starts.
     func wipe() {
         lock.lock(); defer { lock.unlock() }
+        hotLock.lock(); hot = [:]; hotLock.unlock()   // a failed reopen must not leave the old sync place cached
         closeHandle()
         for s in ["", "-wal", "-shm", ".damaged"] { try? FileManager.default.removeItem(atPath: url.path + s) }
         depth = 0
