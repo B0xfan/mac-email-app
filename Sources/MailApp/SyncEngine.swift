@@ -40,7 +40,10 @@ final class SyncEngine: @unchecked Sendable {
     private var outAgain = false
     private var retryTimer: Task<Void, Never>?
 
-    init(gmail: GmailClient, db: MailDB) { self.gmail = gmail; self.db = db }
+    /// Stored copies counted so far in this run, so a page of the copy does not count the whole table again (`publish(exact: false)`).
+    private var runningStored = 0
+
+    init(gmail: GmailClient, db: MailDB) { self.gmail = gmail; self.db = db; db.resetRetries() }
 
     // MARK: - Running
 
@@ -72,6 +75,7 @@ final class SyncEngine: @unchecked Sendable {
         await GmailClient.$background.withValue(true) { await self.syncBody() }
     }
 
+    /// The pass stops here and shows "waiting": offline, Gmail busy, a message that could not be read, or the database refusing a write. It carries on at the next check.
     private enum SyncError: Error { case incomplete }
 
     private func syncBody() async {
@@ -88,80 +92,98 @@ final class SyncEngine: @unchecked Sendable {
         } catch { publish(.waiting) }
     }
 
-    private func publish(_ phase: SyncProgress.Phase) {
-        let p = SyncProgress(phase: phase, stored: db.storedCount(), total: Int(db.state("total") ?? "") ?? 0)
-        lock.lock(); progress = p; lock.unlock()
+    /// `exact: false` (every page of the copy) uses the running count instead of counting the table.
+    private func publish(_ phase: SyncProgress.Phase, exact: Bool = true) {
+        let n = exact ? db.storedCount() : nil
+        lock.lock()
+        if let n { runningStored = n }
+        let p = SyncProgress(phase: phase, stored: runningStored, total: Int(db.state("total") ?? "") ?? 0)
+        progress = p
+        lock.unlock()
         onProgress?(p)
     }
+    private func countStored(_ n: Int) { lock.lock(); runningStored += n; lock.unlock() }
 
     // MARK: - Full copy (step 3)
 
     /// Writes down where Gmail's change list stands NOW (Google's documented order: note the number first, then list), starts a new round and
     /// forgets the place in the list. `stale`: the rows already stored may be out of date, so every one is read again.
+    /// All of it is written together; a database that refuses stops the pass (a half-written start would copy the mailbox again at every check).
     func startFullSync(stale: Bool) async throws {
         let p = try await gmail.profileInfo()
-        if stale { db.markAllUnverified() }
         let epoch = (Int(db.state("epoch") ?? "") ?? 0) + 1
-        db.setState("epoch", String(epoch)); db.setState("total", String(p.messagesTotal))
-        db.setState("cursor", nil); db.setState("backfill_done", "0"); db.setState("stall", nil)
-        db.setState("history_id", p.historyID)   // last: a stop before this line simply starts the step again
+        let wrote = db.transaction {
+            (!stale || db.markAllUnverified()) && db.setState("epoch", String(epoch)) && db.setState("total", String(p.messagesTotal)) && db.setState("cursor", nil)
+                && db.setState("backfill_done", "0") && db.setState("history_id", p.historyID)
+        } ?? false
+        guard wrote else { throw SyncError.incomplete }
         publish(.copying)
     }
 
     private func backfill() async throws {
         guard db.state("backfill_done") != "1" else { return }
         let epoch = Int(db.state("epoch") ?? "") ?? 1
-        var token = db.state("cursor")   // the page being worked on; nil = the newest page
-        var listed = 0
         publish(.copying)
+        _ = try await walk(epoch: epoch, resume: true)
+        // Gmail's list can shift while it is walked (new mail pushes older mail down a page, past the place already walked). A second quick walk of the ids finds
+        // what slipped, reads what is missing and marks what is still there, and only then is anything removed as gone from Gmail.
+        let listed = try await walk(epoch: epoch, resume: false)
+        // what this round did not list is gone from Gmail (or was only the old saved inbox); an empty answer for a non-empty mailbox is not trusted
+        if listed > 0 || (Int(db.state("total") ?? "") ?? 0) == 0 { guard db.sweep(below: epoch) != nil else { throw SyncError.incomplete } }
+        guard db.transaction({ db.setState("backfill_done", "1") && db.setState("cursor", nil) }) ?? false else { throw SyncError.incomplete }
+        onChange?()
+    }
+
+    /// One walk down Gmail's list of ids, newest first: marks each id as seen in this round and reads the ones not stored yet. `resume`: starts at the saved place
+    /// and saves the place after every page. Returns how many ids were listed.
+    private func walk(epoch: Int, resume: Bool) async throws -> Int {
+        var token = resume ? db.state("cursor") : nil   // nil = the newest page
+        var listed = 0
         while true {
             try Task.checkCancellation()
             let page: (ids: [String], next: String?)
             do { page = try await gmail.listPage(max: pageSize, pageToken: token) }
-            catch GmailError.http(400, _) where token != nil { db.setState("cursor", nil); token = nil; continue }   // the saved place expired: list again from the top, what is stored is skipped
+            catch GmailError.http(400, _) where token != nil {   // the place expired: list again from the top, what is stored is skipped
+                if resume { guard db.setState("cursor", nil) else { throw SyncError.incomplete } }
+                token = nil; continue
+            }
             listed += page.ids.count
-            db.touch(page.ids, epoch: epoch)
+            guard db.touch(page.ids, epoch: epoch) else { throw SyncError.incomplete }
             let have = db.stored(page.ids, verifiedOnly: true)
             try await fetch(page.ids.filter { !have.contains($0) }, epoch: epoch)
             guard let next = page.next else { break }
-            token = next; db.setState("cursor", next)   // only after every message of the page is stored
-            publish(.copying)
+            token = next
+            if resume { guard db.setState("cursor", next) else { throw SyncError.incomplete } }   // only after every message of the page is stored
+            publish(.copying, exact: false)
         }
-        // what this round did not list is gone from Gmail (or was only the old saved inbox); an empty answer for a non-empty mailbox is not trusted
-        if listed > 0 || (Int(db.state("total") ?? "") ?? 0) == 0 { db.sweep(below: epoch) }
-        db.setState("backfill_done", "1"); db.setState("cursor", nil)
-        onChange?()
+        return listed
     }
 
-    /// Reads these messages (metadata, no text) and stores them. A message Gmail says is gone is dropped. Any other failure leaves the rest stored
-    /// and stops the pass, so the same page is tried again at the next check; after 5 stops in a row the message is skipped and noted, so one bad
-    /// message can never hold the whole copy back.
+    enum Outcome: Sendable { case read, gone, refused, trouble }
+
+    /// 404 = gone; another 4xx = this message can never be read (not: sign in again, no permission, timeout, too many requests); anything else is trouble to wait out.
+    static func outcome(forHTTP code: Int) -> Outcome {
+        if code == 404 { return .gone }
+        return (400..<500).contains(code) && ![401, 403, 408, 429].contains(code) ? .refused : .trouble
+    }
+
+    /// Reads these messages (metadata, no text) and stores them. A message Gmail says is gone (404) is dropped. A message Gmail refuses for good (another 4xx) is left out:
+    /// the copy goes on without it, and the next full copy tries it again (every listed message that is not stored is read). Anything else (offline, Gmail busy or failing,
+    /// an unreadable answer, no permission) leaves the rest stored and stops the pass, so the same page is tried again at the next check, for as long as it takes.
     private func fetch(_ ids: [String], epoch: Int) async throws {
-        guard !ids.isEmpty else { db.setState("stall", nil); return }
+        guard !ids.isEmpty else { return }
         let g = gmail
-        let r = await mapLimited(ids, limit: fetchAtOnce) { id -> (String, Mail?, Bool, Bool) in   // (id, message, gone, trouble that is not the message's fault)
-            do { return (id, try await g.message(id: id, full: false), false, false) }
-            catch GmailError.http(404, _) { return (id, nil, true, false) }
-            catch GmailError.offline { return (id, nil, false, true) }
-            catch GmailError.slowDown { return (id, nil, false, true) }
-            catch GmailError.signInAgain { return (id, nil, false, true) }
-            catch { return (id, nil, false, false) }
+        let r = await mapLimited(ids, limit: fetchAtOnce) { id -> (id: String, mail: Mail?, outcome: Outcome) in
+            do { return (id, try await g.message(id: id, full: false), .read) }
+            catch GmailError.http(let c, _) { return (id, nil, Self.outcome(forHTTP: c)) }
+            catch { return (id, nil, .trouble) }
         }
         try Task.checkCancellation()   // a cancelled read looks like a failure: do not count it
-        db.upsert(r.compactMap { $0.1 }, verified: true, seen: epoch)
-        db.delete(ids: r.filter { $0.2 }.map(\.0))
+        let got = r.compactMap { $0.mail }
+        guard db.upsert(got, verified: true, seen: epoch), db.delete(ids: r.filter { $0.outcome == .gone }.map { $0.id }) else { throw SyncError.incomplete }
+        countStored(got.count)
         db.replayOutbox()   // a change still waiting for Gmail stays applied on what was just read
-        let failed = r.filter { $0.1 == nil && !$0.2 }.map(\.0)
-        if failed.isEmpty { db.setState("stall", nil); return }
-        if r.contains(where: { $0.3 }) { throw SyncError.incomplete }   // offline, Gmail busy or signed out: stop, and do not count it against any message
-        let n = (Int(db.state("stall") ?? "") ?? 0) + 1
-        if n >= 5 {
-            db.setState("stall", nil)
-            db.setState("skipped", ((db.state("skipped") ?? "").split(separator: ",").map(String.init) + failed).suffix(50).joined(separator: ","))
-            return
-        }
-        db.setState("stall", String(n))
-        throw SyncError.incomplete
+        if r.contains(where: { $0.outcome == .trouble }) { throw SyncError.incomplete }
     }
 
     // MARK: - Changes only (step 4)
@@ -183,7 +205,7 @@ final class SyncEngine: @unchecked Sendable {
             events += page.events; token = page.next
             if let h = page.historyID { latest = h }
         } while token != nil
-        if events.isEmpty { db.setState("history_id", latest); return }
+        if events.isEmpty { guard db.setState("history_id", latest) else { throw SyncError.incomplete }; return }
         var wanted: [String] = [], deleted = Set<String>(), changes: [(id: String, add: [String], remove: [String])] = []
         for e in events {
             switch e {
@@ -197,12 +219,14 @@ final class SyncEngine: @unchecked Sendable {
         for c in changes where !known.contains(c.id) && !wanted.contains(c.id) { wanted.append(c.id) }
         let toRead = Set(wanted).subtracting(deleted)
         let have = db.stored(Array(toRead), verifiedOnly: true)   // read after the change number was noted, so already current
-        for c in changes where !toRead.contains(c.id) && !deleted.contains(c.id) { db.applyLabels(ids: [c.id], add: c.add, remove: c.remove) }
+        guard changes.filter({ !toRead.contains($0.id) && !deleted.contains($0.id) }).allSatisfy({ db.applyLabels(ids: [$0.id], add: $0.add, remove: $0.remove) }) else { throw SyncError.incomplete }
         try await fetch(wanted.filter { toRead.contains($0) && !have.contains($0) }, epoch: epoch)
-        db.delete(ids: Array(deleted))
-        for c in changes where toRead.contains(c.id) && have.contains(c.id) { db.applyLabels(ids: [c.id], add: c.add, remove: c.remove) }
+        guard db.delete(ids: Array(deleted)),
+              changes.filter({ toRead.contains($0.id) && have.contains($0.id) }).allSatisfy({ db.applyLabels(ids: [$0.id], add: $0.add, remove: $0.remove) }) else { throw SyncError.incomplete }
         db.replayOutbox()
-        db.setState("history_id", latest)
+        // Gmail has every message the list named (the full copy's sweep must not drop one that was not listed this round), and what was applied is at least as new as the change list
+        let handled = Array(Set(changes.map { $0.id }).union(wanted).subtracting(deleted))
+        guard db.touch(handled, epoch: epoch, history: Int64(latest) ?? 0), db.setState("history_id", latest) else { throw SyncError.incomplete }
         onChange?()
     }
 
@@ -218,9 +242,12 @@ final class SyncEngine: @unchecked Sendable {
 
     /// Local first: the change is applied to the stored mail at once and queued; the queue is sent to Gmail in order, as soon as possible, and again after
     /// a quit or a lost connection. John's own actions are foreground work for the request pacing.
-    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) {
-        db.enqueue(kind, ids: ids, add: add, remove: remove)
+    /// false when the database refused: nothing was queued, and the caller sends the change straight to Gmail.
+    @discardableResult
+    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) -> Bool {
+        guard db.enqueue(kind, ids: ids, add: add, remove: remove) else { return false }
         kickOutbox()
+        return true
     }
 
     func kickOutbox() {
@@ -259,20 +286,26 @@ final class SyncEngine: @unchecked Sendable {
         await runningOutbox()?.value
     }
 
+    /// The wait before Gmail is read (so a message just archived is not brought back by the read): only for a short queue. A long one goes on in the background and the
+    /// read does not wait for it; the changes still waiting are put back on what the read brings.
+    func flushOutboxIfShort() async {
+        kickOutbox()
+        if db.outboxMessageCount() <= 20 { await runningOutbox()?.value }
+    }
+
     private static func isRetryable(_ e: Error) -> Bool {
         if let g = e as? GmailError {
             switch g {
             case .offline, .slowDown, .signInAgain: return true
-            case .http(let c, _): return c >= 500 || c == 408 || c == 429
+            case .http(let c, _): return c >= 500 || c == 408 || c == 429 || c == 403   // a 403 here is not the per-minute limit (the client waits that out itself): no permission right now, which may be lifted, so the change waits
             }
         }
         return true   // anything unknown is kept and tried again: a change is never thrown away by accident
     }
 
-    private func drain() async {
-        while let op = db.claimNextOutbox(now: now()) {
-            if Task.isCancelled { return }
-            do { try await send(op); db.finish(op.seq) }
+    func drain() async {
+        while !Task.isCancelled, let op = db.claimNextOutbox(now: now()) {   // cancelled first: claiming counts a try
+            do { try await send(op); guard db.finish(op.seq) else { return } }   // could not be taken off the list: stop here rather than send it again and again
             catch {
                 if error is CancellationError || Task.isCancelled { db.retryLater(op.seq, at: now()); return }   // stopped (Remove account, quit): tried again at the next start
                 if Self.isRetryable(error) {
@@ -282,7 +315,7 @@ final class SyncEngine: @unchecked Sendable {
                     startTimer(after: delay)
                     return
                 }
-                // Gmail refused it for good (400, 403, 404 ...). Gmail's version wins: what it refused is dropped and these messages are read again.
+                // Gmail refused it for good (400, 404 ...; a 403 that is not the rate limit waits like a busy Gmail). Gmail's version wins: what it refused is dropped and these messages are read again.
                 // A change for several messages is first tried one message at a time, so one bad message does not undo the others.
                 var bad = op.ids
                 if op.ids.count > 1 && op.kind == .modify {
@@ -292,11 +325,22 @@ final class SyncEngine: @unchecked Sendable {
                         catch { if Self.isRetryable(error) { db.retryLater(op.seq, at: now().addingTimeInterval(5)); startTimer(after: 5); return }; bad.append(id) }
                     }
                 }
-                db.finish(op.seq)
-                db.markUnverified(bad)
-                kickSync()
+                guard db.finish(op.seq) else { return }
+                if !bad.isEmpty { await readAgain(bad) }
             }
         }
+    }
+
+    /// Gmail's version wins for messages whose change it refused: they are read again right now, so they stay in their lists with Gmail's labels. Only a message that cannot
+    /// be read just now (offline, gone) is set aside as unconfirmed for the next check to read or drop.
+    private func readAgain(_ ids: [String]) async {
+        let r = await gmail.messagesChecked(ids: ids)
+        let epoch = Int(db.state("epoch") ?? "") ?? 0
+        let stored = db.upsert(r.mails, verified: true, seen: epoch, force: true)
+        let rest = stored ? r.failed : ids
+        if !rest.isEmpty { db.markUnverified(rest); kickSync() }
+        db.replayOutbox()
+        onChange?()
     }
 
     private func send(_ op: OutboxOp) async throws {

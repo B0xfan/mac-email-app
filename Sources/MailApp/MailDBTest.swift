@@ -2,6 +2,15 @@
 import Foundation
 import SQLite3
 
+extension MailDB {
+    /// All rows, confirmed or not (checks only).
+    func rowCount() -> Int {
+        var n = 0
+        run("SELECT COUNT(*) FROM messages", [], { n = Int(sqlite3_column_int64($0, 0)) })
+        return n
+    }
+}
+
 /// Mail kept on this Mac: the database layer (plan step 2). Everything runs in a temporary folder.
 extension SelfTest {
     /// A store wired to a temporary folder, a stubbed Gmail and (optionally) a database. Shared by the local-storage checks.
@@ -57,7 +66,7 @@ extension SelfTest {
         db.upsert([lsMail("s1", [])], verified: true, seen: 1); db.upsert([lsMail("s2", [])], verified: true, seen: 2)
         db.touch(["u1"], epoch: 2)
         let swept = db.sweep(below: 2)
-        check("stored mail: a full sync's sweep drops what the round did not list and keeps what it did", swept >= 1 && db.stored(["s1"], verifiedOnly: false).isEmpty && db.stored(["s2", "u1"], verifiedOnly: false) == ["s2", "u1"])
+        check("stored mail: a full sync's sweep drops what the round did not list and keeps what it did", (swept ?? 0) >= 1 && db.stored(["s1"], verifiedOnly: false).isEmpty && db.stored(["s2", "u1"], verifiedOnly: false) == ["s2", "u1"])
         db.setState("history_id", "42")
         check("stored mail: sync state is kept, tracking starts with a history id", db.state("history_id") == "42" && db.isTracking && !db.isComplete)
         let reopened = MailDB(url: f)
@@ -72,7 +81,7 @@ extension SelfTest {
         let newer = dir.appendingPathComponent("newer.sqlite")
         let nd = MailDB(url: newer); nd?.run("PRAGMA user_version = 99")
         let again = MailDB(url: newer)
-        check("stored mail: a file written by a newer Mail is set aside the same way, not changed", again != nil && FileManager.default.fileExists(atPath: newer.path + ".damaged") && again?.rowCount() == 0)
+        check("stored mail: a file written by a newer Mail is left exactly as it is (not set aside) and the app works without stored mail", nd != nil && again == nil && !FileManager.default.fileExists(atPath: newer.path + ".damaged") && FileManager.default.fileExists(atPath: newer.path))
 
         // the old inbox file becomes the first rows
         let cache = dir.appendingPathComponent("inbox-cache.json")

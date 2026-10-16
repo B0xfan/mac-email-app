@@ -4,14 +4,18 @@ import Foundation
 /// A pretend Gmail for the stored-mail checks: a mailbox that answers list, read, change-list and change calls the way Gmail does,
 /// and counts what it was asked (including the Gmail "units" the calls cost).
 final class FakeGmail: @unchecked Sendable {
-    struct Msg { var id: String; var labels: [String]; var date: Int }
+    struct Msg { var id: String; var labels: [String]; var date: Int; var hid = 1 }   // hid: the change number of its last change, as Gmail's historyId on a message
     private let lock = NSLock()
     private(set) var msgs: [Msg] = []
     private var events: [(id: Int, json: String)] = []
     private(set) var historyID = 1000
     var gets: [String: Int] = [:], getOrder: [String] = []
     var lists = 0, historyCalls = 0, profiles = 0, units = 0
-    var failGets: Set<String> = []        // reading these answers 400
+    var failGets: Set<String> = []        // reading these answers 403 (no permission just now: the copy waits and tries again, it never skips them)
+    var refuseGets: Set<String> = []      // reading these answers 400 (can never be read: the copy goes on without them)
+    var slowGets: Set<String> = []        // reading these answers 408 (a timeout, like a failing server: waited out)
+    var garbleGets: Set<String> = []      // reading these answers 200 with something that is not a message
+    var onList: ((Int) -> Void)?          // called (with the number of list calls so far) at the start of a list call, before it is answered; may change the mailbox
     var gone404: Set<String> = []         // reading these answers 404 (deleted since they were listed)
     var timeoutGets: Set<String> = []     // reading these times out (the connection is down)
     var rejectNextToken = false           // the next list call that carries a page token answers 400
@@ -38,6 +42,7 @@ final class FakeGmail: @unchecked Sendable {
     func add(_ id: String, _ labels: [String]) {
         lock.lock(); defer { lock.unlock() }
         msgs.append(Msg(id: id, labels: labels, date: (msgs.map(\.date).max() ?? 1_700_000_000) + 10))
+        defer { msgs[msgs.count - 1].hid = historyID }
         record("{\"messagesAdded\":[{\"message\":{\"id\":\"\(id)\",\"threadId\":\"T\(id)\",\"labelIds\":\(arr(labels))}}]}")
     }
     func remove(_ id: String) {
@@ -59,6 +64,7 @@ final class FakeGmail: @unchecked Sendable {
         let m = "{\"id\":\"\(id)\",\"labelIds\":\(arr(msgs[i].labels))}"
         if !add.isEmpty { record("{\"labelsAdded\":[{\"message\":\(m),\"labelIds\":\(arr(add))}]}") }
         if !remove.isEmpty { record("{\"labelsRemoved\":[{\"message\":\(m),\"labelIds\":\(arr(remove))}]}") }
+        if !add.isEmpty || !remove.isEmpty { msgs[i].hid = historyID }
     }
     private func record(_ body: String) {
         historyID += 1
@@ -66,7 +72,7 @@ final class FakeGmail: @unchecked Sendable {
     }
     private func arr(_ a: [String]) -> String { "[" + a.map { "\"\($0)\"" }.joined(separator: ",") + "]" }
     private func json(_ m: Msg) -> String {
-        "{\"id\":\"\(m.id)\",\"threadId\":\"T\(m.id)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
+        "{\"id\":\"\(m.id)\",\"threadId\":\"T\(m.id)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(m.date * 1000)\",\"snippet\":\"s \(m.id)\",\"payload\":{\"headers\":[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]}}"
     }
 
     func handle(_ req: URLRequest) -> (Int, String) {
@@ -83,6 +89,7 @@ final class FakeGmail: @unchecked Sendable {
             return (200, "{\"emailAddress\":\"me@x.example\",\"messagesTotal\":\(msgs.count),\"threadsTotal\":\(msgs.count),\"historyId\":\"\(historyID)\"}")
         case ("GET", "/messages"):
             lists += 1
+            if let hook = onList { lock.unlock(); hook(lists); lock.lock() }   // the hook changes the mailbox through the methods above, which take the lock
             if rejectNextToken, q("pageToken") != nil { rejectNextToken = false; return (400, #"{"error":{"code":400,"message":"Invalid pageToken"}}"#) }
             let want = items.filter { $0.name == "labelIds" }.compactMap(\.value)
             let sorted = msgs.filter { m in !m.labels.contains("TRASH") && !m.labels.contains("SPAM") && want.allSatisfy { m.labels.contains($0) } }.sorted { $0.date > $1.date }
@@ -124,7 +131,10 @@ final class FakeGmail: @unchecked Sendable {
             let id = String(rel.dropFirst("/messages/".count))
             gets[id, default: 0] += 1; getOrder.append(id)
             if timeoutGets.contains(id) { return (-1, "") }
-            if failGets.contains(id) { return (400, #"{"error":{"code":400,"message":"bad"}}"#) }
+            if failGets.contains(id) { return (403, #"{"error":{"code":403,"message":"The caller does not have permission","errors":[{"reason":"forbidden"}]}}"#) }
+            if refuseGets.contains(id) { return (400, #"{"error":{"code":400,"message":"bad"}}"#) }
+            if slowGets.contains(id) { return (408, #"{"error":{"code":408,"message":"Request Timeout"}}"#) }
+            if garbleGets.contains(id) { return (200, "<html>not a message</html>") }
             if gone404.contains(id) { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
             guard let m = msgs.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
             return (200, json(m))

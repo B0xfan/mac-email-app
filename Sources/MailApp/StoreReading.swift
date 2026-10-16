@@ -133,7 +133,11 @@ extension MailStore {
 
     func loadAside() async {
         guard let l = asideLabelID else { aside = []; return }
-        if let db, db.isComplete { aside = db.list(DBListSpec(all: [l], none: ["TRASH", "SPAM"]), limit: GmailClient.all); return }   // from this Mac, no request
+        if let db, db.isComplete {   // from this Mac, no request
+            let spec = DBListSpec(all: [l], none: ["TRASH", "SPAM"])
+            aside = await Task.detached { db.list(spec, limit: GmailClient.all) }.value
+            return
+        }
         guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
         let have = Dictionary(aside.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let fresh = await gmail.messages(ids: ids.filter { have[$0] == nil })

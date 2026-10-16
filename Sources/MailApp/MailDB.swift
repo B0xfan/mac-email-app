@@ -2,10 +2,11 @@ import Foundation
 import SQLite3
 
 /// Mail kept on this Mac (plan-local-mail-storage.md, step 2): one SQLite file in Audrey Mail's folder, readable only by John.
-/// It is a copy of what Gmail holds plus the changes still waiting to be sent to Gmail (the outbox), so a damaged file is set aside and started again.
+/// It is a copy of what Gmail holds plus the changes still waiting to be sent to Gmail (the outbox). A file that is certainly damaged is set aside and started again;
+/// any other trouble opening it (busy, no permission, a newer Mail's file) leaves the file alone and the app works without stored mail for now.
 ///
 /// John's decisions (2026-10-16), built in step 8, not here:
-///  - full text is kept only for recent mail and mail he opened; older mail keeps sender, subject and preview (columns `body_*` are ready, nothing fills them yet);
+///  - full text is kept only for recent mail and mail he opened; older mail keeps sender, subject and preview (step 8 adds what it needs for that);
 ///  - removing an account also deletes its stored mail (`wipe()`, called by `MailStore.removeAccount`).
 
 /// A list picked from stored mail: has every label in `all`, none of `none`, newest first.
@@ -19,15 +20,25 @@ final class MailDB: @unchecked Sendable {
     /// Recursive: the public calls below call each other.
     let lock = NSRecursiveLock()
     private var depth = 0
+    /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
+    private var errors = 0
+    private var lastCode: Int32 = SQLITE_OK
 
-    /// Opens or creates the file. A file that cannot be read (or that a newer Mail wrote) is put aside as ".damaged" and a fresh one is started.
-    /// nil only when not even a fresh file can be made; the app then simply works without stored mail.
+    private enum Opened { case ok, damaged, failed }
+
+    /// Opens or creates the file. A file SQLite calls corrupt or not a database is put aside as ".damaged" and a fresh one is started.
+    /// nil when the file cannot be used right now (busy, no permission, written by a newer Mail, or not even a fresh file can be made): the file is left as it is and the app works without stored mail.
     init?(url: URL) {
         self.url = url
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        if !openFile() {
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        chmod(dir.path, 0o700)   // a folder made earlier may be looser
+        switch openFile() {
+        case .ok: break
+        case .failed: closeHandle(); return nil
+        case .damaged:
             closeHandle(); moveAside()
-            if !openFile() { closeHandle(); return nil }
+            if openFile() != .ok { closeHandle(); return nil }
         }
     }
     deinit { closeHandle() }
@@ -36,23 +47,24 @@ final class MailDB: @unchecked Sendable {
 
     // MARK: - File
 
-    private func openFile() -> Bool {
+    private func openFile() -> Opened {
+        let old = umask(0o077); defer { umask(old) }   // the file and its -wal and -shm are made readable by John only (SQLite gives them the file's rights)
         var h: OpaquePointer?
         guard sqlite3_open_v2(url.path, &h, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let h else {
             if let h { sqlite3_close(h) }
-            return false
+            return .failed
         }
         handle = h
         sqlite3_busy_timeout(h, 5000)
         // a light check (reads the file header and the table list): a full integrity check would read the whole file at every launch
-        guard run("SELECT count(*) FROM sqlite_master") else { return false }
+        guard run("SELECT count(*) FROM sqlite_master") else { return [SQLITE_CORRUPT, SQLITE_NOTADB].contains(lastCode & 0xFF) ? .damaged : .failed }
         run("PRAGMA journal_mode=WAL"); run("PRAGMA synchronous=NORMAL"); run("PRAGMA foreign_keys=ON")
         var v: Int32 = 0
         run("PRAGMA user_version", [], { v = sqlite3_column_int($0, 0) })
-        if v > Int32(Self.schemaVersion) { return false }
-        if v < 1 { guard createSchema() else { return false } }
-        chmod(url.path, 0o600)
-        return true
+        if v > Int32(Self.schemaVersion) { return .failed }   // a newer Mail wrote it: not ours to change
+        if v < 1 { guard createSchema() else { return .failed } }
+        for s in ["", "-wal", "-shm"] { chmod(url.path + s, 0o600) }
+        return .ok
     }
 
     private func closeHandle() {
@@ -74,8 +86,9 @@ final class MailDB: @unchecked Sendable {
               id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, date INTEGER NOT NULL, payload BLOB NOT NULL,
               verified INTEGER NOT NULL DEFAULT 0,   -- 1 = read from Gmail and kept current by the history sync
               seen INTEGER NOT NULL DEFAULT 0,       -- the full-sync round that last listed it (older rounds are swept away at the end)
-              body_state INTEGER NOT NULL DEFAULT 0, body_text TEXT, body_html TEXT)
+              history_id INTEGER NOT NULL DEFAULT 0) -- Gmail's version tag of the newest read kept; an older read never replaces it
             """,
+            "CREATE INDEX messages_seen ON messages(seen)",
             "CREATE INDEX messages_date ON messages(date DESC)",
             "CREATE INDEX messages_thread ON messages(thread_id)",
             "CREATE TABLE message_labels (msg TEXT NOT NULL, label TEXT NOT NULL, PRIMARY KEY (msg, label)) WITHOUT ROWID",
@@ -86,7 +99,7 @@ final class MailDB: @unchecked Sendable {
         return transaction {
             for s in steps { guard run(s) else { return false } }
             return run("PRAGMA user_version = \(Self.schemaVersion)")
-        }
+        } ?? false
     }
 
     /// Settings > Accounts "Remove" (John's decision): the file and everything in it is deleted, then a fresh empty one starts.
@@ -95,7 +108,7 @@ final class MailDB: @unchecked Sendable {
         closeHandle()
         for s in ["", "-wal", "-shm", ".damaged"] { try? FileManager.default.removeItem(atPath: url.path + s) }
         depth = 0
-        if !openFile() { closeHandle() }
+        if openFile() != .ok { closeHandle() }
     }
 
     // MARK: - SQL plumbing
@@ -103,9 +116,9 @@ final class MailDB: @unchecked Sendable {
     @discardableResult
     func run(_ sql: String, _ args: [Any?] = [], _ row: ((OpaquePointer) -> Void)? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard let h = handle else { return false }
+        guard let h = handle else { errors += 1; lastCode = SQLITE_MISUSE; return false }
         var st: OpaquePointer?
-        guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK, let st else { sqlite3_finalize(st); return false }
+        guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK, let st else { lastCode = sqlite3_errcode(h); errors += 1; sqlite3_finalize(st); return false }
         for (i, a) in args.enumerated() {
             let n = Int32(i + 1)
             switch a {
@@ -120,6 +133,7 @@ final class MailDB: @unchecked Sendable {
         var rc = sqlite3_step(st)
         while rc == SQLITE_ROW { row?(st); rc = sqlite3_step(st) }
         sqlite3_finalize(st)
+        if rc != SQLITE_DONE { lastCode = rc; errors += 1 }
         return rc == SQLITE_DONE
     }
 
@@ -131,15 +145,26 @@ final class MailDB: @unchecked Sendable {
     }
     static func ms(_ d: Date) -> Int64 { Int64(d.timeIntervalSince1970 * 1000) }
 
-    /// All the work inside happens together or not at all. Calls inside a running transaction join it.
+    /// All the work inside happens together or not at all: nil when a statement failed (everything inside is then undone). A call inside a running transaction is a
+    /// savepoint, so a failure there undoes only that part and the caller learns of it from the nil.
     @discardableResult
-    func transaction<T>(_ body: () -> T) -> T {
+    func transaction<T>(_ body: () -> T) -> T? {
         lock.lock(); defer { lock.unlock() }
-        if depth > 0 { return body() }
-        depth = 1; run("BEGIN IMMEDIATE")
+        let before = errors
+        if depth == 0 {
+            guard run("BEGIN IMMEDIATE") else { return nil }
+            depth = 1; defer { depth = 0 }
+            let r = body()
+            if errors == before, run("COMMIT") { return r }
+            run("ROLLBACK"); return nil
+        }
+        let name = "sp\(depth)"
+        depth += 1; defer { depth -= 1 }
+        guard run("SAVEPOINT \(name)") else { return nil }
         let r = body()
-        run("COMMIT"); depth = 0
-        return r
+        if errors == before, run("RELEASE \(name)") { return r }
+        run("ROLLBACK TO \(name)"); run("RELEASE \(name)")
+        return nil
     }
 
     // MARK: - State (account, history id, sync place ...)
@@ -149,9 +174,11 @@ final class MailDB: @unchecked Sendable {
         run("SELECT value FROM sync_state WHERE key=?", [key], { v = Self.text($0, 0) })
         return v
     }
-    func setState(_ key: String, _ value: String?) {
-        if let value { run("INSERT INTO sync_state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, value]) }
-        else { run("DELETE FROM sync_state WHERE key=?", [key]) }
+    /// false when the database refused: the caller must not go on as if the place were written down.
+    @discardableResult
+    func setState(_ key: String, _ value: String?) -> Bool {
+        if let value { return run("INSERT INTO sync_state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, value]) }
+        return run("DELETE FROM sync_state WHERE key=?", [key])
     }
     /// Every message has been copied down once: lists may be read from here.
     var isComplete: Bool { state("backfill_done") == "1" }
@@ -171,7 +198,7 @@ final class MailDB: @unchecked Sendable {
     private static let selectRows = "SELECT m.payload, (SELECT group_concat(label, char(31)) FROM message_labels l WHERE l.msg = m.id) FROM messages m"
 
     private static func slim(_ m: Mail) -> Data? {
-        var x = m; x.html = nil; x.text = nil; x.cidParts = nil; x.convo = nil; x.siblings = nil; x.historyID = nil   // one message, no body: the conversation rows are built elsewhere
+        var x = m; x.html = nil; x.text = nil; x.cidParts = nil; x.convo = nil; x.siblings = nil; x.historyID = nil; x.msgHistory = nil   // one message, no body: the conversation rows are built elsewhere
         return try? JSONEncoder().encode(x)
     }
 
@@ -186,18 +213,23 @@ final class MailDB: @unchecked Sendable {
     private static func chunks<T>(_ a: [T], _ n: Int = 400) -> [[T]] { stride(from: 0, to: a.count, by: n).map { Array(a[$0..<min($0 + n, a.count)]) } }
 
     /// `verified`: read from Gmail while the history is followed (or the import's unconfirmed copy = false). `seen`: the full-sync round that listed it.
-    func upsert(_ mails: [Mail], verified: Bool, seen: Int = 0) {
+    /// A read older than the row (its version tag is lower: it was slow, and a newer change landed meanwhile) is skipped, unless the row is not confirmed or `force`.
+    /// false when the database refused: nothing of this call is kept.
+    @discardableResult
+    func upsert(_ mails: [Mail], verified: Bool, seen: Int = 0, force: Bool = false) -> Bool {
         transaction {
             for m in mails {
                 guard let d = Self.slim(m) else { continue }
                 run("""
-                    INSERT INTO messages(id, thread_id, date, payload, verified, seen) VALUES(?,?,?,?,?,?)
-                    ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id, date=excluded.date, payload=excluded.payload, verified=excluded.verified, seen=MAX(seen, excluded.seen)
-                    """, [m.id, m.threadID, Self.ms(m.date), d, verified ? 1 : 0, seen])
+                    INSERT INTO messages(id, thread_id, date, payload, verified, seen, history_id) VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(id) DO UPDATE SET thread_id=excluded.thread_id, date=excluded.date, payload=excluded.payload, verified=excluded.verified, seen=MAX(seen, excluded.seen), history_id=excluded.history_id
+                    WHERE ?8 = 1 OR messages.verified = 0 OR excluded.history_id >= messages.history_id
+                    """, [m.id, m.threadID, Self.ms(m.date), d, verified ? 1 : 0, seen, m.msgHistory ?? 0, force ? 1 : 0])
+                guard sqlite3_changes(handle) > 0 else { continue }   // skipped as older: the row and its labels stay
                 run("DELETE FROM message_labels WHERE msg=?", [m.id])
                 for l in Set(m.labels) { run("INSERT OR IGNORE INTO message_labels(msg, label) VALUES(?,?)", [m.id, l]) }
             }
-        }
+        } != nil
     }
 
     /// Verified rows by id.
@@ -231,32 +263,36 @@ final class MailDB: @unchecked Sendable {
         return out
     }
 
-    func applyLabels(ids: [String], add: [String], remove: [String]) {
+    @discardableResult
+    func applyLabels(ids: [String], add: [String], remove: [String]) -> Bool {
         transaction {
             for id in ids {
                 for l in remove { run("DELETE FROM message_labels WHERE msg=? AND label=?", [id, l]) }
                 for l in add { run("INSERT OR IGNORE INTO message_labels(msg, label) SELECT id, ? FROM messages WHERE id=?", [l, id]) }
             }
-        }
+        } != nil
     }
 
-    func delete(ids: [String]) {
+    @discardableResult
+    func delete(ids: [String]) -> Bool {
         transaction {
             for c in Self.chunks(ids) {
                 run("DELETE FROM message_labels WHERE msg IN (\(Self.marks(c.count)))", c.map { $0 as Any? })
                 run("DELETE FROM messages WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? })
             }
-        }
+        } != nil
     }
 
-    /// A full sync listed these ids in round `epoch`.
-    func touch(_ ids: [String], epoch: Int) {
-        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET seen=MAX(seen, ?) WHERE id IN (\(Self.marks(c.count)))", [epoch as Any?] + c.map { $0 as Any? }) } }
-    }
-
-    /// The end of a full sync: whatever the round did not list is no longer in Gmail's mailbox.
+    /// Gmail has these messages now: a full sync listed them in round `epoch`, or the change list was applied to them up to its number `history`
+    /// (so a read that began before that, and ends after, cannot overwrite them).
     @discardableResult
-    func sweep(below epoch: Int) -> Int {
+    func touch(_ ids: [String], epoch: Int, history: Int64 = 0) -> Bool {
+        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET seen=MAX(seen, ?), history_id=MAX(history_id, ?) WHERE id IN (\(Self.marks(c.count)))", [epoch as Any?, history as Any?] + c.map { $0 as Any? }) } } != nil
+    }
+
+    /// The end of a full sync: whatever the round did not list is no longer in Gmail's mailbox. nil when the database refused (nothing is removed then).
+    @discardableResult
+    func sweep(below epoch: Int) -> Int? {
         transaction { () -> Int in
             var n = 0
             run("SELECT COUNT(*) FROM messages WHERE seen < ?", [epoch], { n = Int(sqlite3_column_int64($0, 0)) })
@@ -266,22 +302,22 @@ final class MailDB: @unchecked Sendable {
         }
     }
 
-    func markUnverified(_ ids: [String]) {
-        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET verified=0 WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }) } }
+    @discardableResult
+    func markUnverified(_ ids: [String]) -> Bool {
+        transaction { for c in Self.chunks(ids) { run("UPDATE messages SET verified=0 WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }) } } != nil
     }
-    func markAllUnverified() { run("UPDATE messages SET verified=0") }
+    @discardableResult
+    func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }
     func unverifiedIDs(limit: Int) -> [String] {
         var out: [String] = []
         run("SELECT id FROM messages WHERE verified=0 ORDER BY date DESC LIMIT ?", [limit], { out.append(Self.text($0, 0)) })
         return out
     }
 
-    /// Confirmed messages / all rows.
-    func storedCount() -> Int { scalar("SELECT COUNT(*) FROM messages WHERE verified=1") }
-    func rowCount() -> Int { scalar("SELECT COUNT(*) FROM messages") }
-    private func scalar(_ sql: String) -> Int {
+    /// Confirmed messages. A full count: the copy keeps a running count of its own and asks for this one only at its start and end.
+    func storedCount() -> Int {
         var n = 0
-        run(sql, [], { n = Int(sqlite3_column_int64($0, 0)) })
+        run("SELECT COUNT(*) FROM messages WHERE verified=1", [], { n = Int(sqlite3_column_int64($0, 0)) })
         return n
     }
 
@@ -297,8 +333,7 @@ final class MailDB: @unchecked Sendable {
               let d = try? Data(contentsOf: url), let c = try? JSONDecoder().decode(CachedInbox.self, from: d),
               c.account.lowercased() == account.lowercased() else { return 0 }
         let fresh = c.mails.filter { !stored([$0.id], verifiedOnly: false).contains($0.id) }
-        upsert(fresh, verified: false)
-        setState("cache_imported", "1")
+        guard upsert(fresh, verified: false), setState("cache_imported", "1") else { return 0 }
         return fresh.count
     }
 }

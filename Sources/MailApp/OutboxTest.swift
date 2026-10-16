@@ -100,15 +100,27 @@ extension SelfTest {
         o4.f.writeAnswer = { _ in (400, bad) }
         await o4.st.archive(o4.db.messages(ids: ["i1"])["i1"]!)
         await o4.e.flushOutbox(); await o4.e.waitIdle()
+        let visibleAtOnce = !o4.db.messages(ids: ["i1"]).isEmpty && stored(o4.db, "i1").contains("INBOX")   // before any check: the message never left its lists
         o4.f.writeAnswer = nil
         await o4.e.syncPass()
-        check("server wins: a change Gmail refuses for good (400) is not repeated, the message is read again, and shows Gmail's version (still in the Inbox)",
-              o4.db.outbox().isEmpty && o4.f.writes.count == 1 && stored(o4.db, "i1").contains("INBOX") && !o4.db.messages(ids: ["i1"]).isEmpty)
+        check("server wins: a change Gmail refuses for good (400) is not repeated, the message is read again at once (it never disappears from its lists), and shows Gmail's version (still in the Inbox)",
+              visibleAtOnce && o4.db.outbox().isEmpty && o4.f.writes.count == 1 && stored(o4.db, "i1").contains("INBOX") && !o4.db.messages(ids: ["i1"]).isEmpty)
         o4.f.writeAnswer = { w in w.contains("i1") ? (400, bad) : nil }
         o4.e.enqueue(.modify, ids: ["i1", "i2"], remove: ["INBOX"])
         await o4.e.flushOutbox(); await o4.e.waitIdle(); await o4.e.syncPass()
         check("server wins: when a change for two messages is refused, each is tried alone: the good one goes through, only the refused one goes back to Gmail's version",
               o4.f.labels(of: "i2")?.contains("INBOX") == false && o4.f.labels(of: "i1")?.contains("INBOX") == true && stored(o4.db, "i2").contains("INBOX") == false && stored(o4.db, "i1").contains("INBOX") && o4.db.outbox().isEmpty)
+
+        // a 403 that is not the per-minute limit (no permission right now) is not a refusal for good: the change waits and is tried again
+        let o10 = await ready("o10.sqlite")
+        o10.f.writeAnswer = { _ in (403, #"{"error":{"code":403,"message":"The caller does not have permission","errors":[{"reason":"forbidden"}]}}"#) }
+        await o10.st.archive(o10.db.messages(ids: ["i1"])["i1"]!)
+        await o10.e.flushOutbox()
+        let q10 = o10.db.outbox()
+        check("403: a change Gmail answers 403 (not the rate limit) is kept and paused, not dropped; the screen keeps showing it done", q10.count == 1 && q10[0].attempts == 1 && q10[0].retryAt == o10.c.t.addingTimeInterval(5) && !stored(o10.db, "i1").contains("INBOX"))
+        o10.f.writeAnswer = nil; o10.c.t = o10.c.t.addingTimeInterval(6)
+        await o10.e.flushOutbox()
+        check("403: when Gmail accepts it later the change goes through", o10.db.outbox().isEmpty && o10.f.labels(of: "i1")?.contains("INBOX") == false)
 
         // Gmail's changes arrive while ours wait: Gmail wins for what is not waiting here, ours stay applied on top
         let o5 = await ready("o5.sqlite")

@@ -139,6 +139,7 @@ struct Mail: Identifiable, Hashable, Codable {
     var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
     var convo: [ConvMsg]?       // every message of the conversation, oldest first (Trash, Spam and drafts left out); nil = not fetched by conversation (older cache, Sent, search)
     var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
+    var msgHistory: Int64?      // Gmail's version tag for this one message (stored mail keeps the newest read; never saved in the row's copy)
     var replyTo: String?        // the Reply-To header, when the sender set one
     var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
     var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
@@ -159,6 +160,7 @@ struct Mail: Identifiable, Hashable, Codable {
 
     init(_ g: GMessage) {
         id = g.id
+        msgHistory = Int64(g.historyId ?? "")
         threadID = g.threadId ?? g.id
         labels = g.labelIds ?? []
         snippet = (g.snippet ?? "").htmlUnescaped

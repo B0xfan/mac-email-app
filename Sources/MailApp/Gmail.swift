@@ -22,6 +22,7 @@ struct GPart: Decodable {
 struct GMessage: Decodable {
     let id: String
     let threadId: String?
+    let historyId: String?
     let labelIds: [String]?
     let snippet: String?
     let internalDate: String?
@@ -91,7 +92,7 @@ actor QuotaGate {
     }
     /// Gmail said "slow down": nothing else goes out until then.
     func pause(_ seconds: Double) { pausedUntil = max(pausedUntil, now().addingTimeInterval(seconds)) }
-    /// Units per call, checked against Google's table on 2026-10-15 (messages.get 20, messages.list 5, messages.modify 5, messages.batchModify 50, messages.send 100,
+    /// Units per call, checked against Google's table on 2026-10-15, and the limit of 6,000 units per user per minute again on 2026-10-16 (messages.get 20, messages.list 5, messages.modify 5, messages.batchModify 50, messages.send 100,
     /// messages.trash 20, threads.get 40, threads.list 10, history.list 2): https://developers.google.com/workspace/gmail/api/reference/quota
     static func units(method: String, path: String) -> Int {
         if path.hasSuffix("/send") { return 100 }

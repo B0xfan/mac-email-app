@@ -48,14 +48,16 @@ extension MailDB {
             guard let o = out, o.retryAt <= now else { return nil }
             run("UPDATE outbox SET attempts = attempts + 1 WHERE seq=?", [o.seq])
             return o
-        }
+        } ?? nil   // nil too when the database refused: the change stays where it is
     }
 
     /// Local first: the change is applied to the stored messages and queued, in one step. An Undo that exactly reverses the newest waiting change
     /// (which was never tried) removes it instead, so nothing at all is sent for either.
-    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) {
-        guard !ids.isEmpty else { return }
-        transaction {
+    /// false when the database refused: nothing was changed or queued, and the caller sends the change straight to Gmail.
+    @discardableResult
+    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) -> Bool {
+        guard !ids.isEmpty else { return true }
+        return transaction {
             let e = OutboxOp.effect(kind, add, remove)
             applyLabels(ids: ids, add: e.add, remove: e.remove)
             var last: OutboxOp?
@@ -76,11 +78,17 @@ extension MailDB {
             }
             guard let d = try? JSONEncoder().encode(Payload(ids: ids, add: add, remove: remove)) else { return }
             run("INSERT INTO outbox(kind, payload, created) VALUES(?,?,?)", [kind.rawValue, d, Date().timeIntervalSince1970])
-        }
+        } != nil
     }
 
     func retryLater(_ seq: Int64, at: Date) { run("UPDATE outbox SET retry_at=? WHERE seq=?", [at.timeIntervalSince1970, seq]) }
-    func finish(_ seq: Int64) { run("DELETE FROM outbox WHERE seq=?", [seq]) }
+    /// false when the database refused: the change is still queued.
+    @discardableResult
+    func finish(_ seq: Int64) -> Bool { run("DELETE FROM outbox WHERE seq=?", [seq]) }
+    /// Mail has started: a pause left from the last run is over, the first try is made at once.
+    func resetRetries() { run("UPDATE outbox SET retry_at=0") }
+    /// How many messages the waiting changes are about (a long queue is not waited for).
+    func outboxMessageCount() -> Int { outbox().reduce(0) { $0 + $1.ids.count } }
 
     /// Puts every waiting change on top of the stored messages again. Gmail's version wins for everything that is not waiting here; what is waiting here stays applied
     /// until Gmail has been told (a message just read from Gmail, or a change reported by the change list, must not undo it). Safe to repeat.

@@ -283,7 +283,7 @@ final class MailStore: ObservableObject {
     /// `reloadList`: the open Archive/Sent/folder list is read again from Gmail (the Check button, Check now). The quiet check every few minutes leaves it alone.
     func refresh(reloadList: Bool = false) async {
         if reloadList { forgetKeptLists() }
-        await engine?.flushOutbox()   // changes made here reach Gmail before Gmail is read, so a message just archived is not brought back by the read
+        await engine?.flushOutboxIfShort()   // changes made here reach Gmail before Gmail is read, so a message just archived is not brought back by the read (a long queue is not waited for)
         loading = true
         defer { loading = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
         do {
@@ -406,11 +406,13 @@ final class MailStore: ObservableObject {
         otherNext = nil; otherSource = nil
         let q = search.trimmingCharacters(in: .whitespaces)
         if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
-            let rows = db.list(spec, limit: Self.otherPage)
+            let page = Self.otherPage
+            let rows = await Task.detached { db.list(spec, limit: page) }.value   // off the main thread: a big mailbox must not freeze the window
+            guard gen == otherGen else { return }
             other = rows; otherSource = .stored(spec); otherNext = rows.count == Self.otherPage ? String(Self.otherPage) : nil; otherWrites = writesAtStart
             return
         }
-        await engine?.flushOutbox()
+        await engine?.flushOutboxIfShort()
         do {
             var src: OtherSource?
             var read: PlainSearch.Result?
@@ -468,7 +470,10 @@ final class MailStore: ObservableObject {
         guard let tok = otherNext, let src = otherSource, !loadingOtherMore else { return }
         let gen = otherGen
         if case .stored(let spec) = src, let db {   // the next 50 from this Mac
-            let off = Int(tok) ?? other.count, rows = db.list(spec, limit: Self.otherPage, offset: off)
+            let off = Int(tok) ?? other.count, page = Self.otherPage
+            loadingOtherMore = true; defer { loadingOtherMore = false }
+            let rows = await Task.detached { db.list(spec, limit: page, offset: off) }.value
+            guard gen == otherGen else { return }
             let have = Set(other.map(\.id))
             other += rows.filter { !have.contains($0.id) }
             otherNext = rows.count == Self.otherPage ? String(off + Self.otherPage) : nil

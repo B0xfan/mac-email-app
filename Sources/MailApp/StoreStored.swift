@@ -25,11 +25,12 @@ extension MailStore {
     /// Messages by id: stored ones first (nothing asked of Gmail), the others from Gmail, and kept for next time.
     func rows(for ids: [String]) async -> [Mail] {
         guard let db, db.isTracking else { return await gmail.messages(ids: ids) }
-        var byID = db.messages(ids: ids)
+        var byID = await Task.detached { db.messages(ids: ids) }.value   // off the main thread: the copy in the background may be writing
         let missing = ids.filter { byID[$0] == nil }
         if !missing.isEmpty {
             let got = await gmail.messages(ids: missing)
-            db.upsert(got, verified: true, seen: Int(db.state("epoch") ?? "") ?? 0)
+            let epoch = Int(db.state("epoch") ?? "") ?? 0
+            await Task.detached { db.upsert(got, verified: true, seen: epoch); db.replayOutbox() }.value   // a change still waiting for Gmail stays applied on what was just read
             for m in got { byID[m.id] = m }
         }
         return ids.compactMap { byID[$0] }
@@ -39,9 +40,12 @@ extension MailStore {
     func storedChanged() {
         guard let db, db.isComplete else { return }
         if case .stored(let spec)? = otherSource {
-            let n = max(other.count, Self.otherPage)
-            other = db.list(spec, limit: n)
-            otherNext = other.count == n ? String(n) : nil
+            let n = max(other.count, Self.otherPage), gen = otherGen
+            Task {
+                let rows = await Task.detached { db.list(spec, limit: n) }.value
+                guard gen == otherGen, case .stored? = otherSource else { return }   // the screen moved on meanwhile
+                other = rows; otherNext = rows.count == n ? String(n) : nil
+            }
         }
         Task { await loadAside(); await loadSnoozed() }
     }
@@ -53,19 +57,16 @@ extension MailStore {
     /// is never shown as an error: the change is kept until Gmail has it, or Gmail refuses it for good and its version wins).
     /// Without a database (checks) it is sent to Gmail directly and any failure is thrown, as before.
     func change(ids: [String], add: [String] = [], remove: [String] = []) async throws {
-        guard let engine else { try await gmail.modify(ids: ids, add: add, remove: remove); return }
-        gmail.noteWrite()   // lists kept for a short while (search, Smart Folders) are now stale
-        engine.enqueue(.modify, ids: ids, add: add, remove: remove)
+        if let engine, engine.enqueue(.modify, ids: ids, add: add, remove: remove) { gmail.noteWrite(); return }   // noteWrite: lists kept for a short while (search, Smart Folders) are now stale
+        try await gmail.modify(ids: ids, add: add, remove: remove)   // no database, or it refused: the change is not lost, it goes straight to Gmail
     }
     func moveToTrash(id: String) async throws {
-        guard let engine else { try await gmail.trash(id: id); return }
-        gmail.noteWrite()
-        engine.enqueue(.trash, ids: [id])
+        if let engine, engine.enqueue(.trash, ids: [id]) { gmail.noteWrite(); return }
+        try await gmail.trash(id: id)
     }
     func moveFromTrash(id: String) async throws {
-        guard let engine else { try await gmail.untrash(id: id); return }
-        gmail.noteWrite()
-        engine.enqueue(.untrash, ids: [id])
+        if let engine, engine.enqueue(.untrash, ids: [id]) { gmail.noteWrite(); return }
+        try await gmail.untrash(id: id)
     }
 
     /// Changes still waiting for Gmail are put back on what a fresh read of Gmail just put on the screen (the Inbox), so a message just archived does not come back for a moment.
