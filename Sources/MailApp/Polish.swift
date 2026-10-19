@@ -55,7 +55,7 @@ extension MailStore {
             add("todo", "Add to to-do", key: "T") { self.todoMail = m }
             add("print", "Print", key: "\u{2318}P") { self.startPrint(m) }
         }
-        if let m = openMail, compose == nil {   // works for an approved sender too; the same block as the new-sender card, and the same refusals (your own address, free-mail companies) hide the row
+        if let m = convoShown ?? openMail, compose == nil {   // works for an approved sender too; the same block as the new-sender card, and the same refusals (your own address, free-mail companies) hide the row
             if blockRefusal(m.from, wholeCompany: false) == nil { add("block", "Block \(m.from.display) (\(m.from.email))") { Task { await self.block(m.from, wholeCompany: false) } } }
             if blockRefusal(m.from, wholeCompany: true) == nil { add("blockco", "Block everyone at \(m.from.domain)") { Task { await self.block(m.from, wholeCompany: true) } } }
         }
