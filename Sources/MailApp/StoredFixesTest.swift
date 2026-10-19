@@ -38,6 +38,17 @@ extension SelfTest {
         db.run("SELECT name FROM pragma_table_info('messages') WHERE name IN ('search_head', 'search_body', 'body', 'body_kept')", [], { _ in textColumns += 1 })
         check("schema: the round marker is indexed and the four columns for search and kept text exist", hasIndex && textColumns == 4)
 
+        // the lookups a click waits behind: the count is all minus unconfirmed, the unconfirmed ones are found by their own index, the Inbox list starts from the Inbox label
+        db.ensureFastLookups()
+        var plan = ""
+        db.run("SELECT name FROM sqlite_master WHERE type='index' AND name='messages_unverified'", [], { plan += MailDB.text($0, 0) })
+        let fdb = MailDB(url: dir.appendingPathComponent("fast.sqlite"))!
+        fdb.ensureFastLookups()
+        fdb.upsert([lsMail("f1", ["INBOX"]), lsMail("f2", ["INBOX", "TRASH"]), lsMail("f3", ["SENT"])], verified: true)
+        fdb.markUnverified(["f3"])
+        check("fast lookups: the unconfirmed rows have their own index, the confirmed count skips them, the Inbox list holds only live Inbox mail",
+              plan.contains("messages_unverified") && fdb.storedCount() == 2 && fdb.unverifiedIDs(limit: 5) == ["f3"] && fdb.inboxThreads(limit: 10)?.map(\.id) == ["f1"])
+
         // an older read never replaces a newer one
         func hm(_ id: String, _ labels: [String], _ h: Int64?) -> Mail { var m = lsMail(id, labels); m.msgHistory = h; return m }
         let hdb = MailDB(url: dir.appendingPathComponent("h.sqlite"))!

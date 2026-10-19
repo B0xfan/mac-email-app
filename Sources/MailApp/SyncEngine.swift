@@ -93,6 +93,7 @@ final class SyncEngine: @unchecked Sendable {
 
     private func syncBody() async {
         lock.lock(); sawOld = false; lock.unlock()   // a new pass starts reading in full again
+        db.ensureFastLookups()
         do {
             if !db.isTracking { try await startFullSync(stale: false) }
             else {

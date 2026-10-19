@@ -455,7 +455,7 @@ final class MailDB: @unchecked Sendable {
         var threads: [String] = []
         let before = failures
         run("""
-            SELECT m.thread_id FROM messages m WHERE EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)
+            SELECT m.thread_id FROM message_labels l JOIN messages m ON m.id = l.msg WHERE l.label=?
               AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))
             GROUP BY m.thread_id ORDER BY MAX(m.date) DESC, m.thread_id DESC LIMIT ? OFFSET ?
             """, ["INBOX", "TRASH", "SPAM", limit, offset], { threads.append(Self.text($0, 0)) })
@@ -524,16 +524,20 @@ final class MailDB: @unchecked Sendable {
     }
     @discardableResult
     func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }
+    /// Makes "which rows are unconfirmed" instant. Built once (a few seconds on a big mailbox, so not at launch); later calls cost nothing.
+    @discardableResult
+    func ensureFastLookups() -> Bool { run("CREATE INDEX IF NOT EXISTS messages_unverified ON messages(date) WHERE verified=0") }
+
     func unverifiedIDs(limit: Int) -> [String] {
         var out: [String] = []
         run("SELECT id FROM messages WHERE verified=0 ORDER BY date DESC LIMIT ?", [limit], { out.append(Self.text($0, 0)) })
         return out
     }
 
-    /// Confirmed messages. A full count: the copy keeps a running count of its own and asks for this one only at its start and end.
+    /// Confirmed messages (all minus the few unconfirmed ones, which `messages_unverified` finds without reading the table: a scan of the whole table holds the one database lock for seconds).
     func storedCount() -> Int {
         var n = 0
-        run("SELECT COUNT(*) FROM messages WHERE verified=1", [], { n = Int(sqlite3_column_int64($0, 0)) })
+        run("SELECT (SELECT COUNT(*) FROM messages) - (SELECT COUNT(*) FROM messages WHERE verified=0)", [], { n = Int(sqlite3_column_int64($0, 0)) })
         return n
     }
 
