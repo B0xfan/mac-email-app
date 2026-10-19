@@ -907,11 +907,11 @@ enum SelfTest {
         check("snooze, late on reopen: the email comes back at once, at the top, unread",
               wk.0 == "z1" && wk.1 == true && wk.2 == late && wk.3 && wk.4
               && calls.contains { $0.contains("batchModify") && $0.contains("\"addLabelIds\":[\"INBOX\",\"UNREAD\"]") && $0.contains("\"removeLabelIds\":[\"Label_S\"]") })
-        let bt = await MainActor.run { () -> (String?, Bool, String?) in
+        let bt = await MainActor.run { () -> (String?, Bool, String?, Bool) in
             let m = ts2.inbox[0], t = ts2.backTagText(m); ts2.clearBackTag(m.id)
-            return (t, m.arrived != nil && m.arrived! < late, ts2.backTagText(m)) }
+            return (t, m.arrived != nil && m.arrived! < late, ts2.backTagText(m), ts2.inbox.first?.id == "z1") }
         check("snooze, back: the row says Back from snooze and when it arrived; opening the email clears it, the row keeps its place",
-              ts2.inbox.first?.id == "z1" && ts2.inbox.first?.id == "z1" && bt.0?.hasPrefix("\u{263E} Back from snooze \u{00B7} arrived ") == true && bt.1 && bt.2 == nil)
+              ts2.inbox.first?.id == "z1" && bt.3 && bt.0?.hasPrefix("\u{263E} Back from snooze \u{00B7} arrived ") == true && bt.1 && bt.2 == nil)
         // Send Later: saved as a Gmail draft, kept in Scheduled
         calls = []
         var dl = ComposeDraft(from: "me@x.example", to: "dana@x.example", subject: "Quote", mode: .new)
