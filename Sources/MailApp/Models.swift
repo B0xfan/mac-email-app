@@ -128,6 +128,7 @@ struct Mail: Identifiable, Hashable, Codable {
     let cc: String
     var bcc: String?            // the Bcc header (only present on John's own drafts)
     var subject: String
+    var arrived: Date?   // a snoozed email that came back: when it really arrived (date shows the time it came back)
     var date: Date   // a snoozed or reminded email shows the time it came back
     var snippet: String
     let messageIDHeader: String

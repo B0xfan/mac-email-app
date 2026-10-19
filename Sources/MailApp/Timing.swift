@@ -129,6 +129,7 @@ struct TimingData: Codable, Equatable {
     var scheduled: [ScheduledSend] = []
     var followUps: [FollowUp] = []
     var surfaced: [String: Date] = [:]         // came back (snooze or reminder): shown at the top with this time
+    var backTag: [String]?                     // snoozed emails that came back and are not opened yet: the row says "Back from snooze" (optional so older files still load)
     var noReply: [String] = []                 // came back because nobody answered: "No reply yet"
     var bigFiles: [DriveFile]?                 // big files on Drive that Mail deletes at their time (optional so older files still load)
 }

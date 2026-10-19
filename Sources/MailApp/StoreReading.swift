@@ -23,6 +23,7 @@ extension MailStore {
         picked = []; pickAnchor = m.id   // a plain click leaves the multi-selection
         openMail = m
         seen.record(m.id)
+        clearBackTag(m.id)
         await contacts.loadIfNeeded(ask: false)   // known names for "Name doesn't match address"
         if var full = try? await fullMessage(m.id), selectedID == m.id {
             full.convo = m.convo; full.siblings = m.siblings; full.historyID = m.historyID   // the fetched message is one email; the row knows its conversation

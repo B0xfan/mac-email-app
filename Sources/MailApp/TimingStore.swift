@@ -43,7 +43,7 @@ extension MailStore {
     func snooze(_ m: Mail, until: Date) async {
         do {
             let l = try await snoozeLabel()
-            timing.change { $0.snoozes[m.id] = until; $0.surfaced[m.id] = nil; $0.noReply.removeAll { $0 == m.id } }
+            timing.change { $0.snoozes[m.id] = until; $0.surfaced[m.id] = nil; $0.backTag?.removeAll { $0 == m.id }; $0.noReply.removeAll { $0 == m.id } }
             await leaveInbox(m, add: [l], text: "Snoozed until \(TimeParser.short(until)).", aside: false, exactUndo: true)
             if !inbox.contains(where: { $0.id == m.id }) {
                 var x = m; x.labels.removeAll { $0 == "INBOX" }; if !x.labels.contains(l) { x.labels.append(l) }
@@ -74,9 +74,9 @@ extension MailStore {
         guard let l = snoozeLabelID, !ids.isEmpty else { return }
         do {
             try await change(ids: ids, add: ["INBOX", "UNREAD"], remove: [l])
-            timing.change { t in ids.forEach { t.snoozes[$0] = nil; t.surfaced[$0] = now } }
+            timing.change { t in ids.forEach { t.snoozes[$0] = nil; t.surfaced[$0] = now }; t.backTag = (t.backTag ?? []) + ids }
             for var x in snoozed where ids.contains(x.id) {
-                x.labels.removeAll { $0 == l }; x.labels += ["INBOX", "UNREAD"]; x.date = now
+                x.labels.removeAll { $0 == l }; x.labels += ["INBOX", "UNREAD"]; x.arrived = x.date; x.date = now
                 inbox.removeAll { $0.id == x.id }; inbox.append(x)
             }
             snoozed.removeAll { ids.contains($0.id) }
@@ -87,12 +87,22 @@ extension MailStore {
 
     /// Emails that came back (snooze, reminder) show at the top with the time they came back.
     func applySurfaced(_ ms: [Mail]) -> [Mail] {
-        ms.map { m in var x = m; if let d = timing.data.surfaced[m.id], d > x.date { x.date = d }; return x }
+        ms.map { m in var x = m; if let d = timing.data.surfaced[m.id], d > x.date { x.arrived = x.date; x.date = d }; return x }
     }
     func pruneSurfaced() {
         let ids = Set(inbox.map(\.id))
         let s = timing.data.surfaced.keys.filter { !ids.contains($0) }, n = timing.data.noReply.filter { !ids.contains($0) }
-        if !s.isEmpty || !n.isEmpty { timing.change { t in s.forEach { t.surfaced[$0] = nil }; t.noReply.removeAll { n.contains($0) } } }
+        if !s.isEmpty || !n.isEmpty { timing.change { t in s.forEach { t.surfaced[$0] = nil }; t.noReply.removeAll { n.contains($0) }; t.backTag?.removeAll { s.contains($0) } } }
+    }
+    /// The row's "Back from snooze" line; it goes once the email is opened (the row keeps its place).
+    // shortcut: keyed by message, so a newer reply in the conversation hides the tag; fine for newsletters, key by thread if it matters.
+    func backTagText(_ m: Mail) -> String? {
+        guard timing.data.backTag?.contains(m.id) == true else { return nil }
+        let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"
+        return "\u{263E} Back from snooze" + (m.arrived.map { " \u{00B7} arrived " + f.string(from: $0) } ?? "")
+    }
+    func clearBackTag(_ id: String) {
+        if timing.data.backTag?.contains(id) == true { timing.change { $0.backTag?.removeAll { $0 == id } } }
     }
     func isNoReply(_ m: Mail) -> Bool { timing.data.noReply.contains(m.id) }
 

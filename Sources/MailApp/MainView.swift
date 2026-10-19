@@ -577,6 +577,7 @@ struct MessageRow: View {
     var stamp: String? = nil
     var tag: String? = nil                // "Back Sun 8:00 AM", "No reply yet"
     var warmTag = false
+    var below: String? = nil              // a tag line under the subject (Back from snooze)
     var fromText: String? = nil           // "You, to Dana Whitfield" for a reminded email
     var count: Int? = nil                 // conversations on: how many messages the row holds
     var pinned = false
@@ -660,6 +661,7 @@ struct MessageRow: View {
                     Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub)
                 }
                 Text(mail.subject).font(Theme.body).lineLimit(1)
+                if let below { Tag(text: below, warm: true) }
                 if layout.previewLines > 0 { Text(mail.snippet).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub).lineLimit(layout.previewLines) }
             }
             }
@@ -671,7 +673,7 @@ struct MessageRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(picked ? .isSelected : [])
-        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)")
+        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)\(below.map { ", " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")")
     }
 }
 
