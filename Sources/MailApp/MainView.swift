@@ -428,6 +428,7 @@ struct ListPane: View {
     @ObservedObject var store: MailStore
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
+        ScrollViewReader { proxy in
         MaybeScroll {
             ListStack(spacing: 8) {
                 if !(store.mailbox == .inbox && settings.inboxView == .smart) { SyncLine(store: store) }   // the Smart Inbox shows it under its tabs
@@ -498,7 +499,7 @@ struct ListPane: View {
                     if store.mailbox == .search { SearchMoreCard(store: store) }
                 }
             }
-            .padding(16)
+            .padding(16).id("listTop")
         }
         .background(Theme.bg)
         .focusable().focusEffectDisabled()
@@ -526,6 +527,9 @@ struct ListPane: View {
             case "n": if let m = store.openMail, !store.selectedIsNewSender, !store.savingNote { Task { await store.saveAsNote(m) }; return .handled }; return .ignored
             default: return .ignored
             }
+        }
+        // another folder, Smart tab, unread filter or inbox view starts at the top: a scroll position kept from a longer list can lie past the end of a shorter one
+        .onChange(of: [AnyHashable(store.mailbox), AnyHashable(settings.smartTab), AnyHashable(store.unreadOnly), AnyHashable(settings.inboxView)]) { _, _ in proxy.scrollTo("listTop", anchor: .top) }
         }
     }
     private var emptyText: String {
