@@ -9,6 +9,7 @@ enum DemoSelfTest {
     static func check(_ name: String, _ ok: Bool) { print("\(ok ? "PASS" : "FAIL") \(name)"); if !ok { failures += 1 } }
 
     static func run() async {
+        setvbuf(stdout, nil, _IONBF, 0)   // lines reach the log even if the app stops suddenly
         let box = DemoMailbox.shared
         let store = DemoMode.makeStore()
         await store.start()
