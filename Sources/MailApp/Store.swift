@@ -6,15 +6,6 @@ import MailCore
 
 enum Mailbox: Hashable { case inbox, newSenders, blocked, sent, drafts, archive, search, recent, setAside, snoozed, scheduled, folder(String), smart(UUID), saved(UUID) }
 
-struct BlockedEntry: Identifiable, Hashable {
-    let id: String          // Gmail filter id
-    let from: String        // address or @domain
-    var isCompany: Bool { from.hasPrefix("@") }
-    var title: String { isCompany ? "Everyone at \(from.dropFirst())" : from }
-    var count: Int
-    var toTrash = false     // an older block (Spark's): the filter sends their mail to Trash
-}
-
 struct ToastInfo: Equatable { var text: String; var action: String?; var link: URL? = nil; var id = UUID() }
 
 enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) }
@@ -146,7 +137,14 @@ final class MailStore: ObservableObject {
     var keyMonitor: Any?
     var pickWatch: [AnyCancellable] = []   // clears the selection when the Smart tab or the Inbox view changes
     private(set) var gmail: GmailClient
-    var blockedLabelID: String?
+    private var flowStore: BlockFlow?
+    /// The block steps shared with the iPhone app; made again if the Gmail connection was replaced (the label id it remembers is per account).
+    var blockFlow: BlockFlow {
+        if let f = flowStore, f.gmail === gmail { return f }
+        let f = BlockFlow(gmail: gmail, labelName: blockLabelName) { [weak self] ids, add, remove in try await self?.change(ids: ids, add: add, remove: remove) }
+        flowStore = f
+        return f
+    }
     let blockLabelName: String
     var knownCache: [String: Bool] = [:]
     var sendersChecked = false   // false until the first new-sender check has run since launch

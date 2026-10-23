@@ -22,15 +22,6 @@ extension MailStore {
         objectWillChange.send()
     }
 
-    private func ensureBlockedLabel() async throws -> String {
-        if let id = blockedLabelID { return id }
-        let labels = try await gmail.labels()
-        if let l = labels.first(where: { $0.name == blockLabelName }) { blockedLabelID = l.id; return l.id }
-        let l = try await gmail.createLabel(name: blockLabelName)
-        blockedLabelID = l.id
-        return l.id
-    }
-
     /// Why this block must not happen, or nil (the rules live in MailCore so the iPhone app applies the same ones).
     func blockRefusal(_ a: Address, wholeCompany: Bool) -> String? {
         BlockRules.refusal(a, wholeCompany: wholeCompany, myAddresses: myAddresses, accountEmail: accountEmail)
@@ -49,11 +40,8 @@ extension MailStore {
     func block(_ addr: Address, wholeCompany: Bool, reload: Bool = true) async -> Bool {
         if let why = blockRefusal(addr, wholeCompany: wholeCompany) { self.error = why; return false }
         do {
-            let label = try await ensureBlockedLabel()
-            let from = wholeCompany ? "@\(addr.domain)" : addr.email
-            _ = try await gmail.createFilter(from: from, addLabel: label)
-            var moveFailed = false
-            do { try await moveExisting(from: from, label: label) } catch { moveFailed = true }
+            let moveFailed = try await blockFlow.block(addr, wholeCompany: wholeCompany, myAddresses: myAddresses, accountEmail: accountEmail)
+            let from = BlockFlow.target(addr, wholeCompany: wholeCompany)
             blockMenuFor = nil
             status = wholeCompany ? "Blocked everyone at \(addr.domain). They were not told." : "Blocked \(addr.email). They were not told."
             if openMail?.from.email == addr.email { openMail = nil; selectedID = nil }
@@ -67,47 +55,18 @@ extension MailStore {
         }
     }
 
-    private func moveExisting(from: String, label: String) async throws {
-        let ids = try await gmail.listIDs(q: "from:\(GmailQuery.term(from)) in:inbox", max: GmailClient.all)
-        try await change(ids: ids, add: [label], remove: ["INBOX"])
-    }
-
     func blockAllNewSenders() async {
         confirmBlockAll = false
         let rows = newSenderRows
-        _ = try? await ensureBlockedLabel()   // once, so the parallel blocks do not each try to create it
+        _ = try? await blockFlow.ensureLabel()   // once, so the parallel blocks do not each try to create it
         _ = await mapLimited(rows, limit: 3) { m in await self.block(m.from, wholeCompany: false, reload: false) }
         await loadBlocked()
         status = "Blocked everyone. They were not told."
     }
 
     func loadBlocked() async {
-        do {
-            let labelID = try await ensureLabelIfExists()
-            let all = try await gmail.filters()
-            let fs = all.filter { labelID != nil && ($0.action?.addLabelIds ?? []).contains(labelID!) && $0.criteria?.from != nil }
-            // Spark's blocks are plain "from X, send to Trash" filters; list them too so John manages every block in one place
-            // only filters whose sole criterion is "from"; anything narrower (attachment, size, not-words, chats) is a rule, not a block
-            let old = all.filter { f in
-                guard let c = f.criteria else { return false }
-                return (f.action?.addLabelIds ?? []).contains("TRASH") && c.from != nil && c.subject == nil && c.query == nil && c.to == nil
-                    && c.negatedQuery == nil && c.hasAttachment == nil && c.size == nil && c.sizeComparison == nil && c.excludeChats == nil && f.action?.forward == nil
-            }
-            let g = gmail, name = blockLabelName
-            let mine = await mapLimited(fs, limit: 4) { f in
-                let from = f.criteria!.from!
-                let n = (try? await g.countEstimate(q: "label:\"\(name)\" from:\(GmailQuery.term(from))")) ?? 0
-                return BlockedEntry(id: f.id, from: from, count: n)
-            }
-            // no per-sender count for these: one call each would be hundreds of calls
-            blocked = mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }
-        } catch { self.error = (error as? LocalizedError)?.errorDescription }
-    }
-
-    private func ensureLabelIfExists() async throws -> String? {
-        if let id = blockedLabelID { return id }
-        if let l = try await gmail.labels().first(where: { $0.name == blockLabelName }) { blockedLabelID = l.id; return l.id }
-        return nil
+        do { blocked = try await blockFlow.list() }
+        catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
     func unblock(_ e: BlockedEntry) async {
@@ -115,13 +74,9 @@ extension MailStore {
         // another block (a different filter, same sender) keeps them blocked, so nothing is moved back or approved
         let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
         do {
-            do { try await gmail.deleteFilter(id: e.id) }
-            catch GmailError.http(404, _) {}   // already gone (an earlier try): carry on
+            let moveBack = try await blockFlow.unblock(e, covered: covered)   // old Spark blocks: just the filter goes; their emails stay where they are
             lifted = true
-            if !covered, !e.toTrash, let label = try await ensureLabelIfExists() {   // old Spark blocks: just the filter goes; their emails stay where they are
-                let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
-                try await change(ids: ids, add: ["INBOX"], remove: [label])
-            }
+            if let moveBack { throw moveBack }
             if !e.isCompany && !covered { book.approve(e.from) }
             status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
