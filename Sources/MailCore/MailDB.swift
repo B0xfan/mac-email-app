@@ -18,7 +18,7 @@ public final class MailDB: @unchecked Sendable {
     public static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     public let url: URL
     private var handle: OpaquePointer?
-    /// Recursive: the calls below call each other.
+    /// Recursive: the public calls below call each other.
     public let lock = NSRecursiveLock()
     private var depth = 0
     /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
