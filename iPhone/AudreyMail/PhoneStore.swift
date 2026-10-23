@@ -55,6 +55,7 @@ final class PhoneStore: ObservableObject {
     private let cacheURL: URL
     private var next: String?
     private var loadingMore = false
+    private var confirmedGone = Set<String>()   // confirmed by Gmail; dropped from `pendingGone` at the start of the next refresh, so a read that began earlier cannot bring them back
     private var pendingGone = Set<String>()   // conversations moved away on screen whose change Gmail has not confirmed yet
     private var writeChain: Task<Void, Never>?
     private var lastRefresh = Date.distantPast
@@ -113,13 +114,24 @@ final class PhoneStore: ObservableObject {
         try? FileManager.default.removeItem(at: cacheURL)
     }
 
+    private enum Fresh { case ok, ended, offline }
+    private func freshToken() async -> Fresh {
+        await sign.invalidateAccessToken()
+        do { _ = try await sign.validAccessToken(); return .ok }
+        catch AuthError.signInAgain { return .ended }
+        catch { return .offline }
+    }
+
     func fail(_ error: Error, _ fallback: String) async {
         if error is CancellationError { return }
         if case GmailError.signInAgain = error {
-            // one 401 can be just an old access token: ask for a fresh one first; only a refused refresh ends the sign-in
-            await sign.invalidateAccessToken()
-            if (try? await sign.validAccessToken()) != nil { banner = "Gmail did not answer just now. Pull down to try again."; return }
-            await expire(); return
+            // one 401 can be just an old access token: ask for a fresh one first; only Google refusing the refresh ends the sign-in
+            switch await freshToken() {
+            case .ok: banner = "Gmail did not answer just now. Pull down to try again."
+            case .offline: banner = "Can't reach Google right now. Pull down to try again."
+            case .ended: await expire()
+            }
+            return
         }
         banner = (error as? LocalizedError)?.errorDescription ?? fallback
     }
@@ -141,7 +153,8 @@ final class PhoneStore: ObservableObject {
         guard state == .signedIn, !refreshing else { return }
         refreshing = true
         defer { refreshing = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
-        await writeChain?.value   // changes made here reach Gmail before it is read, so a message just archived does not come back
+        await writeChain?.value
+        pendingGone.subtract(confirmedGone); confirmedGone = []   // changes made here reach Gmail before it is read, so a message just archived does not come back
         do {
             let page = try await gmail.threadPage(labels: ["INBOX"], max: 50)
             let have = Dictionary(inbox.map { ($0.threadID, $0) }, uniquingKeysWith: { a, _ in a })
@@ -272,7 +285,7 @@ final class PhoneStore: ObservableObject {
         show(text, undo: { [weak self] in self?.undoMove(m, ids: ids, add: add, remove: remove) })
         enqueue { [weak self] in
             guard let self else { return }
-            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.pendingGone.remove(m.threadID) }   // confirmed: a later reply may bring it back
+            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID) }   // confirmed: a later reply may bring it back
             catch {
                 self.pendingGone.remove(m.threadID)
                 if !self.inbox.contains(where: { $0.threadID == m.threadID }) { self.inbox = (self.inbox + [m]).sorted { $0.date > $1.date } }   // it did not move: put it back
@@ -296,11 +309,11 @@ final class PhoneStore: ObservableObject {
         guard m.unread else { return }
         for i in inbox.indices where inbox[i].threadID == m.threadID { inbox[i].labels.removeAll { $0 == "UNREAD" } }
         let ids = [m.id] + (m.siblings ?? [])
-        enqueue { [weak self] in do { try await self?.gmail.modify(ids: ids, remove: ["UNREAD"]) } catch { await self?.fail(error, "") } }
+        enqueue { [weak self] in do { try await self?.gmail.modify(ids: ids, remove: ["UNREAD"]) } catch { await self?.fail(error, "Could not mark that as read.") } }
     }
     func markUnread(_ m: Mail) {
         for i in inbox.indices where inbox[i].threadID == m.threadID && !inbox[i].labels.contains("UNREAD") { inbox[i].labels.append("UNREAD") }
-        enqueue { [weak self] in do { try await self?.gmail.modify(ids: [m.id], add: ["UNREAD"]) } catch { await self?.fail(error, "") } }
+        enqueue { [weak self] in do { try await self?.gmail.modify(ids: [m.id], add: ["UNREAD"]) } catch { await self?.fail(error, "Could not mark that as unread.") } }
         show("Marked as unread")
     }
 
@@ -316,7 +329,8 @@ final class PhoneStore: ObservableObject {
             if data == nil, let a = p.attachmentID { data = try? await gmail.attachment(messageID: full.id, attachmentID: a) }
             guard let data, !data.isEmpty, data.count <= 3_000_000 else { continue }
             let uri = "data:\(p.mime);base64,\(data.base64EncodedString())"
-            for end in ["\"", "'", ")"] { h = h.replacingOccurrences(of: "cid:" + cid + end, with: uri + end, options: .caseInsensitive) }   // with the closing mark, so cid:img1 never eats cid:img10
+            // the whole name and nothing longer, so cid:img1 never eats cid:img10
+            h = h.replacingOccurrences(of: "cid:" + NSRegularExpression.escapedPattern(for: cid) + "(?![A-Za-z0-9._@$-])", with: NSRegularExpression.escapedTemplate(for: uri), options: [.regularExpression, .caseInsensitive])
         }
         full.html = h
         return full
@@ -355,8 +369,11 @@ final class PhoneStore: ObservableObject {
         do { _ = try await gmail.sendRaw(raw, threadID: threadID) }
         catch GmailError.signInAgain {
             // an old access token is not the end of the sign-in: get a new one and send once more; the typed message stays on screen if that fails too
-            await sign.invalidateAccessToken()
-            guard (try? await sign.validAccessToken()) != nil else { await expire(); throw GmailError.signInAgain }
+            switch await freshToken() {
+            case .ended: await expire(); throw GmailError.signInAgain
+            case .offline: throw GmailError.offline
+            case .ok: break
+            }
             do { _ = try await gmail.sendRaw(raw, threadID: threadID) }
             catch GmailError.signInAgain { await expire(); throw GmailError.signInAgain }   // a second refusal with a fresh token: the sign-in is really over
         }
