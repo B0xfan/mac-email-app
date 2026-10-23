@@ -137,13 +137,10 @@ final class MailStore: ObservableObject {
     var keyMonitor: Any?
     var pickWatch: [AnyCancellable] = []   // clears the selection when the Smart tab or the Inbox view changes
     private(set) var gmail: GmailClient
-    private var flowStore: BlockFlow?
-    /// The block steps shared with the iPhone app; made again if the Gmail connection was replaced (the label id it remembers is per account).
-    var blockFlow: BlockFlow {
-        if let f = flowStore, f.gmail === gmail { return f }
-        let f = BlockFlow(gmail: gmail, labelName: blockLabelName) { [weak self] ids, add, remove in try await self?.change(ids: ids, add: add, remove: remove) }
-        flowStore = f
-        return f
+    /// The block steps shared with the iPhone app.
+    lazy var blockFlow = BlockFlow(gmail: gmail, labelName: blockLabelName) { [weak self] ids, add, remove in
+        guard let self else { throw CancellationError() }   // the store is gone: never report a move that did not happen
+        try await self.change(ids: ids, add: add, remove: remove)
     }
     let blockLabelName: String
     var knownCache: [String: Bool] = [:]

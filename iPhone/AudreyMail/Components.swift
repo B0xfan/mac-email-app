@@ -79,15 +79,18 @@ struct BannerView: View {
 struct MailWebView: UIViewRepresentable {
     let html: String
     let allowRemote: Bool
+    var plain = false
     @Binding var height: CGFloat
 
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
     nonisolated(unsafe) static var compiled: WKContentRuleList?
 
-    static func page(_ body: String, allowRemote: Bool) -> String {
-        HTMLSafety.page(body, allowRemote: allowRemote)
+    /// `plain`: a text email takes the app's colors on the app's background; an HTML email keeps its own white page (it was made for one).
+    static func page(_ body: String, allowRemote: Bool, plain: Bool) -> String {
+        let look = plain ? "html,body{background:transparent}body{color:#0f2326}@media(prefers-color-scheme:dark){body{color:#e8f3f3}}" : "body{padding:10px}"
+        return HTMLSafety.page(body, allowRemote: allowRemote)
             .replacingOccurrences(of: "<head>", with: "<head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
-            .replacingOccurrences(of: "</style></head>", with: "body{font-size:16px}</style></head>")
+            .replacingOccurrences(of: "</style></head>", with: "body{font-size:16px;line-height:1.5}\(look)</style></head>")
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -111,7 +114,7 @@ struct MailWebView: UIViewRepresentable {
     func updateUIView(_ wv: WKWebView, context: Context) {
         let c = context.coordinator
         c.height = $height
-        let page = Self.page(html, allowRemote: allowRemote)
+        let page = Self.page(html, allowRemote: allowRemote, plain: plain)
         if c.page != page || c.remote != allowRemote { c.page = page; c.remote = allowRemote; c.load() }
     }
 

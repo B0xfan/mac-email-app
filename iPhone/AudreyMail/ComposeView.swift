@@ -107,7 +107,7 @@ struct ComposeView: View {
 
     private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
         HStack(spacing: 10) {
-            Text(label).foregroundStyle(Theme.sub).frame(width: 56, alignment: .leading)
+            Text(label).font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1).frame(width: 64, alignment: .leading)
             content().font(.system(size: 16)).frame(minHeight: 44)
         }
         .padding(.horizontal, 20).frame(minHeight: 48).background(Theme.card).overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }

@@ -26,6 +26,7 @@ protocol PhoneSignIn: AccessTokenProvider {
     func signIn() async throws -> String?          // the signed-in address, if Google gave it
     func signOut() async
     func savedEmail() async -> String?             // nil = nobody is signed in
+    func invalidateAccessToken() async             // the one in memory may be old: the next ask gets a new one
 }
 
 struct StoredSignIn: Codable { var refreshToken: String; var email: String? }
@@ -92,7 +93,8 @@ actor PhoneAuth: PhoneSignIn {
     func savedEmail() -> String? { stored().map { $0.email ?? "" } }
     private func stored() -> StoredSignIn? { if cached == nil { cached = SignInKeychain.load() }; return cached }
 
-    func signOut() { SignInKeychain.delete(); cached = nil; accessToken = nil; accessExpiry = .distantPast }
+    func signOut() { SignInKeychain.delete(); cached = nil; accessToken = nil; accessExpiry = .distantPast; refreshTask?.cancel(); refreshTask = nil }
+    func invalidateAccessToken() { accessToken = nil; accessExpiry = .distantPast }
 
     static func authURL(state: String, challenge: String) -> URL {
         var c = URLComponents(url: GoogleConfig.authEndpoint, resolvingAgainstBaseURL: false)!
@@ -140,6 +142,7 @@ actor PhoneAuth: PhoneSignIn {
         guard let s = stored() else { throw AuthError.signInAgain }
         do {
             let tok = try await tokenRequest(["grant_type": "refresh_token", "refresh_token": s.refreshToken, "client_id": GoogleConfig.clientID])
+            guard cached != nil else { throw AuthError.signInAgain }   // signed out while this was running: keep nothing
             accessToken = tok.access_token
             accessExpiry = Date().addingTimeInterval(TimeInterval(tok.expires_in ?? 3600) - 60)
             return tok.access_token

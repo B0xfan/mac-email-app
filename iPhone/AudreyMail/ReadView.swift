@@ -80,7 +80,7 @@ struct ReadView: View {
             Text(m.snippet).font(.system(size: 16.5)).foregroundStyle(Theme.sub)
         } else {
             let raw = m.html.map { HTMLSafety.process($0).html ?? $0 } ?? TextTools.plainToHTML(m.text ?? m.snippet)
-            MailWebView(html: raw, allowRemote: showImages, height: $webHeight).frame(height: max(webHeight, 40))
+            MailWebView(html: raw, allowRemote: showImages, plain: m.html == nil, height: $webHeight).frame(height: max(webHeight, 40)).clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 

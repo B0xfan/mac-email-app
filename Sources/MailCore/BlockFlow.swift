@@ -37,8 +37,7 @@ public final class BlockFlow: @unchecked Sendable {
 
     /// The Blocked label's id, creating the label when it does not exist yet.
     public func ensureLabel() async throws -> String {
-        if let id = labelID { return id }
-        if let l = try await gmail.labels().first(where: { $0.name == labelName }) { labelID = l.id; return l.id }
+        if let id = try await existingLabel() { return id }
         let l = try await gmail.createLabel(name: labelName)
         labelID = l.id
         return l.id
@@ -86,9 +85,12 @@ public final class BlockFlow: @unchecked Sendable {
         return mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }
     }
 
+    /// The filter is gone; `moveBackFailure` is set when their old mail could not be moved back to the inbox (the unblock itself has happened).
+    public struct UnblockResult { public var moveBackFailure: Error? }
+
     /// Deletes the filter (404 = already gone), then moves their old mail back to the inbox unless `covered` (another filter still blocks them) or it is an old Trash block.
-    /// Throws only when the filter itself could not be deleted. A failure moving the mail back is returned: the unblock itself has happened.
-    public func unblock(_ e: BlockedEntry, covered: Bool) async throws -> Error? {
+    /// Throws only when the filter itself could not be deleted.
+    public func unblock(_ e: BlockedEntry, covered: Bool) async throws -> UnblockResult {
         do { try await gmail.deleteFilter(id: e.id) }
         catch GmailError.http(404, _) {}
         do {
@@ -96,7 +98,7 @@ public final class BlockFlow: @unchecked Sendable {
                 let ids = try await gmail.listIDs(q: "label:\"\(labelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
                 try await change(ids, ["INBOX"], [label])
             }
-        } catch { return error }
-        return nil
+        } catch { return UnblockResult(moveBackFailure: error) }
+        return UnblockResult(moveBackFailure: nil)
     }
 }

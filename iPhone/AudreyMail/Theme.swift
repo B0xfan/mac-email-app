@@ -51,10 +51,10 @@ struct Avatar: View {
 enum Fmt {
     static func short(_ d: Date, now: Date = Date()) -> String {
         let cal = Calendar.current
-        if cal.isDate(d, inSameDayAs: now) { return d.formatted(date: .omitted, time: .shortened).replacingOccurrences(of: " AM", with: "").replacingOccurrences(of: " PM", with: "") }
+        if cal.isDate(d, inSameDayAs: now) { return d.formatted(date: .omitted, time: .shortened).replacingOccurrences(of: "[\\s\u{202F}]?[AaPp]\\.?[Mm]\\.?", with: "", options: .regularExpression) }
         if cal.isDateInYesterday(d) { return "Yesterday" }
         if let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: now)).day, days < 7 { return d.formatted(.dateTime.weekday(.wide)) }
         return d.formatted(.dateTime.month(.abbreviated).day())
     }
-    static func long(_ d: Date) -> String { d.formatted(date: .abbreviated, time: .shortened) }
+    static func long(_ d: Date) -> String { Calendar.current.isDateInToday(d) ? d.formatted(date: .omitted, time: .shortened) : d.formatted(date: .abbreviated, time: .shortened) }
 }

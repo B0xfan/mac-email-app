@@ -155,7 +155,8 @@ final class DemoURLProtocol: URLProtocol {
 
 struct DemoAuth: PhoneSignIn {
     var signedIn = true
-    func validAccessToken() async throws -> String { "demo" }
+    func validAccessToken() async throws -> String { if DemoMailbox.shared.with({ $0.expired }) { throw AuthError.signInAgain }; return "demo" }
+    func invalidateAccessToken() async {}
     func signIn() async throws -> String? { "alex.jordan@gmail.example" }
     func signOut() async {}
     func savedEmail() async -> String? { signedIn ? "alex.jordan@gmail.example" : nil }
@@ -185,7 +186,7 @@ enum DemoMode {
         let s = screen ?? ""
         let store = makeStore(signedIn: !s.hasPrefix("signin") && !selfTest)
         if s == "signinagain" { Task { @MainActor in store.state = .signedOut(again: true) } }
-        return (store, ["new": 1, "search": 2, "settings": 3][s] ?? 0)
+        return (store, ["new": 1, "block": 1, "search": 2, "settings": 3][s] ?? 0)
     }
 }
 #endif

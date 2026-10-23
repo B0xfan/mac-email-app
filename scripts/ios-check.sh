@@ -17,7 +17,7 @@ xcrun simctl install "$UDID" "$APP"
 BID=com.johnhesch.audreymail
 rc=0
 echo "== built-in checks =="
-timeout 180 xcrun simctl launch --console --terminate-running-process "$UDID" $BID -selftest > "$OUT/selftest.txt" 2>&1 || true
+perl -e 'alarm 180; exec @ARGV' xcrun simctl launch --console --terminate-running-process "$UDID" $BID -selftest > "$OUT/selftest.txt" 2>&1 || true
 cat "$OUT/selftest.txt"
 grep -q "^DONE failures=0" "$OUT/selftest.txt" || rc=1
 for mode in light dark; do
@@ -25,7 +25,7 @@ for mode in light dark; do
   for s in signin signinagain inbox read write search new block settings; do
     xcrun simctl terminate "$UDID" $BID >/dev/null 2>&1 || true
     xcrun simctl launch "$UDID" $BID -demo $s >/dev/null
-    sleep 7
+    sleep 9
     xcrun simctl io "$UDID" screenshot "$OUT/$s-$mode.png" >/dev/null 2>&1 || rc=1
   done
 done

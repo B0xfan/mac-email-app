@@ -31,6 +31,13 @@ enum DemoSelfTest {
         store.trash(row("m7")!); await store.settle()
         check("trash moves it to Trash", box.with { b in let l = b.msgs.first { $0.id == "m7" }!.labels; return l.contains("TRASH") && !l.contains("INBOX") })
 
+        // a conversation archived and later answered comes back
+        box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m4" }) { b.msgs[i].labels = ["INBOX", "UNREAD"]; b.msgs[i].hid += 5 } }
+        store.archive(row("m4")!); await store.settle()
+        box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m4" }) { b.msgs[i].labels = ["INBOX", "UNREAD"]; b.msgs[i].hid += 5 } }
+        await store.refresh()
+        check("an archived conversation that gets a new reply shows in the inbox again", row("m4") != nil)
+
         // reading marks read
         let full = try? await store.fullMessage(row("m1")!)
         check("opening reads the whole email", full?.html?.contains("umbrella") == true)

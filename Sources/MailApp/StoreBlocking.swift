@@ -38,8 +38,7 @@ extension MailStore {
     /// `wholeCompany` blocks every address at the domain. Existing mail is moved as a second step.
     @discardableResult
     func block(_ addr: Address, wholeCompany: Bool, reload: Bool = true) async -> Bool {
-        if let why = blockRefusal(addr, wholeCompany: wholeCompany) { self.error = why; return false }
-        do {
+        do {   // the shared rules refuse an own address, a free-mail service and so on (BlockRefused carries the plain words)
             let moveFailed = try await blockFlow.block(addr, wholeCompany: wholeCompany, myAddresses: myAddresses, accountEmail: accountEmail)
             let from = BlockFlow.target(addr, wholeCompany: wholeCompany)
             blockMenuFor = nil
@@ -74,9 +73,9 @@ extension MailStore {
         // another block (a different filter, same sender) keeps them blocked, so nothing is moved back or approved
         let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
         do {
-            let moveBack = try await blockFlow.unblock(e, covered: covered)   // old Spark blocks: just the filter goes; their emails stay where they are
+            let result = try await blockFlow.unblock(e, covered: covered)   // old Spark blocks: just the filter goes; their emails stay where they are
             lifted = true
-            if let moveBack { throw moveBack }
+            if let failure = result.moveBackFailure { throw failure }
             if !e.isCompany && !covered { book.approve(e.from) }
             status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
             await loadBlocked()
