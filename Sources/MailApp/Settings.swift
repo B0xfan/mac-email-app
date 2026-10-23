@@ -40,9 +40,9 @@ final class AppSettings: ObservableObject {
     @Published var checkMinutes: Int { didSet { d.set(checkMinutes, forKey: "checkMinutes") } }
     /// Settings > Storage: mail newer than this many days keeps its full text on this Mac (plus anything John opened); older mail keeps sender, subject and a preview.
     @Published var keepTextDays: Int { didSet { d.set(keepTextDays, forKey: "keepTextDays") } }
-    static let textChoices = [30, 90, 180, 365]
+    static let textChoices = [30, SyncEngine.textDefault, 180, 365]   // the default is always one of the choices
     static let textDefault = SyncEngine.textDefault
-    static func textLabel(_ days: Int) -> String { switch days { case 30: return "30 days"; case 90: return "90 days"; case 180: return "6 months"; case 365: return "1 year"; default: return "\(days) days" } }
+    static func textLabel(_ days: Int) -> String { switch days { case 30: return "30 days"; case 180: return "6 months"; case 365: return "1 year"; default: return "\(days) days" } }
     /// "Group emails into conversations": off = the inbox reads exactly as before.
     @Published var groupConversations: Bool { didSet { d.set(groupConversations, forKey: "groupConversations") } }
     /// "Open one message at a time" (Settings > Inbox, only used with grouping on): on = opening an older message folds the one already open.

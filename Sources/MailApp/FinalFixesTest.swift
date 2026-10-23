@@ -26,10 +26,10 @@ extension SelfTest {
         db.setState("backfill_done", "1"); db.setState("history_id", "5"); db.setState("epoch", "7")
         let box = FFBox()
         let sem = DispatchSemaphore(value: 0)
-        db.lock.lock()   // no await between the lock and the unlock: the same thread must release it
-        DispatchQueue.global().async { box.complete = db.isComplete && db.isTracking; box.epoch = db.state("epoch"); box.done = true; sem.signal() }
-        _ = sem.wait(timeout: .now() + 3)
-        db.lock.unlock()
+        db.holdingLock {   // no await inside: the same thread must release the lock
+            DispatchQueue.global().async { box.complete = db.isComplete && db.isTracking; box.epoch = db.state("epoch"); box.done = true; sem.signal() }
+            _ = sem.wait(timeout: .now() + 3)
+        }
         check("complete / tracking / round are answered while the database is held by another job", box.done && box.complete && box.epoch == "7")
         _ = db.transaction { db.setState("epoch", "99"); db.run("THIS IS NOT SQL") }
         check("a stopped transaction puts the remembered round back", db.state("epoch") == "7")

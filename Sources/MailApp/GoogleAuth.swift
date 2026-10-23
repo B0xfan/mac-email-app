@@ -23,6 +23,9 @@ enum GoogleConfig {
     }
 }
 
+/// The Google sign-in file is missing from this Mac (Mac only; the shared AuthError has no such case).
+struct MissingClientFile: Error, LocalizedError { var errorDescription: String? { "The Google sign-in file is missing from this Mac." } }
+
 struct ClientCredentials: Sendable {
     let clientID: String
     let clientSecret: String
@@ -33,7 +36,7 @@ struct ClientCredentials: Sendable {
               let inner = (root["installed"] ?? root["web"]) as? [String: Any],
               let id = inner["client_id"] as? String,
               let secret = inner["client_secret"] as? String
-        else { throw AuthError.missingClientFile }
+        else { throw MissingClientFile() }
         return ClientCredentials(clientID: id, clientSecret: secret)
     }
 }

@@ -19,7 +19,11 @@ public final class MailDB: @unchecked Sendable {
     public let url: URL
     private var handle: OpaquePointer?
     /// Recursive: the public calls below call each other.
-    public let lock = NSRecursiveLock()
+    let lock = NSRecursiveLock()
+    #if DEBUG
+    /// Debug builds only (the self-test): runs `body` while holding the database lock.
+    public func holdingLock<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
+    #endif
     private var depth = 0
     /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
     private var errors = 0

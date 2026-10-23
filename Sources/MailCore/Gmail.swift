@@ -119,7 +119,11 @@ public final class GmailClient: @unchecked Sendable {
     public static let base = "https://gmail.googleapis.com/gmail/v1/users/me"
 
     /// The self-test turns pacing off for its pretend Gmail (the pacing itself has its own check).
-    public nonisolated(unsafe) static var pacingOff = false
+    nonisolated(unsafe) static var pacingOff = false
+    #if DEBUG
+    /// Debug builds only (the self-test); a release build has no way to switch the pacing off.
+    public static func turnPacingOffForTests() { pacingOff = true }
+    #endif
     /// True for work John did not ask for (copying the mailbox, checking for changes): it is paced to half of Gmail's allowance. Child tasks inherit it.
     @TaskLocal public static var background = false
     public let gate: QuotaGate

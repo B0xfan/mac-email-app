@@ -70,7 +70,7 @@ struct MailApp: App {
         #if TESTHARNESS
         if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest", "--helpshots", "--listtest"].contains(where: args.contains) { Keychain.testMode = true }
         if args.contains("--selftest") {
-            GmailClient.pacingOff = true
+            GmailClient.turnPacingOffForTests()
             Task { exit(await SelfTest.run() ? 0 : 1) }
         } else if let i = args.firstIndex(of: "--helpshots"), i + 1 < args.count {
             let dir = args[i + 1]
@@ -194,7 +194,7 @@ final class SignInModel: ObservableObject {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { state = .signedIn(s.email); return }
             message = (error as? LocalizedError)?.errorDescription
             // only a dead sign-in (or a missing client file) signs out; a busy or unreachable Google keeps John signed in, and the next refresh tries again
-            switch error as? AuthError { case .signInAgain?, .missingClientFile?: state = .signedOut; default: state = .signedIn(s.email) }
+            if case .signInAgain? = error as? AuthError { state = .signedOut } else if error is MissingClientFile { state = .signedOut } else { state = .signedIn(s.email) }
         }
     }
 

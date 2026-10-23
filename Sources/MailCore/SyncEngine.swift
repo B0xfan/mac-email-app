@@ -22,7 +22,7 @@ public struct SyncProgress: Equatable, Sendable {
 /// - Everything that matters is written down as it happens (the place in Gmail's list, each message), so a quit, a crash or a lost connection
 ///   loses nothing: the next start carries on from the same place and never asks for a message it already has.
 public final class SyncEngine: @unchecked Sendable {
-    public static let textDefault = 90   // days of mail text kept; AppSettings.textDefault uses the same number
+    public static let textDefault = 90   // days of mail text kept; the settings picker is built around this number
     public let gmail: GmailClient
     public let db: MailDB
     /// Messages asked for per list page (Gmail's most is 500) and fetched at once.
