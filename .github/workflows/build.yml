@@ -3,6 +3,16 @@
 name: build
 on: workflow_dispatch
 jobs:
+  # The shared MailCore package must keep compiling for the iPhone. Same manual trigger as the build job; no signing, nothing uploaded.
+  ios-core:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build MailCore for iOS
+        run: |
+          xcodebuild build -scheme MailCore -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
   build:
     runs-on: macos-15
     timeout-minutes: 75
