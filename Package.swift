@@ -5,6 +5,7 @@ let package = Package(
     name: "MailApp",
     platforms: [.macOS(.v14), .iOS(.v17)],
     dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")],   // self-update; embedded by scripts/embed-sparkle.sh
+    products: [.library(name: "MailCore", targets: ["MailCore"])],   // gives xcodebuild a MailCore scheme for the iOS CI check
     targets: [
         // the mail logic shared with the iPhone app: Gmail, sync, stored mail, to-do reading, search. No screens, no Mac-only code.
         .target(name: "MailCore", path: "Sources/MailCore"),
