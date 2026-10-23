@@ -2,6 +2,7 @@
 import Foundation
 import ImageIO
 import AppKit
+import MailCore
 
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
@@ -831,7 +832,9 @@ enum SelfTest {
         func dayPlus(_ n: Int, _ h: Int) -> Date { TimeParser.at(h, 0, on: cal.date(byAdding: .day, value: n, to: now0)!, cal) }
         let inWeek = { (d: Date?) in d.map { $0 > now0 && $0 < now0.addingTimeInterval(8 * 86400) } ?? false }
         check("time: \"Tuesday 3pm\" is the coming Tuesday at 3:00 PM", Array(hm(tp("Tuesday 3pm")).prefix(2)) == [3, 15] && inWeek(tp("Tuesday 3pm")))
-        check("time: a day alone (\"friday\", \"Oct 20\") means 8:00 AM", hm(tp("friday")) == [6, 8, 0] && Array(hm(tp("oct 20")).suffix(2)) == [8, 0])
+        // a date ten days ahead, written like "oct 20": a fixed date went stale once it was in the past
+        let soonText: String = { let f = DateFormatter(); f.locale = Locale(identifier: "en_US"); f.dateFormat = "MMM d"; return f.string(from: now0.addingTimeInterval(10 * 86400)).lowercased() }()
+        check("time: a day alone (\"friday\", \"Oct 20\") means 8:00 AM", hm(tp("friday")) == [6, 8, 0] && Array(hm(tp(soonText)).suffix(2)) == [8, 0])
         check("time: \"tomorrow\" is 8:00 AM, \"tomorrow 5pm\" is 5:00 PM", tp("tomorrow") == dayPlus(1, 8) && tp("tomorrow 5pm") == dayPlus(1, 17))
         check("time: \"monday morning\" keeps Apple's morning (9:00 AM)", hm(tp("monday morning")) == [2, 9, 0])
         check("time: Mail's own rules: in 2 hours, in 3 days, 2 weeks", abs((tp("in 2 hours") ?? .distantPast).timeIntervalSince(now0) - 7200) < 2

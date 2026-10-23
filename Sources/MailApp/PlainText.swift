@@ -1,4 +1,5 @@
 import AppKit
+import MailCore
 
 /// One email as plain text, the way a reader sees it. Shared by Save as note and, later, a "View as plain text" reading mode.
 /// The email's text/plain part when it has real content; otherwise its HTML laid out by the system's own HTML reader

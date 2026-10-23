@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import Foundation
 import SQLite3
+import MailCore
 
 /// Fixes after the independent review of the stored-mail work: a database that refuses writes, all-or-nothing saving, older reads, private files, a file that is only busy or locked,
 /// and the outbox's start and stop. (The copy, history and outbox checks in the other parts cover the rest of the review's findings.)

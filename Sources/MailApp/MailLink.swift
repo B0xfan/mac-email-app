@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import MailCore
 
 /// "Link to an email": a link for John's own Mac (audreymail://email/<id>) and a link to share (a web page on the droplet, server/mail-share/README.md).
 enum MailLink {

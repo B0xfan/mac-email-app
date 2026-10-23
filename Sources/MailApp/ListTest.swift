@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// `MailApp --listtest <folder>`: draws the real main window off-screen (invisible) in "Unread first" with made-up mail, the way
 /// James reported it: mail arrives, one is opened, more arrives. After every step it counts the teal "selected" row bands in the

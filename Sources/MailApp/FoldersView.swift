@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 // MARK: - Sidebar: Folders, Smart Folders, Saved searches
 

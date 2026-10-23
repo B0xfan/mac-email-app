@@ -1,4 +1,5 @@
 import SwiftUI
+import MailCore
 
 // Sender warnings (approved 2026-10-13, "Sender warnings" board): a small label beside the sender's name, only when a
 // check fails, with an info button that opens a one-line explanation. Colors are the approved mockup's.

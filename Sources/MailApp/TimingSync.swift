@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// Send Later while the Mac is off: Mail tells the timing service about each scheduled draft and asks it for the result.
 /// Every call here is optional help: with the server unreachable, Mail sends on time as it always did.

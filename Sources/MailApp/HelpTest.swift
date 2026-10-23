@@ -2,6 +2,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// In-app help: the manual's shape, search, highlighting and how the window is asked for a section. No window, no network, no Keychain.
 extension SelfTest {

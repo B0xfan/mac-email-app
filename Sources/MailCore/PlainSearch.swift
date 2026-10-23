@@ -1,28 +1,28 @@
 import Foundation
 
 /// A tag under the search bar: one thing Mail understood from the typed words. `tokens` is where it sat in the typed text.
-struct SearchChip: Equatable, Identifiable {
-    var id: Int { tokens.lowerBound }
-    let label: String
-    let tokens: Range<Int>
+public struct SearchChip: Equatable, Identifiable {
+    public var id: Int { tokens.lowerBound }
+    public let label: String
+    public let tokens: Range<Int>
 }
 
 /// Plain-words search, read on this Mac with fixed rules (nothing leaves the Mac). It understands people ("from", "to",
 /// "sent to"), dates, attachments and unread; every other word stays an ordinary Gmail search word.
 /// shortcut: English phrases only, no AI; add more phrasings here when John's real searches miss.
-enum PlainSearch {
-    struct Result: Equatable {
-        var gmail: String            // what goes to Gmail
-        var chips: [SearchChip]      // what Mail understood
-        var words: [String] = []     // the words left over after the tags (what private notes are searched for)
-        var passthrough: Bool        // typed Gmail operators (from:bob): sent unchanged
-        var understood: Bool { !chips.isEmpty }
+public enum PlainSearch {
+    public struct Result: Equatable {
+        public var gmail: String            // what goes to Gmail
+        public var chips: [SearchChip]      // what Mail understood
+        public var words: [String] = []     // the words left over after the tags (what private notes are searched for)
+        public var passthrough: Bool        // typed Gmail operators (from:bob): sent unchanged
+        public var understood: Bool { !chips.isEmpty }
     }
 
-    static func tokens(_ text: String) -> [String] { text.split(whereSeparator: { $0.isWhitespace }).map(String.init) }
+    public static func tokens(_ text: String) -> [String] { text.split(whereSeparator: { $0.isWhitespace }).map(String.init) }
 
     /// The typed text without the words a tag came from (clicking a tag removes it).
-    static func removing(_ chip: SearchChip, from text: String) -> String {
+    public static func removing(_ chip: SearchChip, from text: String) -> String {
         var t = tokens(text)
         guard chip.tokens.upperBound <= t.count else { return text }
         t.removeSubrange(chip.tokens)
@@ -36,7 +36,7 @@ enum PlainSearch {
     private static let fillers: Set<String> = ["show", "find", "search", "get", "all", "me", "my", "emails", "email", "mails", "mail", "messages", "message",
                                                "of", "the", "a", "an", "that", "are", "is", "with", "and", "from", "to", "sent", "about", "for"]
 
-    static func parse(_ text: String, now: Date = Date(), calendar cal: Calendar = .current) -> Result {
+    public static func parse(_ text: String, now: Date = Date(), calendar cal: Calendar = .current) -> Result {
         let raw = tokens(text)
         // typed Gmail operators (from:bob) keep working exactly as before; a colon elsewhere ("re: invoice", "3:30") is just a word
         if raw.contains(where: { $0.lowercased().range(of: operatorPattern, options: .regularExpression) != nil }) { return Result(gmail: text, chips: [], words: [], passthrough: true) }

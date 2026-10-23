@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Headless rendering of the screens to PNG files (`MailApp --snapshot <folder>`), using made-up sample mail.
 @MainActor

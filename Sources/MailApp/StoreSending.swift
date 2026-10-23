@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Compose, reply, forward, Undo Send, quitting with sends waiting, and crash recovery.
 extension MailStore {

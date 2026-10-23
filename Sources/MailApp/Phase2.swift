@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Contacts
+import MailCore
 
 // MARK: - After archiving: which email opens next
 

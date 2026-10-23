@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 // In-app help (approved drawing mockup-in-app-help.html): one window, contents on the left, the section on the right, search at the top.
 // The text is Manual/mail-manual.md, a copy of the vault manual made by scripts/sync-manual.sh and bundled into the app by the build.

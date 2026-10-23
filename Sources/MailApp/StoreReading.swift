@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Opening, archiving, setting aside, undo, toasts, attachments and pins.
 extension MailStore {

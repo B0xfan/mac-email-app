@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import ImageIO
+import MailCore
 
 /// What one download came to. none = the site cleanly said there is nothing (or it is too big to be an icon); error = timeout, network trouble, 429, 5xx: says nothing about the site.
 enum Fetch { case ok(Data), none, error }

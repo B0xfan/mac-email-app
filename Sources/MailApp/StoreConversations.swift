@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// "Group emails into conversations" (Settings > Inbox). The inbox already holds one row per Gmail conversation; with the switch on a row also
 /// shows how many messages it holds, names whoever wrote last, and the reading pane stacks the messages. Off = none of this applies.

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 // Rules = Gmail's own filters (settings.basic scope, already requested), so they also work on the phone and with the Mac off.
 // Gmail cannot update a filter in place: Edit creates the new one first, then deletes the old one.

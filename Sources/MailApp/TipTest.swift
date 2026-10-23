@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// `MailApp --tiptest`: draws the main window off-screen (invisible) with made-up mail and checks that each toolbar and
 /// sidebar button has its hover tip registered with the Mac's tooltip layer. Never signs in, never touches the Keychain, Gmail or John's files.

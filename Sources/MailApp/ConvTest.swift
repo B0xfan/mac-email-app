@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Conversations: grouping from one Gmail call per conversation, the count, unread across a conversation, the switch. Pretend Gmail; nothing real touched.
 extension SelfTest {

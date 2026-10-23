@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 extension SelfTest {
     /// Draws the Away panel off-screen (invisible, stubbed store) and checks the two day pickers are Apple's
