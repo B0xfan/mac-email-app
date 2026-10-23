@@ -128,9 +128,9 @@ struct ComposeView: View {
         let html = m.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
         let plain = m.text ?? TextTools.htmlToPlain(m.html ?? m.snippet)
         if mode == .forward {
-            return ("---------- Forwarded message ----------\nFrom: \(m.from.display) <\(m.from.email)>\nDate: \(Fmt.long(m.date))\nSubject: \(m.subject)", html, plain)
+            return ("---------- Forwarded message ----------\nFrom: \(m.from.display) <\(m.from.email)>\nDate: \(m.date.formatted(date: .abbreviated, time: .shortened))\nSubject: \(m.subject)", html, plain)
         }
-        return ("On \(Fmt.long(m.date)), \(m.from.display) wrote:", html, plain)
+        return ("On \(m.date.formatted(date: .abbreviated, time: .shortened)), \(m.from.display) wrote:", html, plain)
     }
 
     /// Fills To, Cc and Subject for the chosen kind of message; what was typed in the body stays.
