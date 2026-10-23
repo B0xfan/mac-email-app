@@ -198,6 +198,10 @@ public struct TodoTask: Equatable {
     public var subject: String
     public var link: URL
     public var projectKnown = true   // false: the typed project has no note, so the Obsidian note gets no projects field
+    public init(title: String, project: String? = nil, priority: TodoPriority? = nil, due: TodoDue? = nil, senderName: String, senderEmail: String, subject: String, link: URL, projectKnown: Bool = true) {
+        self.title = title; self.project = project; self.priority = priority; self.due = due; self.senderName = senderName
+        self.senderEmail = senderEmail; self.subject = subject; self.link = link; self.projectKnown = projectKnown
+    }
     public var detail: String {
         "From: \(senderName.isEmpty ? senderEmail : "\(senderName) <\(senderEmail)>")\nSubject: \(subject)\nEmail: \(link.absoluteString)"
     }

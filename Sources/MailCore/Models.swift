@@ -229,7 +229,7 @@ extension String {
 // MARK: - HTML safety
 
 public enum HTMLSafety {
-    public struct Report { var trackers: Int; var remoteImages: Int
+    public struct Report { public var trackers: Int; public var remoteImages: Int
         public init(trackers: Int, remoteImages: Int) { self.trackers = trackers; self.remoteImages = remoteImages }
         public var line: String { "\(trackers) tracker\(trackers == 1 ? "" : "s") blocked" }
     }
