@@ -1,0 +1,198 @@
+import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
+import MailCore
+
+struct ComposeSeed: Identifiable {
+    enum Mode: String { case new = "New message", reply = "Reply", replyAll = "Reply all", forward = "Forward" }
+    let id = UUID()
+    var mode: Mode
+    var source: Mail?
+}
+
+struct ComposeView: View {
+    let seed: ComposeSeed
+    @EnvironmentObject var store: PhoneStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode: ComposeSeed.Mode
+    @State private var chips: [String] = []
+    @State private var toInput = ""
+    @State private var cc = ""
+    @State private var subject = ""
+    @State private var text = ""
+    struct Attach: Identifiable { let id = UUID(); var name: String; var data: Data; var mime: String }
+    @State private var attachments: [Attach] = []
+    @State private var sending = false
+    @State private var problem: String?
+    @State private var askDiscard = false
+    @State private var photos: [PhotosPickerItem] = []
+    @State private var pickFile = false
+    @FocusState private var focus: Bool
+    private static let sizeLimit = 20_000_000   // Gmail refuses more than about 25 MB in all
+
+    init(seed: ComposeSeed) { self.seed = seed; _mode = State(initialValue: seed.mode) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button("Cancel") { if text.isEmpty && attachments.isEmpty { dismiss() } else { askDiscard = true } }.frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                Spacer()
+                Text(mode.rawValue).font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.text)
+                Spacer()
+                Button { Task { await send() } } label: { if sending { ProgressView() } else { Text("Send").fontWeight(.bold) } }
+                    .frame(minWidth: 44, minHeight: 44, alignment: .trailing).disabled(sending)
+            }
+            .font(.system(size: 17)).foregroundStyle(Theme.acc).padding(.horizontal, 14)
+            if seed.source != nil {
+                HStack(spacing: 6) {
+                    ForEach([ComposeSeed.Mode.reply, .replyAll, .forward], id: \.self) { m in
+                        Button { mode = m; fill() } label: {
+                            Text(m.rawValue).font(.system(size: 13, weight: mode == m ? .bold : .semibold)).frame(maxWidth: .infinity, minHeight: 36)
+                                .background(Capsule().fill(mode == m ? Theme.selStrong : Theme.card)).overlay(Capsule().stroke(mode == m ? Theme.acc : Theme.line, lineWidth: 1))
+                        }.foregroundStyle(Theme.text).accessibilityAddTraits(mode == m ? .isSelected : [])
+                    }
+                }.padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 10)
+            }
+            if let problem { BannerView(text: problem) }
+            ScrollView {
+                VStack(spacing: 0) {
+                    field("To") {
+                        HStack {
+                            ForEach(chips, id: \.self) { c in
+                                Button { chips.removeAll { $0 == c } } label: { Text(c).font(.system(size: 14)).lineLimit(1).padding(.horizontal, 10).padding(.vertical, 3).background(Capsule().fill(Theme.selStrong)) }
+                                    .foregroundStyle(Theme.text).accessibilityLabel("\(c), tap to remove")
+                            }
+                            TextField(chips.isEmpty ? "Name or address" : "Add another person", text: $toInput).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled()
+                                .onChange(of: toInput) { _, v in if v.hasSuffix(",") || v.hasSuffix(" ") { commitInput() } }
+                                .onSubmit { commitInput() }
+                        }
+                    }
+                    field("Cc/Bcc") { TextField("Add if needed", text: $cc).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled() }
+                    field("Subject") { TextField("", text: $subject) }
+                    VStack(alignment: .leading, spacing: 16) {
+                        TextField("", text: $text, axis: .vertical).focused($focus).frame(minHeight: 100, alignment: .top).accessibilityLabel("Message")
+                        if let q = quote {
+                            Text(q.header + "\n" + q.plain).font(.system(size: 14.5)).foregroundStyle(Theme.sub).lineLimit(12)
+                                .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(Theme.line).frame(width: 3) }
+                        }
+                        ForEach(attachments) { a in
+                            HStack { Label(a.name, systemImage: "paperclip").lineLimit(1); Spacer(); Button { attachments.removeAll { $0.id == a.id } } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove \(a.name)") }
+                                .font(.system(size: 14)).foregroundStyle(Theme.sub)
+                        }
+                    }
+                    .font(.system(size: 16.5)).padding(.horizontal, 20).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading).background(Theme.card)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            HStack(spacing: 18) {
+                PhotosPicker(selection: $photos, maxSelectionCount: 5, matching: .images) { Image(systemName: "photo").font(.system(size: 20)) }.accessibilityLabel("Add pictures")
+                Button { pickFile = true } label: { Image(systemName: "paperclip").font(.system(size: 20)) }.accessibilityLabel("Add files")
+                Spacer()
+                Text("Photos and files").font(.system(size: 12)).foregroundStyle(Theme.sub)
+            }
+            .foregroundStyle(Theme.acc).padding(.horizontal, 16).frame(minHeight: 44)
+            .background(Theme.side).overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        }
+        .background(Theme.bg)
+        .tint(Theme.acc)
+        .foregroundStyle(Theme.text)
+        .onAppear { fill(first: true) }
+        .onChange(of: photos) { _, items in Task { await addPhotos(items) } }
+        .fileImporter(isPresented: $pickFile, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in if case .success(let urls) = r { addFiles(urls) } }
+        .confirmationDialog("Discard this message?", isPresented: $askDiscard, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        }
+    }
+
+    private func field<C: View>(_ label: String, @ViewBuilder _ content: () -> C) -> some View {
+        HStack(spacing: 10) {
+            Text(label).foregroundStyle(Theme.sub).frame(width: 56, alignment: .leading)
+            content().font(.system(size: 16)).frame(minHeight: 44)
+        }
+        .padding(.horizontal, 20).frame(minHeight: 48).background(Theme.card).overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
+    /// What the reply or forward quotes under the new text.
+    private var quote: (header: String, html: String, plain: String)? {
+        guard let m = seed.source else { return nil }
+        let html = m.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
+        let plain = m.text ?? TextTools.htmlToPlain(m.html ?? m.snippet)
+        if mode == .forward {
+            return ("---------- Forwarded message ----------\nFrom: \(m.from.display) <\(m.from.email)>\nDate: \(Fmt.long(m.date))\nSubject: \(m.subject)", html, plain)
+        }
+        return ("On \(Fmt.long(m.date)), \(m.from.display) wrote:", html, plain)
+    }
+
+    /// Fills To, Cc and Subject for the chosen kind of message; what was typed in the body stays.
+    private func fill(first: Bool = false) {
+        guard let m = seed.source else { return }
+        let mine = store.myAddresses
+        switch mode {
+        case .forward:
+            chips = []; cc = ""
+            subject = m.subject.lowercased().hasPrefix("fwd:") ? m.subject : "Fwd: \(m.subject)"
+        default:
+            var primary = m.replyTo.map(Address.parse).flatMap { $0.email.contains("@") ? $0 : nil } ?? m.from
+            if mine.contains(primary.email.lowercased()) { primary = Address.parseList(m.to).first { !mine.contains($0.email.lowercased()) } ?? primary }   // answering one's own email
+            var seen = Set([primary.email.lowercased()]), others: [String] = []
+            if mode == .replyAll {
+                for a in Address.parseList(m.to) + Address.parseList(m.cc) where a.email.contains("@") && !mine.contains(a.email.lowercased()) && seen.insert(a.email.lowercased()).inserted { others.append(a.email) }
+            }
+            chips = [primary.email]; cc = others.joined(separator: ", ")
+            subject = m.subject.lowercased().hasPrefix("re:") ? m.subject : "Re: \(m.subject)"
+        }
+        if first, mode != .forward { focus = true }
+    }
+
+    private func commitInput() {
+        let parts = toInput.split(whereSeparator: { ", ;".contains($0) }).map(String.init)
+        for p in parts where p.contains("@") && !chips.contains(p) { chips.append(p) }
+        toInput = parts.filter { !$0.contains("@") }.joined(separator: " ")
+    }
+
+    private func addPhotos(_ items: [PhotosPickerItem]) async {
+        for (i, it) in items.enumerated() {
+            guard let d = try? await it.loadTransferable(type: Data.self) else { continue }
+            let t = it.supportedContentTypes.first
+            attachments.append(Attach(name: "photo-\(attachments.count + i + 1).\(t?.preferredFilenameExtension ?? "jpg")", data: d, mime: t?.preferredMIMEType ?? "image/jpeg"))
+        }
+        photos = []
+        checkSize()
+    }
+    private func addFiles(_ urls: [URL]) {
+        for u in urls {
+            let ok = u.startAccessingSecurityScopedResource(); defer { if ok { u.stopAccessingSecurityScopedResource() } }
+            guard let d = try? Data(contentsOf: u) else { continue }
+            attachments.append(Attach(name: u.lastPathComponent, data: d, mime: UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"))
+        }
+        checkSize()
+    }
+    private var tooBig: Bool { attachments.reduce(0) { $0 + $1.data.count } > Self.sizeLimit }
+    private func checkSize() {
+        if tooBig { problem = "The pictures and files are too big to send together (the limit is about 20 MB). Remove some." }
+        else if problem?.hasPrefix("The pictures") == true { problem = nil }
+    }
+
+    private func send() async {
+        commitInput()
+        guard !chips.isEmpty else { problem = "Add at least one person in To."; return }
+        guard !tooBig else { checkSize(); return }
+        sending = true; defer { sending = false }
+        var html = TextTools.plainToHTML(text), plain = text
+        if let q = quote {
+            html += "<br><br><div>" + TextTools.plainToHTML(q.header) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(q.html)</blockquote>"
+            plain += "\n\n" + q.header + "\n" + q.plain.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
+        }
+        var out = MIME.Outgoing(from: store.defaultFrom, to: chips.joined(separator: ", "), cc: cc, subject: subject, html: html, text: plain, attachments: attachments.map { ($0.name, $0.data, $0.mime) })
+        if let m = seed.source, mode != .forward {
+            out.inReplyTo = m.messageIDHeader
+            out.references = (m.references + " " + m.messageIDHeader).trimmingCharacters(in: .whitespaces)
+        }
+        do {
+            try await store.send(out, threadID: mode == .forward ? nil : seed.source?.threadID)
+            dismiss()
+        } catch GmailError.signInAgain { dismiss() }
+        catch { problem = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here." }
+    }
+}
