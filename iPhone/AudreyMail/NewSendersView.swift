@@ -58,7 +58,7 @@ struct NewSendersView: View {
         #endif
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) { blockTarget = nil; Task { await store.block(t) } } cancel: { blockTarget = nil }
-                .presentationDetents([.height(380)])
+                .presentationDetents([.height(380), .large])
         }
         .confirmationDialog("Block everyone listed here?", isPresented: $askAll, titleVisibility: .visible) {
             Button("Block all", role: .destructive) { Task { await store.blockAllNewSenders() } }

@@ -246,7 +246,8 @@ final class PhoneStore: ObservableObject {
         let rows = newSenderRows
         _ = try? await flow.ensureLabel()   // once, so the parallel blocks do not each try to create it
         let ok = await mapLimited(rows, limit: 3) { m in await self.block(m, announce: false) }
-        if ok.contains(true) { show("Blocked everyone. They were not told.") }
+        let n = ok.filter { $0 }.count
+        if n == ok.count { show("Blocked everyone. They were not told.") } else if n > 0 { show("Blocked \(n) of \(ok.count). The rest could not be blocked just now.") }
     }
 
     // MARK: - Changes to mail (the screen changes at once; Gmail is told in order)
@@ -349,8 +350,14 @@ final class PhoneStore: ObservableObject {
     }
 
     func send(_ out: MIME.Outgoing, threadID: String?) async throws {
-        do { _ = try await gmail.sendRaw(MIME.build(out), threadID: threadID) }
-        catch GmailError.signInAgain { await expire(); throw GmailError.signInAgain }
+        let raw = MIME.build(out)
+        do { _ = try await gmail.sendRaw(raw, threadID: threadID) }
+        catch GmailError.signInAgain {
+            // an old access token is not the end of the sign-in: get a new one and send once more; the typed message stays on screen if that fails too
+            await sign.invalidateAccessToken()
+            guard (try? await sign.validAccessToken()) != nil else { await expire(); throw GmailError.signInAgain }
+            _ = try await gmail.sendRaw(raw, threadID: threadID)
+        }
         show("Sent.")
     }
 

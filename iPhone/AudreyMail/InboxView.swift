@@ -45,7 +45,11 @@ struct InboxView: View {
                     .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
                     .swipeActions(edge: .leading, allowsFullSwipe: true) { Button { store.archive(m) } label: { Label("Archive", systemImage: "archivebox") }.tint(Theme.acc) }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) { Button { store.trash(m) } label: { Label("Trash", systemImage: "trash") }.tint(Theme.danger) }
-                    .onAppear { if m.id == rows.last?.id { Task { await store.loadMore() } } }
+            }
+            if store.hasMore {   // a tab can hold few rows of each batch, so older mail is asked for here, not from the last row
+                Button { Task { await store.loadMore() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
+                    .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
+                    .onAppear { Task { await store.loadMore() } }
             }
             if rows.isEmpty {
                 Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)

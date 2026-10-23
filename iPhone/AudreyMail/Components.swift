@@ -62,6 +62,7 @@ struct ToastView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.text))
         .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
+        .accessibilityAction(named: "Undo") { toast.undo?() }
     }
 }
 
@@ -102,6 +103,7 @@ struct MailWebView: UIViewRepresentable {
         let wv = WKWebView(frame: .zero, configuration: cfg)
         wv.navigationDelegate = context.coordinator
         wv.scrollView.isScrollEnabled = false
+        wv.isOpaque = false; wv.backgroundColor = .clear; wv.scrollView.backgroundColor = .clear   // a text email shows on the app's own background
         let c = context.coordinator
         c.view = wv
         c.observation = wv.scrollView.observe(\.contentSize, options: [.new]) { [weak c] sv, _ in
@@ -131,7 +133,7 @@ struct MailWebView: UIViewRepresentable {
             if let c = MailWebView.compiled { v.configuration.userContentController.add(c); go(); return }
             WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "block-remote", encodedContentRuleList: MailWebView.rules) { list, _ in
                 DispatchQueue.main.async {
-                    if let list { MailWebView.compiled = list; v.configuration.userContentController.add(list) }
+                    if let list { MailWebView.compiled = list; if !self.remote { v.configuration.userContentController.add(list) } }   // "Show" tapped meanwhile: no block rule
                     go()
                 }
             }

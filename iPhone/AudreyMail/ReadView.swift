@@ -6,6 +6,7 @@ struct ReadView: View {
     @EnvironmentObject var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
     @State private var full: Mail?
+    @State private var cleaned: (html: String, remote: Int)?   // worked out once when the email loads, not on every redraw
     @State private var failed: String?
     @State private var showImages = false
     @State private var webHeight: CGFloat = 120
@@ -69,7 +70,7 @@ struct ReadView: View {
                 blockTarget = nil
                 Task { if await store.block(t) { dismiss() } }
             } cancel: { blockTarget = nil }
-            .presentationDetents([.height(380)])
+            .presentationDetents([.height(380), .large])
         }
     }
 
@@ -79,12 +80,12 @@ struct ReadView: View {
         } else if full == nil {
             Text(m.snippet).font(.system(size: 16.5)).foregroundStyle(Theme.sub)
         } else {
-            let raw = m.html.map { HTMLSafety.process($0).html ?? $0 } ?? TextTools.plainToHTML(m.text ?? m.snippet)
+            let raw = cleaned?.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
             MailWebView(html: raw, allowRemote: showImages, plain: m.html == nil, height: $webHeight).frame(height: max(webHeight, 40)).clipShape(RoundedRectangle(cornerRadius: 12))
         }
     }
 
-    private func hasRemotePictures(_ m: Mail) -> Bool { m.html.map { HTMLSafety.process($0).report.remoteImages > 0 } ?? false }
+    private func hasRemotePictures(_ m: Mail) -> Bool { (cleaned?.remote ?? 0) > 0 }
 
     private func toLine(_ m: Mail) -> String {
         let first = Address.parseList(m.to).first
@@ -94,13 +95,19 @@ struct ReadView: View {
 
     private func load() async {
         do {
-            full = try await store.fullMessage(mail); store.markRead(mail)
+            let f = try await store.fullMessage(mail)
+            if let h = f.html { let p = HTMLSafety.process(h); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
+            full = f; store.markRead(mail)
             #if DEBUG
             if DemoMode.screen == "write" { compose = ComposeSeed(mode: .reply, source: full) }
             if DemoMode.screen == "block" { blockTarget = full }
             #endif
         }
-        catch { failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened."; await store.fail(error, "") }
+        catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }   // went back before it finished
+            failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened."
+            await store.fail(error, "This email could not be opened.")
+        }
     }
 
     private func actionBar() -> some View {

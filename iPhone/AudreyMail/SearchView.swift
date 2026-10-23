@@ -48,8 +48,9 @@ struct SearchView: View {
             List {
                 if !loc.isEmpty { Section { rows(loc) } header: { header("On this phone · \(loc.count)") } }
                 if !more.isEmpty { Section { rows(more) } header: { header("From Gmail · \(more.count)") } }
+                if let failed, !searching { Text(failed).foregroundStyle(Theme.sub).listRowBackground(Theme.card) }
                 if searching { HStack(spacing: 10) { ProgressView(); Text("Also searching all of Gmail…").foregroundStyle(Theme.sub) }.listRowBackground(Theme.card) }
-                else if loc.isEmpty && more.isEmpty { Text(failed ?? "No mail found").foregroundStyle(Theme.sub).listRowBackground(Theme.card) }
+                else if loc.isEmpty && more.isEmpty && failed == nil { Text("No mail found").foregroundStyle(Theme.sub).listRowBackground(Theme.card) }
                 Text("Mail already on this phone shows first. Older mail from Gmail is added below as it arrives.").font(.system(size: 12.5)).foregroundStyle(Theme.sub).listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             .listStyle(.plain).scrollContentBackground(.hidden)

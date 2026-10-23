@@ -24,7 +24,7 @@ jobs:
           xcodebuild build -project iPhone/AudreyMail.xcodeproj -scheme AudreyMail -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath dd CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
       - name: Checks and screen pictures
-        run: scripts/ios-check.sh "$(find dd/Build/Products -name AudreyMail.app -maxdepth 3 | head -1)" ios-shots
+        run: scripts/ios-check.sh "$(find dd/Build/Products -maxdepth 3 -name AudreyMail.app | head -1)" ios-shots
       - uses: actions/upload-artifact@v4
         if: always()
         with:

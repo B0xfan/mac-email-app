@@ -18,6 +18,10 @@ struct ComposeView: View {
     @State private var chips: [String] = []
     @State private var toInput = ""
     @State private var cc = ""
+    @State private var bcc = ""
+    @State private var showCc = false
+    @State private var quote: (header: String, html: String, plain: String)?   // worked out once per kind of message, not on every key
+    @State private var auto: (to: [String], cc: String, subject: String) = ([], "", "")   // what the app filled in, so a kind switch never overwrites the user's own edits
     @State private var subject = ""
     @State private var text = ""
     struct Attach: Identifiable { let id = UUID(); var name: String; var data: Data; var mime: String }
@@ -28,14 +32,14 @@ struct ComposeView: View {
     @State private var photos: [PhotosPickerItem] = []
     @State private var pickFile = false
     @FocusState private var focus: Bool
-    private static let sizeLimit = 20_000_000   // Gmail refuses more than about 25 MB in all
+    private static let sizeLimit = 18_000_000   // sending adds about a third (encoding); Gmail refuses more than 25 MB in all
 
     init(seed: ComposeSeed) { self.seed = seed; _mode = State(initialValue: seed.mode) }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Cancel") { if text.isEmpty && attachments.isEmpty { dismiss() } else { askDiscard = true } }.frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                Button("Cancel") { if text.isEmpty && attachments.isEmpty { dismiss() } else { askDiscard = true } }.frame(minWidth: 44, minHeight: 44, alignment: .leading).disabled(sending)
                 Spacer()
                 Text(mode.rawValue).font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.text)
                 Spacer()
@@ -67,7 +71,12 @@ struct ComposeView: View {
                                 .onSubmit { commitInput() }
                         }
                     }
-                    field("Cc/Bcc") { TextField("Add if needed", text: $cc).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled() }
+                    if showCc || !cc.isEmpty || !bcc.isEmpty {
+                        field("Cc") { TextField("", text: $cc).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled() }
+                        field("Bcc") { TextField("Hidden from the others", text: $bcc).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled() }
+                    } else {
+                        field("Cc/Bcc") { Button { showCc = true } label: { Text("Add if needed").foregroundStyle(Theme.sub).frame(maxWidth: .infinity, alignment: .leading) } }
+                    }
                     field("Subject") { TextField("", text: $subject) }
                     VStack(alignment: .leading, spacing: 16) {
                         TextField("", text: $text, axis: .vertical).focused($focus).frame(minHeight: 100, alignment: .top).accessibilityLabel("Message")
@@ -114,7 +123,7 @@ struct ComposeView: View {
     }
 
     /// What the reply or forward quotes under the new text.
-    private var quote: (header: String, html: String, plain: String)? {
+    private func makeQuote() -> (header: String, html: String, plain: String)? {
         guard let m = seed.source else { return nil }
         let html = m.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
         let plain = m.text ?? TextTools.htmlToPlain(m.html ?? m.snippet)
@@ -127,11 +136,12 @@ struct ComposeView: View {
     /// Fills To, Cc and Subject for the chosen kind of message; what was typed in the body stays.
     private func fill(first: Bool = false) {
         guard let m = seed.source else { return }
+        quote = makeQuote()
         let mine = store.myAddresses
+        var to: [String] = [], ccNew = "", subj: String
         switch mode {
         case .forward:
-            chips = []; cc = ""
-            subject = m.subject.lowercased().hasPrefix("fwd:") ? m.subject : "Fwd: \(m.subject)"
+            subj = m.subject.lowercased().hasPrefix("fwd:") ? m.subject : "Fwd: \(m.subject)"
         default:
             var primary = m.replyTo.map(Address.parse).flatMap { $0.email.contains("@") ? $0 : nil } ?? m.from
             if mine.contains(primary.email.lowercased()) { primary = Address.parseList(m.to).first { !mine.contains($0.email.lowercased()) } ?? primary }   // answering one's own email
@@ -139,23 +149,29 @@ struct ComposeView: View {
             if mode == .replyAll {
                 for a in Address.parseList(m.to) + Address.parseList(m.cc) where a.email.contains("@") && !mine.contains(a.email.lowercased()) && seen.insert(a.email.lowercased()).inserted { others.append(a.email) }
             }
-            chips = [primary.email]; cc = others.joined(separator: ", ")
-            subject = m.subject.lowercased().hasPrefix("re:") ? m.subject : "Re: \(m.subject)"
+            to = [primary.email]; ccNew = others.joined(separator: ", ")
+            subj = m.subject.lowercased().hasPrefix("re:") ? m.subject : "Re: \(m.subject)"
         }
+        // only what the app filled in itself is replaced; anything the person changed stays
+        if first || chips == auto.to { chips = to }
+        if first || cc == auto.cc { cc = ccNew }
+        if first || subject == auto.subject { subject = subj }
+        auto = (to, ccNew, subj)
         if first, mode != .forward { focus = true }
     }
 
     private func commitInput() {
         let parts = toInput.split(whereSeparator: { ", ;".contains($0) }).map(String.init)
-        for p in parts where p.contains("@") && !chips.contains(p) { chips.append(p) }
-        toInput = parts.filter { !$0.contains("@") }.joined(separator: " ")
+        for p in parts { let e = Address.parse(p).email; if e.contains("@"), !chips.contains(e) { chips.append(e) } }   // "Jane <jane@x.com>" and "<jane@x.com>" both give jane@x.com
+        toInput = parts.filter { !Address.parse($0).email.contains("@") }.joined(separator: " ")
     }
 
     private func addPhotos(_ items: [PhotosPickerItem]) async {
+        let base = attachments.count
         for (i, it) in items.enumerated() {
             guard let d = try? await it.loadTransferable(type: Data.self) else { continue }
             let t = it.supportedContentTypes.first
-            attachments.append(Attach(name: "photo-\(attachments.count + i + 1).\(t?.preferredFilenameExtension ?? "jpg")", data: d, mime: t?.preferredMIMEType ?? "image/jpeg"))
+            attachments.append(Attach(name: "photo-\(base + i + 1).\(t?.preferredFilenameExtension ?? "jpg")", data: d, mime: t?.preferredMIMEType ?? "image/jpeg"))
         }
         photos = []
         checkSize()
@@ -163,19 +179,22 @@ struct ComposeView: View {
     private func addFiles(_ urls: [URL]) {
         for u in urls {
             let ok = u.startAccessingSecurityScopedResource(); defer { if ok { u.stopAccessingSecurityScopedResource() } }
-            guard let d = try? Data(contentsOf: u) else { continue }
+            let have = attachments.reduce(0) { $0 + $1.data.count }
+            if let size = try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize, have + size > Self.sizeLimit { problem = "\(u.lastPathComponent) is too big to send with the rest (the limit is about 18 MB)."; continue }
+            guard let d = try? Data(contentsOf: u) else { problem = "\(u.lastPathComponent) could not be read. If it is in iCloud, open it in Files first so it downloads."; continue }
             attachments.append(Attach(name: u.lastPathComponent, data: d, mime: UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"))
         }
         checkSize()
     }
     private var tooBig: Bool { attachments.reduce(0) { $0 + $1.data.count } > Self.sizeLimit }
     private func checkSize() {
-        if tooBig { problem = "The pictures and files are too big to send together (the limit is about 20 MB). Remove some." }
+        if tooBig { problem = "The pictures and files are too big to send together (the limit is about 18 MB). Remove some." }
         else if problem?.hasPrefix("The pictures") == true { problem = nil }
     }
 
     private func send() async {
         commitInput()
+        if !toInput.trimmingCharacters(in: .whitespaces).isEmpty { problem = "\"\(toInput)\" is not an email address. Fix it or clear it."; return }
         guard !chips.isEmpty else { problem = "Add at least one person in To."; return }
         guard !tooBig else { checkSize(); return }
         sending = true; defer { sending = false }
@@ -184,7 +203,7 @@ struct ComposeView: View {
             html += "<br><br><div>" + TextTools.plainToHTML(q.header) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(q.html)</blockquote>"
             plain += "\n\n" + q.header + "\n" + q.plain.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
         }
-        var out = MIME.Outgoing(from: store.defaultFrom, to: chips.joined(separator: ", "), cc: cc, subject: subject, html: html, text: plain, attachments: attachments.map { ($0.name, $0.data, $0.mime) })
+        var out = MIME.Outgoing(from: store.defaultFrom, to: chips.joined(separator: ", "), cc: cc, bcc: bcc, subject: subject, html: html, text: plain, attachments: attachments.map { ($0.name, $0.data, $0.mime) })
         if let m = seed.source, mode != .forward {
             out.inReplyTo = m.messageIDHeader
             out.references = (m.references + " " + m.messageIDHeader).trimmingCharacters(in: .whitespaces)
@@ -192,7 +211,6 @@ struct ComposeView: View {
         do {
             try await store.send(out, threadID: mode == .forward ? nil : seed.source?.threadID)
             dismiss()
-        } catch GmailError.signInAgain { dismiss() }
-        catch { problem = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here." }
+        } catch { problem = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here." }
     }
 }

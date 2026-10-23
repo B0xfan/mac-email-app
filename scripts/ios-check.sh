@@ -3,6 +3,7 @@
 # runs its built-in checks, and takes a picture of each screen in light and dark. Usage: ios-check.sh <built .app> <picture folder>
 set -u
 APP="$1"; OUT="$2"; mkdir -p "$OUT"
+[ -d "$APP" ] || { echo "no .app found"; exit 1; }
 UDID=$(xcrun simctl list devices available -j | python3 -c '
 import json,sys
 d=json.load(sys.stdin)["devices"]
@@ -24,7 +25,7 @@ for mode in light dark; do
   xcrun simctl ui "$UDID" appearance $mode
   for s in signin signinagain inbox read write search new block settings; do
     xcrun simctl terminate "$UDID" $BID >/dev/null 2>&1 || true
-    xcrun simctl launch "$UDID" $BID -demo $s >/dev/null
+    xcrun simctl launch "$UDID" $BID -demo $s >/dev/null || rc=1
     sleep 9
     xcrun simctl io "$UDID" screenshot "$OUT/$s-$mode.png" >/dev/null 2>&1 || rc=1
   done
