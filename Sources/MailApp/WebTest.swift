@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import MailCore
 
 /// `MailApp --webtest <port>`: checks the message view (scripts off, remote images blocked) and the compose editor
 /// without showing any window. A tiny local server on <port> records whether a remote image was fetched.

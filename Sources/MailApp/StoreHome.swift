@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import WebKit
+import MailCore
 
 /// Home Screen and the To-field suggestions.
 extension MailStore {

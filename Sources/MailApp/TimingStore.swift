@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// Phase 3: Snooze, Send Later, follow-up reminders and Quick Replies.
 extension MailStore {

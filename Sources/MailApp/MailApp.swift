@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Shows the window again when the app is reopened (Finder, Spotlight, Dock) while it is
 /// still running with its window closed. SwiftUI does not forward the reopen request to

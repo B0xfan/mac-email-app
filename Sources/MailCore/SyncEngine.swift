@@ -1,18 +1,19 @@
 import Foundation
 
 /// How far the copy of the mailbox onto this Mac has come. A plain value; no screen shows it yet (a drawing comes first).
-struct SyncProgress: Equatable, Sendable {
-    enum Phase: Equatable, Sendable {
+public struct SyncProgress: Equatable, Sendable {
+    public enum Phase: Equatable, Sendable {
         case notStarted
         case copying      // the first full copy is running
         case upToDate     // everything is here and kept current
         case waiting      // stopped by a problem (offline, Gmail busy); it carries on by itself at the next check
     }
-    var phase: Phase = .notStarted
-    var stored = 0        // messages copied so far
-    var total = 0         // messages Gmail says the mailbox holds (it also counts Trash and Spam, which are not copied, so this is a little high)
+    public var phase: Phase = .notStarted
+    public var stored = 0        // messages copied so far
+    public init(phase: Phase = .notStarted, stored: Int = 0, total: Int = 0) { self.phase = phase; self.stored = stored; self.total = total }
+    public var total = 0         // messages Gmail says the mailbox holds (it also counts Trash and Spam, which are not copied, so this is a little high)
     /// 0 to 1, for a line like "Getting your older mail, 40%".
-    var fraction: Double { phase == .upToDate ? 1 : total > 0 ? min(Double(stored) / Double(total), 0.99) : 0 }
+    public var fraction: Double { phase == .upToDate ? 1 : total > 0 ? min(Double(stored) / Double(total), 0.99) : 0 }
 }
 
 /// Copies the mailbox into the database (plan step 3) and keeps it current (step 4), always in the background.
@@ -20,35 +21,36 @@ struct SyncProgress: Equatable, Sendable {
 /// - Uses at most about half of Gmail's allowance (the background share of `QuotaGate`), so John's own clicks are never held up.
 /// - Everything that matters is written down as it happens (the place in Gmail's list, each message), so a quit, a crash or a lost connection
 ///   loses nothing: the next start carries on from the same place and never asks for a message it already has.
-final class SyncEngine: @unchecked Sendable {
-    let gmail: GmailClient
-    let db: MailDB
+public final class SyncEngine: @unchecked Sendable {
+    public static let textDefault = 90   // days of mail text kept; AppSettings.textDefault uses the same number
+    public let gmail: GmailClient
+    public let db: MailDB
     /// Messages asked for per list page (Gmail's most is 500) and fetched at once.
-    var pageSize = 500
-    var fetchAtOnce = 4
-    var onProgress: (@Sendable (SyncProgress) -> Void)?
+    public var pageSize = 500
+    public var fetchAtOnce = 4
+    public var onProgress: (@Sendable (SyncProgress) -> Void)?
     /// Called when stored rows changed in a way a list on screen may need to show.
-    var onChange: (@Sendable () -> Void)?
+    public var onChange: (@Sendable () -> Void)?
     private let lock = NSLock()
     private var syncTask: Task<Void, Never>?
-    private(set) var progress = SyncProgress()
+    public private(set) var progress = SyncProgress()
     // the outbox (step 6)
-    var now: @Sendable () -> Date = { Date() }
+    public var now: @Sendable () -> Date = { Date() }
     /// false only in checks: a paused change is then retried by the next kick instead of by a timer.
-    var autoRetry = true
+    public var autoRetry = true
     private var outTask: Task<Void, Never>?
     private var outAgain = false
     private var retryTimer: Task<Void, Never>?
 
     // full text (Settings > Storage)
-    private var _textDays = AppSettings.textDefault
+    private var _textDays = SyncEngine.textDefault
     private var sawOld = false
     /// Mail newer than this many days keeps its full text (plus anything John opened); older mail keeps sender, subject and a preview.
-    var textDays: Int {
+    public var textDays: Int {
         get { lock.lock(); defer { lock.unlock() }; return _textDays }
         set { lock.lock(); _textDays = newValue; lock.unlock() }
     }
-    func textCutoff() -> Date { now().addingTimeInterval(-Double(textDays) * 86400) }
+    public func textCutoff() -> Date { now().addingTimeInterval(-Double(textDays) * 86400) }
     /// Newest first: once a read message is older than the cutoff, the rest of this pass reads metadata only (the full text of recent mail is the only text kept).
     private func textWanted() -> Bool { lock.lock(); defer { lock.unlock() }; return !sawOld }
     private func noteOld(_ old: Bool) { lock.lock(); sawOld = sawOld || old; lock.unlock() }
@@ -56,12 +58,12 @@ final class SyncEngine: @unchecked Sendable {
     /// Stored copies counted so far in this run, so a page of the copy does not count the whole table again (`publish(exact: false)`).
     private var runningStored = 0
 
-    init(gmail: GmailClient, db: MailDB) { self.gmail = gmail; self.db = db; db.resetRetries() }
+    public init(gmail: GmailClient, db: MailDB) { self.gmail = gmail; self.db = db; db.resetRetries() }
 
     // MARK: - Running
 
     /// Starts a pass in the background unless one is already running. Cheap to call often (every quiet check does).
-    func kickSync() {
+    public func kickSync() {
         lock.lock(); defer { lock.unlock() }
         guard syncTask == nil else { return }
         syncTask = Task(priority: .utility) { [weak self] in
@@ -72,11 +74,11 @@ final class SyncEngine: @unchecked Sendable {
     private func syncFinished() { lock.lock(); syncTask = nil; lock.unlock() }
 
     /// Waits for the running pass (tests, and before the stored mail is deleted).
-    func waitIdle() async { await runningPass()?.value }
+    public func waitIdle() async { await runningPass()?.value }
     private func runningPass() -> Task<Void, Never>? { lock.lock(); defer { lock.unlock() }; return syncTask }
 
     /// Stops everything and waits until nothing is writing any more.
-    func stopAndWait() async {
+    public func stopAndWait() async {
         let t = runningPass(), o = runningOutbox()
         stopTimer()
         t?.cancel(); o?.cancel()
@@ -84,7 +86,7 @@ final class SyncEngine: @unchecked Sendable {
     }
 
     /// One pass: start the full copy if there is none yet, then carry it on. Returns when it is done or stopped by a problem.
-    func syncPass() async {
+    public func syncPass() async {
         await GmailClient.$background.withValue(true) { await self.syncBody() }
     }
 
@@ -125,7 +127,7 @@ final class SyncEngine: @unchecked Sendable {
     /// Writes down where Gmail's change list stands NOW (Google's documented order: note the number first, then list), starts a new round and
     /// forgets the place in the list. `stale`: the rows already stored may be out of date, so every one is read again.
     /// All of it is written together; a database that refuses stops the pass (a half-written start would copy the mailbox again at every check).
-    func startFullSync(stale: Bool) async throws {
+    public func startFullSync(stale: Bool) async throws {
         let p = try await gmail.profileInfo()
         let epoch = (Int(db.state("epoch") ?? "") ?? 0) + 1
         let wrote = db.transaction {
@@ -175,10 +177,10 @@ final class SyncEngine: @unchecked Sendable {
         return listed
     }
 
-    enum Outcome: Sendable { case read, gone, refused, trouble }
+    public enum Outcome: Sendable { case read, gone, refused, trouble }
 
     /// 404 = gone; another 4xx = this message can never be read (not: sign in again, no permission, timeout, too many requests); anything else is trouble to wait out.
-    static func outcome(forHTTP code: Int) -> Outcome {
+    public static func outcome(forHTTP code: Int) -> Outcome {
         if code == 404 { return .gone }
         return (400..<500).contains(code) && ![401, 403, 408, 429].contains(code) ? .refused : .trouble
     }
@@ -292,13 +294,13 @@ final class SyncEngine: @unchecked Sendable {
     /// a quit or a lost connection. John's own actions are foreground work for the request pacing.
     /// false when the database refused: nothing was queued, and the caller sends the change straight to Gmail.
     @discardableResult
-    func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) -> Bool {
+    public func enqueue(_ kind: OutboxOp.Kind, ids: [String], add: [String] = [], remove: [String] = []) -> Bool {
         guard db.enqueue(kind, ids: ids, add: add, remove: remove) else { return false }
         kickOutbox()
         return true
     }
 
-    func kickOutbox() {
+    public func kickOutbox() {
         lock.lock(); defer { lock.unlock() }
         if outTask != nil { outAgain = true; return }
         outTask = Task { [weak self] in
@@ -329,14 +331,14 @@ final class SyncEngine: @unchecked Sendable {
     }
 
     /// Returns when everything that can be sent right now has been tried. A change waiting out a pause stays queued.
-    func flushOutbox() async {
+    public func flushOutbox() async {
         kickOutbox()
         await runningOutbox()?.value
     }
 
     /// The wait before Gmail is read (so a message just archived is not brought back by the read): only for a short queue. A long one goes on in the background and the
     /// read does not wait for it; the changes still waiting are put back on what the read brings.
-    func flushOutboxIfShort() async {
+    public func flushOutboxIfShort() async {
         kickOutbox()
         if db.outboxMessageCount() <= 20 { await runningOutbox()?.value }
     }
@@ -352,9 +354,9 @@ final class SyncEngine: @unchecked Sendable {
     }
 
     /// The wait before a change is tried again: 5, 10, 20 ... seconds up to 15 minutes. `attempts` = tries made before this one.
-    static func backoff(attempts: Int) -> Double { min(5 * pow(2, Double(min(attempts, 30))), 900) }
+    public static func backoff(attempts: Int) -> Double { min(5 * pow(2, Double(min(attempts, 30))), 900) }
 
-    func drain() async {
+    public func drain() async {
         while !Task.isCancelled, let op = db.claimNextOutbox(now: now()) {   // cancelled first: claiming counts a try
             do { try await send(op); guard db.finish(op.seq) else { return } }   // could not be taken off the list: stop here rather than send it again and again
             catch {

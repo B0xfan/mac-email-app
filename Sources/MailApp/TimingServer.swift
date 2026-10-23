@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// The timing service on the droplet (server/mail-timing/README.md): it sends a scheduled email when this Mac is off.
 /// It holds only the Gmail draft id and the time; the email stays in Gmail. Gmail's own draft send is the lock:

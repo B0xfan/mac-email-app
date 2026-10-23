@@ -2,6 +2,7 @@
 import Foundation
 import ImageIO
 import AppKit
+import MailCore
 
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
 final class StubProtocol: URLProtocol, @unchecked Sendable {

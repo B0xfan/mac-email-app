@@ -1,4 +1,5 @@
 import SwiftUI
+import MailCore
 
 // Away message (Gmail's vacation responder). Gmail holds the setting and sends the reply, so it works with the Mac off.
 // Mail only reads and writes it (settings.basic scope, already requested).

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"

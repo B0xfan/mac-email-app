@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Storage (plan step 8 and the approved drawing): the first-copy line, and later the full text kept for recent mail, the Storage page and the attachment rule.
 extension SelfTest {

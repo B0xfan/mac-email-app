@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Phase 5 (plain-words search, translate, Claude access): pure rules and pretend services. No network, no Keychain, no window.
 extension SelfTest {

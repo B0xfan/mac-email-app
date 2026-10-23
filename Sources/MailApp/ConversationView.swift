@@ -1,4 +1,5 @@
 import SwiftUI
+import MailCore
 
 /// The messages of the open conversation that are folded to one line (approved drawing, Part 2b): the older ones above the open message, any newer ones below it.
 /// Click a line to open that message; the one that was open folds.

@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// The Inbox read from the mail kept on this Mac (plan step 5, the Inbox): once the first copy is complete the Inbox rows come from the stored messages, as conversations, and cost Gmail nothing.
 extension SelfTest {

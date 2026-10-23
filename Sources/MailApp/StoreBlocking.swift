@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// New senders, blocking (always a Gmail filter plus label) and one-click unsubscribe.
 extension MailStore {

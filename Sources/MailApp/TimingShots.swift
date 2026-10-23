@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// `MailApp --timingshots <dir>`: the Phase 3 screens drawn in a real off-screen window (text boxes and pickers
 /// only draw in a real window). Sample mail, a pretend Gmail, nothing sent, no Keychain.

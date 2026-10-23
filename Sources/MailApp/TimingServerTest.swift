@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Send Later with the timing service, against a pretend server and a pretend Gmail. No network.
 extension SelfTest {

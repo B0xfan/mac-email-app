@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import AppKit
 import WebKit
+import MailCore
 
 /// Select several emails at once: the click gestures, Command-A, Esc, the look, and a group action on three emails. Pretend Gmail; no window shown to anyone.
 extension SelfTest {

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import MailCore
 
 // Big files by link: a file too large to attach goes to the user's own Google Drive, anyone with the link can open it,
 // and Mail deletes it from Drive when the chosen time is up. Google gives no way to see downloads, so expiry is the only control.

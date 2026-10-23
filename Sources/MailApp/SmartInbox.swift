@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Foundation
+import MailCore
 
 enum InboxView: String, CaseIterable {
     case smart, classic, unreadFirst

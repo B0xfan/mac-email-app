@@ -1,4 +1,5 @@
 import SwiftUI
+import MailCore
 
 struct BlockedView: View {
     @ObservedObject var store: MailStore

@@ -3,6 +3,7 @@ import AppKit
 import WebKit
 import EventKit
 import UniformTypeIdentifiers
+import MailCore
 
 // Phase 4, Mac polish: Command Center, menu bar, share, print, to-do (store side).
 

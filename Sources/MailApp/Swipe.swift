@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 // MARK: - Swipe actions: two-finger slide on an email row
 

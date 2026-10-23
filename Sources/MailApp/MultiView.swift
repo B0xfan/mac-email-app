@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 /// The reading pane when two or more emails are selected (approved drawing mockup-multiselect-threads.html, part 1).
 struct MultiPanel: View {

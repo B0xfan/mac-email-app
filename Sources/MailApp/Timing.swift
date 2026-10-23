@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MailCore
 
 // Phase 3, timing. Gmail gives other apps no snooze and no scheduled send, so Mail keeps the times itself,
 // on this Mac (timing.json), and acts while it is open. A time missed while Mail was closed or the Mac slept
@@ -161,8 +162,6 @@ enum TimingRules {
         thread.contains { $0.id != sentID && $0.date > sent && !$0.labels.contains("SENT") && !$0.labels.contains("DRAFT") }
     }
 }
-
-struct GThreadMessage: Equatable { let id: String; let labels: [String]; let date: Date }
 
 // MARK: - The time picker (used by Snooze, Send Later, reminders and Change time)
 

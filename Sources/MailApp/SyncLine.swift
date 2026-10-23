@@ -1,4 +1,5 @@
 import SwiftUI
+import MailCore
 
 extension SyncProgress {
     /// The words and percentage of the thin line above the list while the first copy runs (the approved drawing, panel 1); nil when there is nothing to show.

@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Local-first actions and the outbox (plan step 6): the screen changes at once, Gmail is told in order, a failed try is kept and repeated, nothing is lost.
 extension SelfTest {

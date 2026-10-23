@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import Foundation
 import SQLite3
+import MailCore
 
 /// The final review fixes on the local-storage branch (2026-10-16).
 extension SelfTest {

@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import PDFKit
+import MailCore
 
 /// `MailApp --polishtest <folder>`: Phase 4 in a real (off-screen) window with made-up mail. Never signs in, never touches the
 /// Keychain, Gmail, John's vault, or his notes; the to-do goes into a temporary vault and the print goes to a PDF there.

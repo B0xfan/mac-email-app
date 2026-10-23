@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 // Save as note (approved 2026-10-13, SaveAsNote screen): the open email, or its whole conversation, becomes a capture note
 // in the vault's 01 Inbox. Text is cleaned as John asked: each message once, in order; quoted copies, leftover HTML,

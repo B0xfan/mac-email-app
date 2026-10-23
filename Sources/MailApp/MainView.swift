@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 struct MailRoot: View {
     @ObservedObject var store: MailStore

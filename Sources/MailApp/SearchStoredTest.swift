@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import Foundation
 import SQLite3
+import MailCore
 
 /// Search on this Mac first, then "Search all of Gmail too" (approved drawing, panel 2), and the text of the emails John opens (schema 3).
 extension SelfTest {

@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// The copy of the mailbox onto this Mac (plan step 3): newest first, paced to half of Gmail's allowance, and it carries on after a stop without asking for anything twice.
 extension SelfTest {

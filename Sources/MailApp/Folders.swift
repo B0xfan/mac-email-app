@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 // MARK: - Folders: John's Gmail labels shown as folders
 

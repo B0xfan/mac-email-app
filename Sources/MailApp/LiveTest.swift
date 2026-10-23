@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// `MailApp --livetest <folder>`: puts the real screens in a real (off-screen) window with made-up mail,
 /// draws them, and checks the Home Screen the way a person would: wait, press a key, click.
