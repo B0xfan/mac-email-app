@@ -62,7 +62,7 @@ struct ToastView: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.text))
         .padding(.horizontal, 16)
         .accessibilityElement(children: .combine)
-        .accessibilityAction(named: "Undo") { toast.undo?() }
+        .accessibilityActions { if let u = toast.undo { Button("Undo", action: u) } }
     }
 }
 

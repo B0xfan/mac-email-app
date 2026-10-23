@@ -105,7 +105,7 @@ struct ReadView: View {
         }
         catch {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }   // went back before it finished
-            failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened."
+            if case GmailError.signInAgain = error {} else { failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened." }   // a sign-in problem is shown once, by the store
             await store.fail(error, "This email could not be opened.")
         }
     }

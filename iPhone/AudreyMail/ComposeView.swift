@@ -67,7 +67,7 @@ struct ComposeView: View {
                                     .foregroundStyle(Theme.text).accessibilityLabel("\(c), tap to remove")
                             }
                             TextField(chips.isEmpty ? "Name or address" : "Add another person", text: $toInput).textInputAutocapitalization(.never).keyboardType(.emailAddress).autocorrectionDisabled()
-                                .onChange(of: toInput) { _, v in if v.hasSuffix(",") || v.hasSuffix(" ") { commitInput() } }
+                                .onChange(of: toInput) { _, v in if v.hasSuffix(",") || v.hasSuffix(";") || (v.hasSuffix(" ") && v.contains("@")) { commitInput() } }
                                 .onSubmit { commitInput() }
                         }
                     }
@@ -161,9 +161,9 @@ struct ComposeView: View {
     }
 
     private func commitInput() {
-        let parts = toInput.split(whereSeparator: { ", ;".contains($0) }).map(String.init)
+        let parts = toInput.split(whereSeparator: { ",;".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         for p in parts { let e = Address.parse(p).email; if e.contains("@"), !chips.contains(e) { chips.append(e) } }   // "Jane <jane@x.com>" and "<jane@x.com>" both give jane@x.com
-        toInput = parts.filter { !Address.parse($0).email.contains("@") }.joined(separator: " ")
+        toInput = parts.filter { !Address.parse($0).email.contains("@") }.joined(separator: ", ")
     }
 
     private func addPhotos(_ items: [PhotosPickerItem]) async {
@@ -196,6 +196,8 @@ struct ComposeView: View {
         commitInput()
         if !toInput.trimmingCharacters(in: .whitespaces).isEmpty { problem = "\"\(toInput)\" is not an email address. Fix it or clear it."; return }
         guard !chips.isEmpty else { problem = "Add at least one person in To."; return }
+        if !cc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(cc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Cc."; return }
+        if !bcc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(bcc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Bcc."; return }
         guard !tooBig else { checkSize(); return }
         sending = true; defer { sending = false }
         var html = TextTools.plainToHTML(text), plain = text

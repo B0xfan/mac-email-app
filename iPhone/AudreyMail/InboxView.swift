@@ -51,7 +51,7 @@ struct InboxView: View {
                     .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
                     .onAppear { Task { await store.loadMore() } }
             }
-            if rows.isEmpty {
+            if rows.isEmpty && !store.hasMore {
                 Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
