@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import MailCore
+import SwiftUI
 import UIKit
 import WebKit
 
@@ -38,6 +39,28 @@ enum DemoSelfTest {
         func webView(_ w: WKWebView, didFinish n: WKNavigation!) { done?.resume(); done = nil }
         func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { done?.resume(); done = nil }
         func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { done?.resume(); done = nil }
+    }
+
+    /// Draws the real Inbox screen at phone size (light) and returns the first pixel row of the warm pinned row color and of the selected tab button color.
+    static func inboxRowsY(_ store: PhoneStore) async -> (pin: Int?, tab: Int?) {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return (nil, nil) }
+        let w = UIWindow(windowScene: scene)
+        w.frame = CGRect(x: 0, y: 0, width: 390, height: 844); w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: InboxView().environmentObject(store))
+        w.isHidden = false
+        defer { w.isHidden = true }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        let f = UIGraphicsImageRendererFormat(); f.scale = 1; f.preferredRange = .standard
+        guard let cg = UIGraphicsImageRenderer(bounds: w.bounds, format: f).image(actions: { _ in w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }).cgImage,
+              let ctx = CGContext(data: nil, width: 390, height: 844, bitsPerComponent: 8, bytesPerRow: 390 * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return (nil, nil) }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let px = ctx.data!.assumingMemoryBound(to: UInt8.self)
+        func count(_ y: Int, _ c: (Int, Int, Int)) -> Int {   // y counts from the top; the context's rows are stored top first
+            (0..<390).filter { x in let i = (y * 390 + x) * 4; return abs(Int(px[i]) - c.0) <= 6 && abs(Int(px[i + 1]) - c.1) <= 6 && abs(Int(px[i + 2]) - c.2) <= 6 }.count
+        }
+        let pinBg = (0xff, 0xf6, 0xdf), selStrong = (0xa8, 0xd4, 0xd7)   // Theme.pinBg and Theme.selStrong, light
+        return ((0..<844).first { count($0, pinBg) > 195 }, (0..<844).first { count($0, selStrong) > 60 })
     }
 
     static func run() async {
@@ -312,6 +335,12 @@ enum DemoSelfTest {
         await store.refresh()
         check("an email pinned on the Mac shows in the Pinned group, newest first", store.pinnedMails.map(\.id) == ["m3"] && store.isPinned(row("m3")!))
         check("a pinned email shows once: it is not in the tabs or their numbers", !store.shown.contains { $0.id == "m3" } && store.groups.flatMap(\.mails).allSatisfy { $0.id != "m3" })
+        let tabWas = store.tab
+        store.setTab(.notifications)
+        let at = await inboxRowsY(store)
+        store.setTab(tabWas)
+        check("on the Notifications tab the Pinned group sits above the tab buttons, as on the Mac, not inside the tab (pinned at y \(at.pin ?? -1), tabs at y \(at.tab ?? -1))",
+              at.pin != nil && at.tab != nil && at.pin! < at.tab!)
         check("the Pinned and Snoozed labels are not listed as folders", !store.folders.map(\.name).contains("Pinned") && !store.folders.map(\.name).contains("Snoozed"))
         await store.openList(.label(store.snoozeLabelID ?? ""))
         check("Snoozed lists the emails that carry the Snoozed label", store.snoozeLabelID == "Label_snoozed" && Set(store.folderMails.map(\.id)) == ["z1", "z2"])
