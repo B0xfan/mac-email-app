@@ -70,6 +70,12 @@ Names, rules and search words only, never email text. The server keeps the lists
 - `GET /organizer` -> `{"version": n, "smart": [...], "searches": [...]}` (`version` 0 and empty lists until someone saves).
 - `PUT /organizer` `{"base_version": n, "smart": [...], "searches": [...]}` (both lists required) -> 200 `{"version": n+1}`. 409 = someone saved first: the body is the current `{"version","smart","searches"}`; merge onto it and try again with its version. 400 = malformed.
 
+## Snooze and "no reply yet" state (shared by the person's devices)
+Same pattern as the Smart Folder list; ids and times only, never email text.
+- `GET /timing-view` -> `{"version": n, "snoozes": {messageId: unix time it comes back}, "surfaced": {messageId: unix time it came back}, "back_tag": [messageId], "no_reply": [messageId]}` (`version` 0 and empty until someone saves).
+- `PUT /timing-view` `{"base_version": n, "snoozes": {...}, "surfaced": {...}, "back_tag": [...], "no_reply": [...]}` (all four required, the whole state each time) -> 200 `{"version": n+1}`. 409 = someone saved first: the body is the current state; merge and PUT again with its version.
+- Ids are Gmail message ids (letters, digits, `_`, `-`, up to 64); times are whole unix seconds. Up to 2000 entries in each, whole call up to 64 KB (400 otherwise; nginx's 70 KB is the outer wall). Anything else in the call is not kept. 400 malformed, 401 bad key (checked before the body is read).
+
 ## Not here
-No snooze, no big-file/Drive attachments (the Mac still refuses those), no email content.
+No snooze scheduling (the server only stores the snooze state above; the Mac and phone do the snoozing), no big-file/Drive attachments (the Mac still refuses those), no email content.
 Self-check: `python3 -I -B test_server.py` (pretend Google, no network).

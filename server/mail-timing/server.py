@@ -10,7 +10,7 @@ E = os.environ.get
 PREFIX = "/api/mail-timing"
 DRAFT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")   # \Z, not $: "$" lets a trailing newline through
 DEVICE_RE = re.compile(r"^[a-z0-9-]{1,20}\Z")   # "mac" (what an app that sends no name means) or "iphone"
-MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536
+MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536; MAX_TIMING = 2000
 GRACE = lambda: int(E("GRACE_SECONDS", "120"))   # the Mac, if awake, goes first; this is the backstop
 MAX_PENDING = 200
 _tokens = {}   # email -> (access token, expiry); memory only
@@ -22,6 +22,7 @@ def cfg_gmail(): return E("GMAIL_BASE", "https://gmail.googleapis.com/gmail/v1/u
 SCHEMA = ["""CREATE TABLE IF NOT EXISTS devices(email TEXT NOT NULL, device TEXT NOT NULL, key_hash TEXT NOT NULL, refresh_token TEXT NOT NULL,
         client_id TEXT, signin_ok INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, PRIMARY KEY(email, device))""",   # client_id NULL = the Mac's Google key
   """CREATE TABLE IF NOT EXISTS organizer(email TEXT PRIMARY KEY, version INTEGER NOT NULL, doc TEXT NOT NULL, updated INTEGER NOT NULL)""",   # Smart Folders + saved searches: names, rules, search words
+  """CREATE TABLE IF NOT EXISTS timing_view(email TEXT PRIMARY KEY, version INTEGER NOT NULL, doc TEXT NOT NULL, updated INTEGER NOT NULL)""",   # snooze + "no reply yet" state: message ids and times only
   """CREATE TABLE IF NOT EXISTS jobs(email TEXT NOT NULL, draft_id TEXT NOT NULL, send_at INTEGER NOT NULL,
         status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
         sent_id TEXT, thread_id TEXT, note TEXT, updated INTEGER NOT NULL, remind_at INTEGER, PRIMARY KEY(email, draft_id))""",
@@ -206,6 +207,11 @@ def org_doc(c, email):
     r = c.execute("SELECT version, doc FROM organizer WHERE email=?", (email,)).fetchone()
     return {"version": r["version"], **json.loads(r["doc"])} if r else {"version": 0, "smart": [], "searches": []}
 
+TV_TIMES, TV_IDS = ("snoozes", "surfaced"), ("back_tag", "no_reply")
+def tv_doc(c, email):
+    r = c.execute("SELECT version, doc FROM timing_view WHERE email=?", (email,)).fetchone()
+    return {"version": r["version"], **json.loads(r["doc"])} if r else {"version": 0, **{k: {} for k in TV_TIMES}, **{k: [] for k in TV_IDS}}
+
 def rrow(r): return {k: r[k] for k in ("message_id", "thread_id", "remind_at", "status", "note")}
 def jrow(r): return {k: r[k] for k in ("draft_id", "send_at", "status", "sent_id", "thread_id", "note")}
 
@@ -236,7 +242,7 @@ class H(BaseHTTPRequestHandler):
                 reg = method == "POST" and parts == ["register"]
                 u = None if reg else self.user(c)
                 if not reg and not u: return self.out(401, {"error": "bad key"})   # key first: an anonymous caller never gets the big read
-                data = self.body(MAX_ORGANIZER_BODY if parts == ["organizer"] else 8192) if method in ("POST", "PUT") else {}
+                data = self.body(MAX_ORGANIZER_BODY if parts in (["organizer"], ["timing-view"]) else 8192) if method in ("POST", "PUT") else {}
                 if reg: return self.register(c, data)
                 if method == "GET" and parts == ["jobs"]:
                     return self.out(200, {"signin_ok": bool(u["signin_ok"]), "jobs": [jrow(r) for r in c.execute("SELECT * FROM jobs WHERE email=? ORDER BY send_at", (u["email"],))]})
@@ -245,6 +251,9 @@ class H(BaseHTTPRequestHandler):
                 if parts == ["organizer"]:
                     if method == "GET": return self.out(200, org_doc(c, u["email"]))
                     if method == "PUT": return self.put_organizer(c, u, data)
+                if parts == ["timing-view"]:
+                    if method == "GET": return self.out(200, tv_doc(c, u["email"]))
+                    if method == "PUT": return self.put_timing_view(c, u, data)
                 if len(parts) == 2 and parts[0] == "reminders" and DRAFT_RE.match(parts[1]):
                     if method == "PUT": return self.put_reminder(c, u, parts[1], data)
                     if method == "DELETE": return self.del_reminder(c, u, parts[1])
@@ -336,6 +345,24 @@ class H(BaseHTTPRequestHandler):
             cur = org_doc(c, u["email"])
             if cur["version"] != bv: return self.out(409, cur)   # someone else saved first: the app merges onto this and tries again
             c.execute("INSERT INTO organizer(email,version,doc,updated) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET version=excluded.version, doc=excluded.doc, updated=excluded.updated",
+                      (u["email"], bv + 1, json.dumps(doc), int(time.time())))
+        self.out(200, {"version": bv + 1})
+
+    def put_timing_view(self, c, u, d):
+        bv = d.get("base_version")
+        if not isinstance(bv, int) or isinstance(bv, bool) or bv < 0: raise ValueError("base_version needed")
+        doc = {}
+        for k in TV_TIMES + TV_IDS:   # all four required, so a half-formed call can never wipe the others; anything else sent is not kept
+            v = d.get(k)
+            if not isinstance(v, dict if k in TV_TIMES else list) or len(v) > MAX_TIMING: raise ValueError(k + " must be a " + ("map" if k in TV_TIMES else "list") + " of up to %d" % MAX_TIMING)
+            if not all(isinstance(i, str) and DRAFT_RE.match(i) for i in v): raise ValueError("every id in " + k + " must be a message id")
+            if k in TV_TIMES and not all(isinstance(t, int) and not isinstance(t, bool) and 0 < t < 4102444800 for t in v.values()): raise ValueError("every time in " + k + " must be unix seconds")
+            doc[k] = v
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            cur = tv_doc(c, u["email"])
+            if cur["version"] != bv: return self.out(409, cur)   # another device saved first: merge onto this and try again
+            c.execute("INSERT INTO timing_view(email,version,doc,updated) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET version=excluded.version, doc=excluded.doc, updated=excluded.updated",
                       (u["email"], bv + 1, json.dumps(doc), int(time.time())))
         self.out(200, {"version": bv + 1})
 

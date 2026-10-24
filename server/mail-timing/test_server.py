@@ -324,6 +324,29 @@ big = {"base_version": 3, "smart": [{"id": "i%d" % i, "name": "n", "rules": "y" 
 check("organizer: a 40 KB list is accepted; over 64 KB is refused", req("PUT", "/organizer", big, K2)[0] == 200 and req("PUT", "/organizer", {"base_version": 4, "smart": [{"id": "i", "name": "n", "rules": "y" * 70000}], "searches": []}, K2)[0] == 400)
 check("organizer: one person never sees another's list", req("GET", "/organizer", key="bkey2") == (200, {"version": 0, "smart": [], "searches": []}))
 check("organizer: other jobs endpoints still refuse an oversized body", req("PUT", "/jobs/zz", {"send_at": now, "pad": "y" * 9000}, K2)[0] == 400)
+# ---- timing view (snooze times, "back from snooze", "no reply yet") ----
+EMPTY = {"version": 0, "snoozes": {}, "surfaced": {}, "back_tag": [], "no_reply": []}
+tv = {"snoozes": {"18a1b2c3d4e5f601": now + 3600}, "surfaced": {"18a1b2c3d4e5f602": now - 60}, "back_tag": ["18a1b2c3d4e5f602"], "no_reply": ["m-x_1"]}
+check("timing-view: nothing answered without a key", req("GET", "/timing-view")[0] == 401 and req("PUT", "/timing-view", {"base_version": 0, **tv})[0] == 401 and req("GET", "/timing-view", key="nope")[0] == 401)
+check("timing-view: starts empty at version 0", req("GET", "/timing-view", key=K2) == (200, EMPTY))
+check("timing-view: Mac saves the whole state, the extra 'junk' field is not kept", req("PUT", "/timing-view", {"base_version": 0, **tv, "junk": 1}, K2) == (200, {"version": 1}))
+check("timing-view: the phone reads the same state", req("GET", "/timing-view", key=KP) == (200, {"version": 1, **tv}))
+s, b = req("PUT", "/timing-view", {"base_version": 0, "snoozes": {}, "surfaced": {}, "back_tag": [], "no_reply": []}, KP)
+check("timing-view: a save from an out-of-date copy gets 409 with the current state, nothing lost", s == 409 and b == {"version": 1, **tv} and req("GET", "/timing-view", key=K2)[1]["version"] == 1)
+tv2 = {**tv, "snoozes": {}, "no_reply": []}
+check("timing-view: phone saves on the current version; emptying is a valid save", req("PUT", "/timing-view", {"base_version": 1, **tv2}, KP) == (200, {"version": 2}) and req("GET", "/timing-view", key=K2) == (200, {"version": 2, **tv2}))
+ok = lambda **kw: {"base_version": 2, **{**tv, **kw}}
+bad = [{k: v for k, v in ok().items() if k != "base_version"}, {**ok(), "base_version": "2"}, {**ok(), "base_version": True}, {**ok(), "base_version": -1}]
+bad += [{k: v for k, v in ok().items() if k != x} for x in ("snoozes", "surfaced", "back_tag", "no_reply")]
+bad += [ok(snoozes=[]), ok(back_tag={}), ok(no_reply="a"), ok(snoozes={"a.b": now}), ok(snoozes={"": now}), ok(snoozes={"a" * 65: now}), ok(no_reply=["bad id"]), ok(no_reply=[5]), ok(back_tag=["a\n"]),
+        ok(snoozes={"a1": "123"}), ok(snoozes={"a1": True}), ok(snoozes={"a1": 0}), ok(snoozes={"a1": -5}), ok(snoozes={"a1": 5000000000}), ok(snoozes={"a1": 1.5}), ok(surfaced={"a1": None}),
+        ok(back_tag=["a%d" % i for i in range(2001)]), ok(snoozes={"a%d" % i: now for i in range(2001)})]
+check("timing-view: malformed saves refused and change nothing", all(req("PUT", "/timing-view", b_, K2)[0] == 400 for b_ in bad) and req("GET", "/timing-view", key=K2)[1]["version"] == 2)
+check("timing-view: 2000 ids in a list is accepted", req("PUT", "/timing-view", ok(snoozes={}, back_tag=["b%d" % i for i in range(2000)]), K2) == (200, {"version": 3}))
+check("timing-view: over 64 KB is refused", req("PUT", "/timing-view", {**ok(), "base_version": 3, "snoozes": {"a%d" % i: now for i in range(2000)}, "pad": "y" * 70000}, K2)[0] == 400)
+check("timing-view: one person never sees another's state", req("GET", "/timing-view", key="bkey2") == (200, EMPTY))
+check("timing-view: other endpoints still refuse a 9 KB body", req("PUT", "/reminders/zz", {"remind_at": now, "pad": "y" * 9000}, K2)[0] == 400)
+check("timing-view: wrong method is not found", req("DELETE", "/timing-view", key=K2)[0] == 404)
 # ---- fix round 1 ----
 import socket, sqlite3
 def secs(d, key): return (row(d)[key] or 0) - int(time.time())
@@ -379,7 +402,7 @@ check("first start of an old database: six simultaneous starters, no error, the 
 fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT)", broken)   # cannot be copied (columns missing)
 try: server.db(); failed = False
 except sqlite3.Error: failed = True
-k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders')").fetchone()[0]; k.close()
+k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders','timing_view')").fetchone()[0]; k.close()
 check("a copy that fails leaves no half-made tables behind (the next start tries again)", failed and left == 0)
 os.environ["DB_PATH"] = real
 print("FAILURES:", fails); sys.exit(1 if fails else 0)
