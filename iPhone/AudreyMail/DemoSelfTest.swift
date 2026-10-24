@@ -22,13 +22,11 @@ enum DemoSelfTest {
         let loader = FitLoader()
         wv.navigationDelegate = loader
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in loader.done = c; wv.loadHTMLString(MailWebView.page(body, allowRemote: false, plain: false), baseURL: nil) }
-        func width() async -> CGFloat {
-            let v = try? await wv.evaluateJavaScript("document.documentElement.scrollWidth", in: nil, contentWorld: .defaultClient)
-            return (v as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
-        }
+        func run(_ js: String) async -> Any? { await withCheckedContinuation { (c: CheckedContinuation<Any?, Never>) in wv.evaluateJavaScript(js) { v, _ in c.resume(returning: v) } } }
+        func width() async -> CGFloat { (await run("document.documentElement.scrollWidth") as? NSNumber).map { CGFloat(truncating: $0) } ?? 0 }
         let before = await width()
-        _ = try? await wv.evaluateJavaScript(MailWebView.fitScript, in: nil, contentWorld: .defaultClient)
-        let zoom = (try? await wv.evaluateJavaScript("document.body.style.zoom", in: nil, contentWorld: .defaultClient)) as? String   // set only when wrapping alone could not make it fit
+        _ = await run(MailWebView.fitScript)
+        let zoom = await run("document.body.style.zoom") as? String   // set only when wrapping alone could not make it fit
         return (before, await width(), zoom ?? "?")
     }
     final class FitLoader: NSObject, WKNavigationDelegate {

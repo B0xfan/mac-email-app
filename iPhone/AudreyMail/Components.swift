@@ -149,7 +149,7 @@ struct MailWebView: UIViewRepresentable {
         c.height = $height
         let page = Self.page(html, allowRemote: allowRemote, plain: plain)
         if c.page != page || c.remote != allowRemote { c.page = page; c.remote = allowRemote; c.load() }
-        else if abs(c.fitWidth - wv.bounds.width) > 1, c.fitWidth > 0 { c.fitWidth = wv.bounds.width; wv.evaluateJavaScript(Self.fitScript, in: nil, in: .defaultClient) { _ in } }   // the phone was turned
+        else if abs(c.fitWidth - wv.bounds.width) > 1, c.fitWidth > 0 { c.fitWidth = wv.bounds.width; wv.evaluateJavaScript(Self.fitScript, completionHandler: nil) }   // the phone was turned
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
@@ -172,9 +172,9 @@ struct MailWebView: UIViewRepresentable {
             }
         }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // our own script in its own world: the page's scripts stay off
+            // our own script, run by the app: the email's own scripts stay off
             fitWidth = webView.bounds.width
-            webView.evaluateJavaScript(MailWebView.fitScript, in: nil, in: .defaultClient) { _ in }
+            webView.evaluateJavaScript(MailWebView.fitScript, completionHandler: nil)
         }
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if action.navigationType == .linkActivated, let u = action.request.url {
