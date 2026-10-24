@@ -3,11 +3,29 @@ import PhotosUI
 import UniformTypeIdentifiers
 import MailCore
 
+struct ComposeAttachment: Identifiable { let id = UUID(); var name: String; var data: Data; var mime: String }
+
+/// Everything typed in the Write screen, so it can come back after Undo Send, a send that failed, or from a saved draft.
+struct ComposeSnapshot {
+    var mode: ComposeSeed.Mode
+    var source: Mail?
+    var to: [String]
+    var cc: String, bcc: String, subject: String, text: String
+    var attachments: [ComposeAttachment]
+    var draftID: String?
+    var threadID: String?   // a resumed draft keeps its conversation
+}
+
 struct ComposeSeed: Identifiable {
     enum Mode: String { case new = "New message", reply = "Reply", replyAll = "Reply all", forward = "Forward" }
     let id = UUID()
     var mode: Mode
     var source: Mail?
+    var restore: ComposeSnapshot?
+    var notice: String?   // shown at the top, e.g. why a send did not go out
+
+    init(mode: Mode, source: Mail?) { self.mode = mode; self.source = source }
+    init(restoring r: ComposeSnapshot, notice: String? = nil) { mode = r.mode; source = r.source; restore = r; self.notice = notice }
 }
 
 struct ComposeView: View {
@@ -24,11 +42,12 @@ struct ComposeView: View {
     @State private var auto: (to: [String], cc: String, subject: String) = ([], "", "")   // what the app filled in, so a kind switch never overwrites the user's own edits
     @State private var subject = ""
     @State private var text = ""
-    struct Attach: Identifiable { let id = UUID(); var name: String; var data: Data; var mime: String }
-    @State private var attachments: [Attach] = []
+    @State private var attachments: [ComposeAttachment] = []
     @State private var sending = false
     @State private var problem: String?
-    @State private var askDiscard = false
+    @State private var askLeave = false
+    @State private var draftID: String?
+    @State private var threadID: String?
     @State private var photos: [PhotosPickerItem] = []
     @State private var pickFile = false
     @FocusState private var focus: Bool
@@ -39,11 +58,11 @@ struct ComposeView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Cancel") { if text.isEmpty && attachments.isEmpty { dismiss() } else { askDiscard = true } }.frame(minWidth: 44, minHeight: 44, alignment: .leading).disabled(sending)
+                Button("Cancel") { if hasContent { askLeave = true } else { Task { await discard() } } }.frame(minWidth: 44, minHeight: 44, alignment: .leading).disabled(sending)
                 Spacer()
                 Text(mode.rawValue).font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.text)
                 Spacer()
-                Button { Task { await send() } } label: { if sending { ProgressView() } else { Text("Send").fontWeight(.bold) } }
+                Button { send() } label: { Text("Send").fontWeight(.bold) }
                     .frame(minWidth: 44, minHeight: 44, alignment: .trailing).disabled(sending)
             }
             .font(.system(size: 17)).foregroundStyle(Theme.acc).padding(.horizontal, 14)
@@ -105,12 +124,13 @@ struct ComposeView: View {
         .background(Theme.bg)
         .tint(Theme.acc)
         .foregroundStyle(Theme.text)
-        .onAppear { fill(first: true) }
+        .onAppear { if let r = seed.restore { apply(r) } else { fill(first: true) } }
         .onChange(of: photos) { _, items in Task { await addPhotos(items) } }
         .fileImporter(isPresented: $pickFile, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in if case .success(let urls) = r { addFiles(urls) } }
-        .confirmationDialog("Discard this message?", isPresented: $askDiscard, titleVisibility: .visible) {
-            Button("Discard", role: .destructive) { dismiss() }
-            Button("Keep editing", role: .cancel) {}
+        .confirmationDialog("Keep this message?", isPresented: $askLeave, titleVisibility: .visible) {
+            Button("Save draft") { Task { await saveDraft() } }
+            Button("Discard", role: .destructive) { Task { await discard() } }
+            Button("Keep writing", role: .cancel) {}
         }
     }
 
@@ -171,7 +191,7 @@ struct ComposeView: View {
         for (i, it) in items.enumerated() {
             guard let d = try? await it.loadTransferable(type: Data.self) else { continue }
             let t = it.supportedContentTypes.first
-            attachments.append(Attach(name: "photo-\(base + i + 1).\(t?.preferredFilenameExtension ?? "jpg")", data: d, mime: t?.preferredMIMEType ?? "image/jpeg"))
+            attachments.append(ComposeAttachment(name: "photo-\(base + i + 1).\(t?.preferredFilenameExtension ?? "jpg")", data: d, mime: t?.preferredMIMEType ?? "image/jpeg"))
         }
         photos = []
         checkSize()
@@ -182,7 +202,7 @@ struct ComposeView: View {
             let have = attachments.reduce(0) { $0 + $1.data.count }
             if let size = try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize, have + size > Self.sizeLimit { problem = "\(u.lastPathComponent) is too big to send with the rest (the limit is about 18 MB)."; continue }
             guard let d = try? Data(contentsOf: u) else { problem = "\(u.lastPathComponent) could not be read. If it is in iCloud, open it in Files first so it downloads."; continue }
-            attachments.append(Attach(name: u.lastPathComponent, data: d, mime: UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"))
+            attachments.append(ComposeAttachment(name: u.lastPathComponent, data: d, mime: UTType(filenameExtension: u.pathExtension)?.preferredMIMEType ?? "application/octet-stream"))
         }
         checkSize()
     }
@@ -192,14 +212,24 @@ struct ComposeView: View {
         else if problem?.hasPrefix("The pictures") == true { problem = nil }
     }
 
-    private func send() async {
-        commitInput()
-        if !toInput.trimmingCharacters(in: .whitespaces).isEmpty { problem = "\"\(toInput)\" is not an email address. Fix it or clear it."; return }
-        guard !chips.isEmpty else { problem = "Add at least one person in To."; return }
-        if !cc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(cc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Cc."; return }
-        if !bcc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(bcc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Bcc."; return }
-        guard !tooBig else { checkSize(); return }
-        sending = true; defer { sending = false }
+    /// Something worth keeping was typed (a reply or forward that is still just the quote is not).
+    private var hasContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || (seed.source == nil && (!subject.isEmpty || !chips.isEmpty || !toInput.isEmpty))
+    }
+
+    private func snapshot() -> ComposeSnapshot {
+        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID)
+    }
+
+    /// Puts back what a snapshot holds (Undo Send, a failed send, a draft that is opened again).
+    private func apply(_ r: ComposeSnapshot) {
+        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID
+        quote = makeQuote()
+        problem = seed.notice
+        focus = true
+    }
+
+    private func outgoing() -> MIME.Outgoing {
         var html = TextTools.plainToHTML(text), plain = text
         if let q = quote {
             html += "<br><br><div>" + TextTools.plainToHTML(q.header) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(q.html)</blockquote>"
@@ -210,9 +240,34 @@ struct ComposeView: View {
             out.inReplyTo = m.messageIDHeader
             out.references = (m.references + " " + m.messageIDHeader).trimmingCharacters(in: .whitespaces)
         }
-        do {
-            try await store.send(out, threadID: mode == .forward ? nil : seed.source?.threadID)
-            dismiss()
-        } catch { problem = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here." }
+        return out
+    }
+    private var conversation: String? { mode == .forward ? nil : seed.source?.threadID ?? threadID }
+
+    /// The email waits out the Undo Send delay in the store; this screen closes at once.
+    private func send() {
+        commitInput()
+        if !toInput.trimmingCharacters(in: .whitespaces).isEmpty { problem = "\"\(toInput)\" is not an email address. Fix it or clear it."; return }
+        guard !chips.isEmpty else { problem = "Add at least one person in To."; return }
+        if !cc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(cc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Cc."; return }
+        if !bcc.trimmingCharacters(in: .whitespaces).isEmpty, Address.parseList(bcc).contains(where: { !$0.email.contains("@") }) { problem = "Check the email address in Bcc."; return }
+        guard !tooBig else { checkSize(); return }
+        guard !sending else { return }
+        sending = true
+        store.queueSend(snapshot(), out: outgoing(), threadID: conversation)
+        dismiss()
+    }
+
+    private func saveDraft() async {
+        commitInput()
+        sending = true; defer { sending = false }
+        do { draftID = try await store.saveDraft(outgoing(), threadID: conversation, replacing: draftID); dismiss() }
+        catch { problem = (error as? LocalizedError)?.errorDescription ?? "The draft could not be saved. Your text is still here." }
+    }
+
+    /// Closing without saving; a draft that was already in Gmail goes with it.
+    private func discard() async {
+        if let d = draftID { await store.discardDraft(d) }
+        dismiss()
     }
 }

@@ -15,6 +15,7 @@ final class DemoMailbox: @unchecked Sendable {
     var sent: [String] = []
     var writes: [String] = []
     var expired = false
+    var failSend = false
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
     init() { reset() }
@@ -26,7 +27,7 @@ final class DemoMailbox: @unchecked Sendable {
         func add(_ id: String, _ labels: [String], _ from: String, _ subject: String, _ body: String, _ date: Date, unsub: Bool = false) {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
-        msgs = []; labels = []; filters = []; sent = []; writes = []; expired = false
+        msgs = []; labels = []; filters = []; sent = []; writes = []; expired = false; failSend = false
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -104,6 +105,7 @@ final class DemoMailbox: @unchecked Sendable {
             change(ids, add: add, remove: rem)
             return (200, "{}")
         case ("POST", "/messages/send"):
+            if failSend { return (500, #"{"error":{"code":500,"message":"Backend Error"}}"#) }
             sent.append(String(decoding: Base64URL.decode(body["raw"] as? String ?? "") ?? Data(), as: UTF8.self)); writes.append("send")
             return (200, "{\"id\":\"sent\(sent.count)\",\"threadId\":\"\(body["threadId"] as? String ?? "TS")\"}")
         case ("GET", "/messages"):
@@ -186,6 +188,12 @@ enum DemoMode {
         let s = screen ?? ""
         let store = makeStore(signedIn: !s.hasPrefix("signin") && !selfTest)
         if s == "signinagain" { Task { @MainActor in store.state = .signedOut(again: true) } }
+        if s == "undo" { Task { @MainActor in   // the inbox with the Undo Send bar, as drawn
+            store.undoDelay = 30
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let snap = ComposeSnapshot(mode: .new, source: nil, to: ["maya.ortiz@example.com"], cc: "", bcc: "", subject: "Saturday", text: "See you at 8", attachments: [], draftID: nil, threadID: nil)
+            store.queueSend(snap, out: MIME.Outgoing(from: store.defaultFrom, to: "maya.ortiz@example.com", subject: "Saturday", html: "<p>See you at 8</p>", text: "See you at 8"), threadID: nil)
+        } }
         return (store, ["new": 1, "block": 1, "search": 2, "settings": 3][s] ?? 0)
     }
 }

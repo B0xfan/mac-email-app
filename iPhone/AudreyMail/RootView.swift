@@ -13,12 +13,21 @@ struct RootView: View {
             case .signedOut(let again): SignInView(again: again)
             case .signedIn: signedIn
             }
-            if let t = store.toast { ToastView(toast: t) { store.toast = nil }.padding(.bottom, store.state == .signedIn && !store.tabBarHidden ? 64 : 80).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            VStack(spacing: 8) {
+                if let t = store.sendToast { ToastView(toast: t) {}.transition(.move(edge: .bottom).combined(with: .opacity)) }
+                if let t = store.toast { ToastView(toast: t) { store.toast = nil }.transition(.move(edge: .bottom).combined(with: .opacity)) }
+            }
+            .padding(.bottom, store.state == .signedIn && !store.tabBarHidden ? 64 : 80)
         }
         .animation(.default, value: store.toast?.id)
+        .animation(.default, value: store.sendToast?.id)
+        .fullScreenCover(item: $store.composeSeed) { ComposeView(seed: $0) }
         .tint(Theme.acc)
         .task { sel = initialTab; await store.start() }
-        .onChange(of: phase) { _, p in if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() } } }
+        .onChange(of: phase) { _, p in
+            if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() } }
+            if p == .background { store.sendPendingNow() }   // leaving the app or locking the phone: held emails go out at once
+        }
     }
 
     private var signedIn: some View {

@@ -4,7 +4,6 @@ import MailCore
 struct InboxView: View {
     @EnvironmentObject var store: PhoneStore
     @State private var path: [Mail] = []
-    @State private var compose: ComposeSeed?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -16,7 +15,7 @@ struct InboxView: View {
                     if let b = store.banner { BannerView(text: b) }
                     list
                 }
-                Button { compose = ComposeSeed(mode: .new, source: nil) } label: {
+                Button { store.composeSeed = ComposeSeed(mode: .new, source: nil) } label: {
                     Image(systemName: "square.and.pencil").font(.system(size: 24)).foregroundStyle(Theme.accText)
                         .frame(width: 56, height: 56).background(Circle().fill(Theme.acc)).shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                 }
@@ -27,7 +26,6 @@ struct InboxView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
         }
-        .fullScreenCover(item: $compose) { ComposeView(seed: $0) }
         #if DEBUG
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself
             if ["read", "write"].contains(DemoMode.screen ?? ""), path.isEmpty, let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }

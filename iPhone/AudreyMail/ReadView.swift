@@ -10,7 +10,6 @@ struct ReadView: View {
     @State private var failed: String?
     @State private var showImages = false
     @State private var webHeight: CGFloat = 120
-    @State private var compose: ComposeSeed?
     @State private var blockTarget: Mail?
 
     var body: some View {
@@ -64,7 +63,6 @@ struct ReadView: View {
         .onAppear { store.tabBarHidden = true }
         .onDisappear { store.tabBarHidden = false }
         .task { await load() }
-        .fullScreenCover(item: $compose) { ComposeView(seed: $0) }
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) {
                 blockTarget = nil
@@ -99,7 +97,7 @@ struct ReadView: View {
             if let h = f.html { let p = HTMLSafety.process(h); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
             full = f; store.markRead(mail)
             #if DEBUG
-            if DemoMode.screen == "write" { compose = ComposeSeed(mode: .reply, source: full) }
+            if DemoMode.screen == "write" { store.composeSeed = ComposeSeed(mode: .reply, source: full) }
             if DemoMode.screen == "block" { blockTarget = full }
             #endif
         }
@@ -114,10 +112,10 @@ struct ReadView: View {
         HStack {
             bar("Archive", "archivebox", Theme.acc) { store.archive(mail); dismiss() }
             bar("Trash", "trash", Theme.danger) { store.trash(mail); dismiss() }
-            bar("Reply", "arrowshape.turn.up.left", Theme.acc) { if let f = full { compose = ComposeSeed(mode: .reply, source: f) } }.disabled(full == nil)
+            bar("Reply", "arrowshape.turn.up.left", Theme.acc) { if let f = full { store.composeSeed = ComposeSeed(mode: .reply, source: f) } }.disabled(full == nil)
             Menu {
-                Button { if let f = full { compose = ComposeSeed(mode: .replyAll, source: f) } } label: { Label("Reply all", systemImage: "arrowshape.turn.up.left.2") }
-                Button { if let f = full { compose = ComposeSeed(mode: .forward, source: f) } } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                Button { if let f = full { store.composeSeed = ComposeSeed(mode: .replyAll, source: f) } } label: { Label("Reply all", systemImage: "arrowshape.turn.up.left.2") }
+                Button { if let f = full { store.composeSeed = ComposeSeed(mode: .forward, source: f) } } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
             } label: { barLabel("More", "ellipsis.circle", Theme.acc) }.disabled(full == nil)
         }
         .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 2)

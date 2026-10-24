@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 import MailCore
 
 /// Where the phone keeps its small files (the saved inbox, the new-sender list). Never a token: those live in the Keychain only.
@@ -28,6 +29,9 @@ final class SenderBook {
     private func save() { if let d = try? JSONEncoder().encode(data) { try? d.write(to: url, options: .atomic) } }
 }
 
+/// A saved Gmail draft, as a row in the Drafts list (`id` is the draft's id, `mail` its message).
+struct DraftRow: Identifiable { let id: String; var mail: Mail }
+
 struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@MainActor () -> Void)? }
 
 @MainActor
@@ -46,7 +50,12 @@ final class PhoneStore: ObservableObject {
     @Published var sendAs: [GSendAs] = []
     @Published var knownCache: [String: Bool] = [:]
     @Published var sendersChecked = false
+    @Published var drafts: [DraftRow] = []
     @Published var tabBarHidden = false   // the read screen has its own bar, as drawn
+    @Published var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
+    @Published var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back
+    @Published var undoDelay: Int { didSet { defaults.set(undoDelay, forKey: "undoDelay") } }
+    static let undoChoices = [5, 10, 20, 30]
 
     let sign: PhoneSignIn
     private(set) var gmail: GmailClient
@@ -66,6 +75,8 @@ final class PhoneStore: ObservableObject {
         self.defaults = defaults
         self.flow = BlockFlow(gmail: gmail, labelName: Self.blockLabelName) { ids, add, remove in try await gmail.modify(ids: ids, add: add, remove: remove) }
         tab = MailCategory(rawValue: defaults.string(forKey: "smartTab") ?? "") ?? .people
+        let d = defaults.integer(forKey: "undoDelay")
+        undoDelay = Self.undoChoices.contains(d) ? d : 10
     }
     private let defaults: UserDefaults
 
@@ -110,7 +121,7 @@ final class PhoneStore: ObservableObject {
     }
 
     private func clearLocal() {
-        inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil
+        inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil; sendToast = nil
         try? FileManager.default.removeItem(at: cacheURL)
     }
 
@@ -364,11 +375,88 @@ final class PhoneStore: ObservableObject {
         return accountEmail.split(separator: "@").first.map(String.init) ?? accountEmail
     }
 
-    func send(_ out: MIME.Outgoing, threadID: String?) async throws {
-        let raw = MIME.build(out)
+    /// One email waiting out its Undo Send delay. Nothing goes to Gmail until `run` starts.
+    private struct PendingSend {
+        let snapshot: ComposeSnapshot
+        let raw: Data
+        let threadID: String?
+        let toastID: UUID
+        var countdown: Task<Void, Never>?
+        var run: Task<Void, Never>?   // set once the email is on its way: after this it can no longer be undone
+    }
+    private var pending: [UUID: PendingSend] = [:]
+
+    static func sendingText(_ s: Int) -> String { "Sending in \(s) second\(s == 1 ? "" : "s")." }
+
+    /// The email is held here for `undoDelay` seconds, then sent. Leaving the app sends it at once (`sendPendingNow`).
+    /// shortcut: a held email lives in memory only; if the app is killed during the countdown it is lost. Upgrade: save it like the Mac does.
+    func queueSend(_ snap: ComposeSnapshot, out: MIME.Outgoing, threadID: String?) {
+        let token = UUID(), delay = undoDelay
+        let t = Toast(text: Self.sendingText(delay), undo: { [weak self] in self?.undoSend(token) })
+        sendToast = t
+        pending[token] = PendingSend(snapshot: snap, raw: MIME.build(out), threadID: threadID, toastID: t.id)
+        pending[token]?.countdown = Task { [weak self] in
+            for left in stride(from: delay - 1, to: 0, by: -1) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                if let self, self.sendToast?.id == t.id { self.sendToast?.text = Self.sendingText(left) }
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return }
+            await self?.startDelivery(token).value
+        }
+    }
+
+    /// Undo: the email is not sent and the Write screen comes back with everything that was typed.
+    func undoSend(_ token: UUID) {
+        guard let p = pending[token], p.run == nil else { return }
+        p.countdown?.cancel(); pending[token] = nil
+        if sendToast?.id == p.toastID { sendToast = nil }
+        composeSeed = ComposeSeed(restoring: p.snapshot)
+    }
+
+    @discardableResult
+    private func startDelivery(_ token: UUID) -> Task<Void, Never> {
+        if let r = pending[token]?.run { return r }
+        guard let p = pending[token] else { return Task {} }
+        if sendToast?.id == p.toastID { sendToast?.undo = nil; sendToast?.text = "Sending…" }
+        let r = Task { await deliver(token, p) }
+        pending[token]?.run = r
+        return r
+    }
+
+    private func deliver(_ token: UUID, _ p: PendingSend) async {
+        defer { pending[token] = nil }
+        do {
+            try await sendNow(p.raw, threadID: p.threadID)
+            if let d = p.snapshot.draftID { await discardDraft(d) }   // the saved copy has been sent
+            if sendToast?.id == p.toastID { sendToast = nil; show("Sent.") }
+        } catch {
+            // nothing typed is lost: the Write screen comes back with the reason on top
+            if sendToast?.id == p.toastID { sendToast = nil }
+            composeSeed = ComposeSeed(restoring: p.snapshot, notice: (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here.")
+        }
+    }
+
+    /// Sends every held email now and waits until Gmail has answered (used when the app leaves the screen, and by the built-in checks).
+    func flushPendingSends() async {
+        let tokens = Array(pending.keys)
+        for t in tokens { pending[t]?.countdown?.cancel() }
+        for t in tokens { await startDelivery(t).value }
+    }
+
+    /// The app is leaving the screen or the phone is locking: held emails go out at once. iOS is asked for a little time to finish the request.
+    func sendPendingNow() {
+        guard !pending.isEmpty else { return }
+        var bg = UIBackgroundTaskIdentifier.invalid
+        bg = UIApplication.shared.beginBackgroundTask(withName: "send held emails") { UIApplication.shared.endBackgroundTask(bg) }
+        Task { await flushPendingSends(); UIApplication.shared.endBackgroundTask(bg) }
+    }
+
+    private func sendNow(_ raw: Data, threadID: String?) async throws {
         do { _ = try await gmail.sendRaw(raw, threadID: threadID) }
         catch GmailError.signInAgain {
-            // an old access token is not the end of the sign-in: get a new one and send once more; the typed message stays on screen if that fails too
+            // an old access token is not the end of the sign-in: get a new one and send once more; the typed message comes back if that fails too
             switch await freshToken() {
             case .ended: await expire(); throw GmailError.signInAgain
             case .offline: throw GmailError.offline
@@ -377,7 +465,22 @@ final class PhoneStore: ObservableObject {
             do { _ = try await gmail.sendRaw(raw, threadID: threadID) }
             catch GmailError.signInAgain { await expire(); throw GmailError.signInAgain }   // a second refusal with a fresh token: the sign-in is really over
         }
-        show("Sent.")
+    }
+
+    // MARK: - Drafts (Gmail drafts, so they are on the Mac too)
+
+    /// Saves or updates the draft in Gmail; returns its id.
+    func saveDraft(_ out: MIME.Outgoing, threadID: String?, replacing id: String?) async throws -> String {
+        let new = try await gmail.saveDraft(MIME.build(out), threadID: threadID, replacing: id)
+        show("Draft saved.")
+        return new
+    }
+
+    func discardDraft(_ id: String) async {
+        do { try await gmail.deleteDraft(id: id) }
+        catch GmailError.http(404, _) {}   // already gone
+        catch { await fail(error, "The draft could not be discarded."); return }
+        drafts.removeAll { $0.id == id }
     }
 
     // MARK: - Small messages

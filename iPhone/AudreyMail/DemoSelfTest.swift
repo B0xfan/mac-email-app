@@ -62,13 +62,36 @@ enum DemoSelfTest {
         await store.blockAllNewSenders()
         check("Block all blocks everyone left", store.newSenderRows.isEmpty && box.with { b in b.filters.count == 3 })
 
-        // sending
+        // sending, with Undo Send
         let src = try! await store.fullMessage(row("m1")!)
         var out = MIME.Outgoing(from: store.defaultFrom, to: src.from.email, subject: "Re: " + src.subject, html: "<p>Sounds great</p>", text: "Sounds great", inReplyTo: src.messageIDHeader, references: src.messageIDHeader)
         out.attachments = [("photo-1.jpg", Data([1, 2, 3]), "image/jpeg")]
-        do { try await store.send(out, threadID: src.threadID) } catch { check("send works", false) }
+        let snap = ComposeSnapshot(mode: .reply, source: src, to: [src.from.email], cc: "", bcc: "", subject: "Re: " + src.subject, text: "Sounds great",
+                                   attachments: [ComposeAttachment(name: "photo-1.jpg", data: Data([1, 2, 3]), mime: "image/jpeg")], draftID: nil, threadID: nil)
+        check("the Undo Send delay starts at 10 seconds and only takes the offered choices", store.undoDelay == 10 && PhoneStore.undoChoices == [5, 10, 20, 30])
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        check("Send holds the email: nothing reaches Gmail yet and an Undo bar counts down", box.with { $0.sent.count } == 0 && store.sendToast?.undo != nil && store.sendToast?.text == "Sending in 10 seconds.")
+        store.sendToast?.undo?()
+        let back = store.composeSeed?.restore
+        check("Undo brings the Write screen back with everything typed, and nothing was sent", box.with { $0.sent.count } == 0 && store.sendToast == nil && back?.text == "Sounds great" && back?.attachments.count == 1 && back?.to == [src.from.email] && back?.mode == .reply)
+        store.composeSeed = nil
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        await store.flushPendingSends()
         let raw = box.with { $0.sent.last ?? "" }
-        check("a reply is sent in the same conversation with its picture", raw.contains("In-Reply-To: <m1@demo.example>") && raw.contains("Re: Saturday at the beach?") && raw.contains("photo-1.jpg") && raw.contains("Alex Jordan"))
+        check("leaving the app sends a held email at once, in the same conversation, with its picture", box.with { $0.sent.count } == 1 && raw.contains("In-Reply-To: <m1@demo.example>") && raw.contains("Re: Saturday at the beach?") && raw.contains("photo-1.jpg") && raw.contains("Alex Jordan"))
+        check("after the send the bar says Sent", store.sendToast == nil && store.toast?.text == "Sent.")
+        store.undoDelay = 5
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        check("a shorter delay shows its own countdown", store.sendToast?.text == "Sending in 5 seconds.")
+        try? await Task.sleep(nanoseconds: 6_500_000_000)
+        check("the email goes out by itself when the countdown ends", box.with { $0.sent.count } == 2 && store.sendToast == nil)
+        store.undoDelay = 10
+        box.with { $0.failSend = true }
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        await store.flushPendingSends()
+        check("a send Gmail refuses brings the Write screen back with the reason", box.with { $0.sent.count } == 2 && store.composeSeed?.restore?.text == "Sounds great" && store.composeSeed?.notice != nil)
+        box.with { $0.failSend = false }
+        store.composeSeed = nil
 
         // sign out and sign-in ended
         await store.signOut()
