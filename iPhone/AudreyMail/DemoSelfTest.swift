@@ -148,6 +148,24 @@ enum DemoSelfTest {
         check("Unblock sends their old emails back to the inbox", box.with { b in b.msgs.filter { $0.from.contains("brightside") }.allSatisfy { $0.labels.contains("INBOX") && !$0.labels.contains("Label_blocked") } })
         check("the list shrinks, the sender is not new again, and the bar says so", store.blocked.count == 2 && store.inboxMails.contains { $0.id == "n2" } && store.toast?.text.hasPrefix("Unblocked") == true)
 
+        // attachments
+        let inv = try! await store.fullMessage(row("m4")!)
+        check("an email with files lists them with their names and sizes", inv.attachments.map(\.name) == ["Invoice-0231.pdf", "fence-finished.jpg"] && inv.attachments[0].size == 86_016)
+        let file = await store.attachmentFile(inv.attachments[0], of: inv)
+        check("opening an attachment downloads it into the phone's private cache under its own name", file != nil && file?.lastPathComponent == "Invoice-0231.pdf" && file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == "%PDF-1.4 demo file" && file!.path.contains("/Caches/"))
+        let downloads = box.with { $0.attDownloads }
+        _ = await store.attachmentFile(inv.attachments[0], of: inv)
+        check("opening it again uses the kept copy", box.with { $0.attDownloads } == downloads)
+        box.with { $0.attFailOnce = true }
+        let second = await store.attachmentFile(inv.attachments[1], of: inv)
+        check("if Gmail refuses once (a changed attachment id) the email is read again and the download tried once more", second != nil && box.with { $0.attDownloads } == downloads + 2)
+        try? FileManager.default.removeItem(at: PhoneStore.attachmentsDir)
+        box.with { $0.attFail = true }
+        let none = await store.attachmentFile(inv.attachments[0], of: inv)
+        box.with { $0.attFail = false }
+        check("a download that keeps failing gives nothing, so the screen can say so and offer Try again", none == nil)
+        check("a file name cannot point outside its folder", !PhoneStore.safeFileName("../../etc/x.pdf").contains("/") && PhoneStore.safeFileName("..") == "attachment" && PhoneStore.safeFileName("a:b") == "a_b")
+
         // sign out and sign-in ended
         await store.signOut()
         check("signing out clears the phone", store.state == .signedOut(again: false) && store.inbox.isEmpty)

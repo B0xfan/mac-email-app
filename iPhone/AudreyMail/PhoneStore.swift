@@ -132,7 +132,7 @@ final class PhoneStore: ObservableObject {
     private func clearLocal() {
         inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil; sendToast = nil
         drafts = []; labelList = []; folderMails = []; folderID = nil; folderNext = nil; blocked = []; blockedLoaded = false
-        try? FileManager.default.removeItem(at: Support.url("attachments"))
+        try? FileManager.default.removeItem(at: Self.attachmentsDir)
         try? FileManager.default.removeItem(at: cacheURL)
     }
 

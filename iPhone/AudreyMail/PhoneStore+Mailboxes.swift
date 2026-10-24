@@ -105,4 +105,36 @@ extension PhoneStore {
             if !covered && !e.toTrash { await refresh() }
         } catch { await fail(error, "Could not unblock \(e.title).") }
     }
+
+    // MARK: - Attachments
+
+    /// Downloaded files live in the phone's cache (not backed up, removed on sign out), one folder per message and file.
+    static let attachmentsDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("AudreyMailAttachments")
+
+    /// A file name that cannot point outside its folder, whatever the sender called the attachment.
+    static func safeFileName(_ name: String) -> String {
+        let n = name.components(separatedBy: CharacterSet(charactersIn: "/\\:\0")).joined(separator: "_").trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
+        return n.isEmpty ? "attachment" : String(n.prefix(120))
+    }
+
+    /// The kept copy of an attachment, downloaded now if the phone does not have it yet. nil if it could not be downloaded or saved.
+    func attachmentFile(_ a: Attachment, of m: Mail) async -> URL? {
+        guard let i = m.attachments.firstIndex(of: a) else { return nil }
+        if let url = await saveAttachment(a, at: i, of: m) { return url }
+        // Gmail can change an attachment's id after the email was read: read the email again and try the same place in its list once more
+        if let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) { return await saveAttachment(fresh.attachments[i], at: i, of: fresh) }
+        return nil
+    }
+
+    private func saveAttachment(_ a: Attachment, at i: Int, of m: Mail) async -> URL? {
+        let folder = Self.attachmentsDir.appendingPathComponent(m.id.filter { $0.isLetter || $0.isNumber }).appendingPathComponent(String(i))
+        let url = folder.appendingPathComponent(Self.safeFileName(a.name))
+        if FileManager.default.fileExists(atPath: url.path) { return url }
+        guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID), !data.isEmpty else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic, .completeFileProtection])
+            return url
+        } catch { return nil }
+    }
 }

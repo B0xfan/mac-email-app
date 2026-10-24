@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 import MailCore
 
 struct ReadView: View {
@@ -12,6 +13,9 @@ struct ReadView: View {
     @State private var webHeight: CGFloat = 120
     @State private var blockTarget: Mail?
     @State private var moving = false
+    @State private var previewURL: URL?   // the file shown in Apple's built-in preview (it has the share button)
+    @State private var opening: Attachment?
+    @State private var failedFile: Attachment?
 
     var body: some View {
         let m = full ?? mail
@@ -30,9 +34,19 @@ struct ReadView: View {
                     Rectangle().fill(Theme.line).frame(height: 1)
                     bodyView(m).padding(.top, 14)
                     if !m.attachments.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(m.attachments) { a in Label(a.name, systemImage: "paperclip").font(.system(size: 14)).foregroundStyle(Theme.sub) }
-                        }.padding(.top, 12)
+                        VStack(spacing: 8) {
+                            ForEach(m.attachments) { a in
+                                Button { Task { await openFile(a) } } label: { AttachmentRow(file: a, busy: opening == a) }.buttonStyle(.plain).disabled(opening != nil)
+                            }
+                            if let bad = failedFile {
+                                HStack {
+                                    Text("Could not download \(bad.name). Check the connection and try again.").font(.system(size: 13))
+                                    Spacer(minLength: 8)
+                                    Button("Try again") { Task { await openFile(bad) } }.font(.system(size: 13, weight: .bold)).underline().frame(minHeight: 32)
+                                }
+                                .foregroundStyle(Theme.accInk).padding(.horizontal, 12).padding(.vertical, 8).background(RoundedRectangle(cornerRadius: 10).fill(Theme.accSoft))
+                            }
+                        }.padding(.top, 16)
                     }
                     if full != nil, hasRemotePictures(m), !showImages {
                         HStack {
@@ -64,6 +78,7 @@ struct ReadView: View {
         .onAppear { store.tabBarHidden = true }
         .onDisappear { store.tabBarHidden = false }
         .task { await load() }
+        .quickLookPreview($previewURL)
         .sheet(isPresented: $moving) { MoveToFolderSheet(mail: full ?? mail) { dismiss() }.presentationDetents([.medium, .large]) }
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) {
@@ -83,6 +98,12 @@ struct ReadView: View {
             let raw = cleaned?.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
             MailWebView(html: raw, allowRemote: showImages, plain: m.html == nil, height: $webHeight).frame(height: max(webHeight, 40)).clipShape(RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    private func openFile(_ a: Attachment) async {
+        opening = a; failedFile = nil
+        defer { opening = nil }
+        if let url = await store.attachmentFile(a, of: full ?? mail) { previewURL = url } else { failedFile = a }
     }
 
     private func hasRemotePictures(_ m: Mail) -> Bool { (cleaned?.remote ?? 0) > 0 }
@@ -131,3 +152,24 @@ struct ReadView: View {
     }
 }
 
+/// One file under the message: type, name, size. Tap to open it in the built-in preview.
+struct AttachmentRow: View {
+    let file: Attachment
+    let busy: Bool
+    var body: some View {
+        let ext = (file.name as NSString).pathExtension
+        HStack(spacing: 12) {
+            Text(ext.isEmpty ? "FILE" : String(ext.uppercased().prefix(4))).font(.system(size: 10, weight: .heavy)).foregroundStyle(Theme.acc)
+                .frame(width: 36, height: 44).background(RoundedRectangle(cornerRadius: 6).fill(Theme.card)).overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.line, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(file.name).font(.system(size: 16, weight: .semibold)).lineLimit(1).truncationMode(.middle)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)).font(.system(size: 13)).foregroundStyle(Theme.sub)
+            }
+            Spacer(minLength: 8)
+            if busy { ProgressView() } else { Image(systemName: "chevron.right").foregroundStyle(Theme.sub) }
+        }
+        .foregroundStyle(Theme.text).padding(.horizontal, 12).frame(minHeight: 56)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.side)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+        .accessibilityElement(children: .combine).accessibilityLabel("\(file.name), \(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)). Opens a preview.")
+    }
+}
