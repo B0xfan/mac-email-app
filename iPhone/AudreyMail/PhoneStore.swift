@@ -183,7 +183,7 @@ final class PhoneStore: ObservableObject {
         guard let d = try? Data(contentsOf: cacheURL), let rows = try? JSONDecoder().decode([Mail].self, from: d) else { return }
         inbox = rows
     }
-    private func saveCache() { if let d = try? JSONEncoder().encode(inbox) { try? d.write(to: cacheURL, options: .atomic) } }
+    func saveCache() { if let d = try? JSONEncoder().encode(inbox) { try? d.write(to: cacheURL, options: .atomic) } }
 
     func setTab(_ c: MailCategory) { tab = c; defaults.set(c.rawValue, forKey: "smartTab") }
 

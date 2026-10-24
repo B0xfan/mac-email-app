@@ -49,14 +49,15 @@ public struct TimingView: Codable, Equatable, Sendable {
     // MARK: How it reads on a row (the Mac and the phone say the same words)
 
     /// "Tue 3:00 PM"
-    public static func short(_ d: Date) -> String { let f = DateFormatter(); f.dateFormat = "EEE h:mm a"; return f.string(from: d) }
+    public static func short(_ d: Date) -> String { shortFormat.string(from: d) }
+    nonisolated(unsafe) private static let shortFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE h:mm a"; return f }()
+    nonisolated(unsafe) private static let arrivedFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"; return f }()
     /// The tag on a Snoozed row.
     public func backText(_ id: String) -> String? { snoozes[id].map { "Back " + Self.short(Date(timeIntervalSince1970: TimeInterval($0))) } }
     /// The line under a returned email's subject; nil once it has been opened (or when it is not tagged).
     public func backLine(_ id: String, arrived: Date?) -> String? { backTag.contains(id) ? Self.backLine(arrived: arrived) : nil }
     public static func backLine(arrived: Date?) -> String {
-        let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"
-        return "\u{263E} Back from snooze" + (arrived.map { " \u{00B7} arrived " + f.string(from: $0) } ?? "")
+        "\u{263E} Back from snooze" + (arrived.map { " \u{00B7} arrived " + arrivedFormat.string(from: $0) } ?? "")
     }
     /// A returned email shows at the top with the time it came back; the time it really arrived is kept. Idempotent; undone when it is no longer returned.
     public func applied(to m: Mail) -> Mail {

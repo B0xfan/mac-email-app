@@ -144,10 +144,13 @@ extension TimingData {
     }
     /// The server and this Mac now agree on `v`. A time that did not change keeps its exact value here.
     mutating func adopt(_ v: TimingView) {
+        let sent = view   // what the shared copy could hold; anything this Mac has beyond that (over the size cap, an odd id) is kept here, never deleted
         func dates(_ old: [String: Date], _ new: [String: Int]) -> [String: Date] {
             new.reduce(into: [:]) { out, e in out[e.key] = old[e.key].flatMap { Int($0.timeIntervalSince1970) == e.value ? $0 : nil } ?? Date(timeIntervalSince1970: TimeInterval(e.value)) }
         }
-        snoozes = dates(snoozes, v.snoozes); surfaced = dates(surfaced, v.surfaced); backTag = v.backTag; noReply = v.noReply; sharedView = v
+        snoozes = dates(snoozes, v.snoozes).merging(snoozes.filter { sent.snoozes[$0.key] == nil }) { a, _ in a}
+        surfaced = dates(surfaced, v.surfaced).merging(surfaced.filter { sent.surfaced[$0.key] == nil }) { a, _ in a }
+        backTag = v.backTag + (backTag ?? []).filter { !sent.backTag.contains($0) }; noReply = v.noReply + noReply.filter { !sent.noReply.contains($0) }; sharedView = v
     }
 }
 

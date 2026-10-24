@@ -111,7 +111,7 @@ struct MailWebView: UIViewRepresentable {
     td[nowrap],th[nowrap]{white-space:normal!important}
     """.replacingOccurrences(of: "\n", with: "")
     static let fitScript = """
-    (function(){var d=document.documentElement,vw=d.clientWidth;document.body.querySelectorAll('table,td,th,div,center,section,article').forEach(function(e){if(e.getBoundingClientRect().width>vw+1){e.style.setProperty('width','auto','important')}});var w=d.scrollWidth;if(w>vw+1){document.body.style.zoom=vw/w}return d.scrollWidth})()
+    (function(){var d=document.documentElement;document.body.style.zoom='';var vw=d.clientWidth;[].slice.call(document.body.querySelectorAll('table,td,th,div,center,section,article')).filter(function(e){return e.getBoundingClientRect().width>vw+1}).forEach(function(e){e.style.setProperty('width','auto','important')});var w=d.scrollWidth;if(w>vw+1){document.body.style.zoom=vw/w}return d.scrollWidth})()
     """
 
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
@@ -149,6 +149,7 @@ struct MailWebView: UIViewRepresentable {
         c.height = $height
         let page = Self.page(html, allowRemote: allowRemote, plain: plain)
         if c.page != page || c.remote != allowRemote { c.page = page; c.remote = allowRemote; c.load() }
+        else if abs(c.fitWidth - wv.bounds.width) > 1, c.fitWidth > 0 { c.fitWidth = wv.bounds.width; wv.evaluateJavaScript(Self.fitScript, in: nil, in: .defaultClient) { _ in } }   // the phone was turned
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
@@ -156,6 +157,7 @@ struct MailWebView: UIViewRepresentable {
         var page = "", remote = false
         var height: Binding<CGFloat> = .constant(0)
         var observation: NSKeyValueObservation?
+        var fitWidth: CGFloat = 0   // the width the email was last fitted to
         func load() {
             guard let v = view else { return }
             let go = { [self] in v.loadHTMLString(page, baseURL: nil) }
@@ -171,6 +173,7 @@ struct MailWebView: UIViewRepresentable {
         }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // our own script in its own world: the page's scripts stay off
+            fitWidth = webView.bounds.width
             webView.evaluateJavaScript(MailWebView.fitScript, in: nil, in: .defaultClient) { _ in }
         }
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {

@@ -319,14 +319,6 @@ enum DemoNewsletter {
         ("inline", """
 <center><div style="width:600px"><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div></div></center>
 """),
-        ("mm", """
-<table width="100%" bgcolor="#f4f4f4"><tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="width:600px;background:#f4f4f4"><tr><td style="padding:40px"><img src="\(pic(200, 60))" alt="Logo" width="200" height="60">
-<p style="font:20px Georgia,serif;color:#555;white-space:normal">Hi John,</p>
-<p style="font:22px Georgia,serif;color:#555">Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p>
-<table><tr><td style="background:#1e4a2f;color:#fff;padding:20px 50px;border-radius:30px"><a style="color:#fff">SHOP NOW</a></td></tr></table>
-</td></tr></table></td></tr></table>
-"""),
         ("outlook", """
 <table width="700" border="0" cellpadding="0" cellspacing="0"><tr><td><table width="660" align="center"><tr><td style="min-width:660px" width="660"><h1 style="font-size:30px">This week at the market</h1><p style="font-size:18px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></td></tr></table></td></tr></table>
 """),

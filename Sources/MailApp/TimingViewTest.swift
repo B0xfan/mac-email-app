@@ -51,13 +51,18 @@ extension SelfTest {
               back.version == 4 && back.view == mine && body["base_version"] as? Int == 3 && Set(body.keys) == ["base_version", "snoozes", "surfaced", "back_tag", "no_reply"])
 
         // how a row reads, and what a returned email looks like
-        var mail = Mail(id: "b1", from: Address(name: "Market & More", email: "hi@mm.example"), subject: "Sale", snippet: "", date: Date(timeIntervalSince1970: 1_800_000_000), labels: ["INBOX", "UNREAD"])
+        let mail = Mail(id: "b1", from: Address(name: "Market & More", email: "hi@mm.example"), subject: "Sale", snippet: "", date: Date(timeIntervalSince1970: 1_800_000_000), labels: ["INBOX", "UNREAD"])
         let shown = mine.applied(to: mail)
         check("timing view: a returned email shows the time it came back and keeps when it arrived; applying twice changes nothing", shown.date == Date(timeIntervalSince1970: 1_900_000_000) && shown.arrived == mail.date && mine.applied(to: shown) == shown)
         check("timing view: once it is no longer returned it goes back to its own time", TimingView().applied(to: shown).date == mail.date && TimingView().applied(to: shown).arrived == nil)
-        mail.id = "a1"
         check("timing view: a Snoozed row says Back and the time, the same words as the Mac", mine.backText("a1") == "Back " + TimeParser.short(Date(timeIntervalSince1970: 2_000_000_000)) && mine.backText("nope") == nil)
         check("timing view: the line under a returned email is the Mac's", mine.backLine("b1", arrived: mail.date)?.hasPrefix("\u{263E} Back from snooze \u{00B7} arrived ") == true && mine.backLine("a1", arrived: nil) == nil)
+
+        var big = TimingData()
+        for i in 0..<(TimingView.limit + 5) { big.snoozes["id\(i)"] = Date(timeIntervalSince1970: 2_000_000_000 + Double(i)) }
+        let sentView = big.view
+        big.adopt(sentView)
+        check("timing view: more snoozes than the server copy can hold are all kept on the Mac", sentView.snoozes.count == TimingView.limit && big.snoozes.count == TimingView.limit + 5)
 
         if !(await partTimingViewStore()) { ok = false }
         return ok

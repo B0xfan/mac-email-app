@@ -39,12 +39,13 @@ extension PhoneStore {
         timingBusy = true; defer { timingBusy = false }
         guard let r = try? await server.readTiming(), state == .signedIn, r.view != timingView else { return }   // no server or no answer: the last state stays
         timingView = r.view
-        inbox = withTiming(inbox)
+        inbox = withTiming(inbox); saveCache()
         if let d = try? JSONEncoder().encode(r.view) { try? d.write(to: timingURL, options: .atomic) }
     }
     /// The tag on a Snoozed row ("Back Tue 3:00 PM"), as on the Mac.
     func backText(_ m: Mail) -> String? { timingView?.backText(m.id) }
     /// The line under a returned email, as on the Mac; it goes once the email has been opened.
+    // shortcut: reading it here hides the line on this phone only; the Mac clears its own when opened there. The phone does not write to the server.
     func backLine(_ m: Mail) -> String? { m.unread ? timingView?.backLine(m.id, arrived: m.arrived) : nil }
     func isNoReply(_ m: Mail) -> Bool { timingView?.noReply.contains(m.id) == true }
 
