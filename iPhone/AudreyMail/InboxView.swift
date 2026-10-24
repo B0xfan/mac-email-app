@@ -15,8 +15,6 @@ struct InboxView: View {
                             .foregroundStyle(Theme.acc).padding(.trailing, 16)
                     }
                     Text(store.totalUnread > 0 ? "\(store.totalUnread) new" : "All caught up").foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
-                    SmartTabs()
-                    if let b = store.banner { BannerView(text: b) }
                     list
                 }
                 Button { store.composeSeed = ComposeSeed(mode: .new, source: nil) } label: {
@@ -59,7 +57,7 @@ struct InboxView: View {
     private var list: some View {
         let rows = store.shown, pins = store.pinnedMails
         return List {
-            if !pins.isEmpty {   // pinned emails sit above the tab's emails, as on the Mac
+            if !pins.isEmpty {   // pinned emails sit above the tab buttons, as on the Mac: they belong to no tab
                 HStack(spacing: 6) {
                     Image(systemName: "pin").font(.system(size: 13))
                     Text("PINNED").font(.system(size: 12, weight: .bold)).tracking(0.7)
@@ -70,19 +68,25 @@ struct InboxView: View {
                 .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
                 ForEach(pins) { m in row(m, pinned: true) }
             }
-            ForEach(rows) { m in row(m, pinned: false) }
-            if store.hasMore {   // a tab can hold few rows of each batch, so older mail is asked for here, not from the last row
-                Button { Task { await store.loadMore() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
-                    .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
-                    .onAppear { Task { await store.loadMore() } }
-            }
-            if rows.isEmpty && pins.isEmpty && !store.hasMore {
-                Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)
-                    .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            Section {
+                if let b = store.banner { BannerView(text: b).padding(.top, 8).listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden) }
+                ForEach(rows) { m in row(m, pinned: false) }
+                if store.hasMore {   // a tab can hold few rows of each batch, so older mail is asked for here, not from the last row
+                    Button { Task { await store.loadMore() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
+                        .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
+                        .onAppear { Task { await store.loadMore() } }
+                }
+                if rows.isEmpty && !store.hasMore {   // as on the Mac: an empty tab says so even when there are pinned emails
+                    Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)
+                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                }
+            } header: {   // stays at the top while the emails scroll, as on the Mac
+                SmartTabs().textCase(nil).frame(maxWidth: .infinity).background(Theme.bg)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+                    .listRowInsets(EdgeInsets())
             }
         }
         .listStyle(.plain).scrollContentBackground(.hidden)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         .refreshable { await store.refresh() }
     }
 
