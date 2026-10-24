@@ -5,6 +5,7 @@ import MailCore
 /// One mail row, as drawn: unread dot, round initials, sender and time, subject, one line of preview.
 struct MailRow: View {
     let mail: Mail
+    var pinned = false
     var body: some View {
         let people = MailCategory.guess(mail) == .people
         HStack(alignment: .top, spacing: 12) {
@@ -14,6 +15,7 @@ struct MailRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
                     Spacer(minLength: 4)
+                    if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
                     Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
                 }
                 Text(mail.subject).font(.system(size: 14.5, weight: mail.unread ? .bold : .regular)).lineLimit(1)
@@ -24,7 +26,7 @@ struct MailRow: View {
         .frame(minHeight: 54, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(mail.unread ? "Unread. " : "")\(mail.from.display). \(mail.subject). \(Fmt.short(mail.date))")
+        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(mail.from.display). \(mail.subject). \(Fmt.short(mail.date))")
     }
 }
 

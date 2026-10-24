@@ -263,6 +263,7 @@ extension MailStore {
         timersBusy = true; offline = false   // the first "unreachable" in this pass skips the other service calls
         defer { timersBusy = false; offline = false }
         await registerWithServer()   // first thing after launch, with the existing sign-in
+        if !offline, lastOrganizerAt.map({ Date().timeIntervalSince($0) > 120 }) ?? true { await syncOrganizer() }   // phone changes show here within a couple of minutes
         await syncServer()
         await syncReminders()
         let wakeIDs = TimingRules.due(timing.data.snoozes, now: now).filter { id in snoozed.contains { $0.id == id } }

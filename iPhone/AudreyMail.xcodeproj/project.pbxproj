@@ -27,6 +27,10 @@
 		A0000000000000000000002F /* MailCore in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000002E /* MailCore */; };
 		A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */; };
 		A100000000000000001AC2DB /* MailboxesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000001AC2DA /* MailboxesView.swift */; };
+		A274955014B5C867A4523019 /* PhoneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25D6674FD218785770FFA4E /* PhoneServer.swift */; };
+		A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */; };
+		A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */; };
+		A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -51,6 +55,10 @@
 		A00000000000000000000024 /* AudreyMail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudreyMail.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreMailboxes.swift; sourceTree = "<group>"; };
 		A100000000000000001AC2DA /* MailboxesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxesView.swift; sourceTree = "<group>"; };
+		A25D6674FD218785770FFA4E /* PhoneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneServer.swift; sourceTree = "<group>"; };
+		A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreShared.swift; sourceTree = "<group>"; };
+		A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreHeld.swift; sourceTree = "<group>"; };
+		A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartFolderViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +102,10 @@
 				A0000000000000000000001F /* Theme.swift */,
 				A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */,
 				A100000000000000001AC2DA /* MailboxesView.swift */,
+				A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */,
+				A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */,
+				A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */,
+				A25D6674FD218785770FFA4E /* PhoneServer.swift */,
 				A00000000000000000000021 /* Assets.xcassets */,
 				A00000000000000000000023 /* Info.plist */,
 			);
@@ -195,6 +207,10 @@
 				A0000000000000000000001E /* SignInView.swift in Sources */,
 				A00000000000000000000020 /* Theme.swift in Sources */,
 				A100000000000000001AC2DB /* MailboxesView.swift in Sources */,
+				A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */,
+				A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */,
+				A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */,
+				A274955014B5C867A4523019 /* PhoneServer.swift in Sources */,
 				A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

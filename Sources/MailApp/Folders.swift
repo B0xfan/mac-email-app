@@ -2,52 +2,14 @@ import SwiftUI
 import AppKit
 import MailCore
 
-// MARK: - Smart Folders and saved searches: kept on this Mac
+// MARK: - Smart Folders and saved searches: a copy on this Mac, shared with the phone through the Mail server
 
-enum RuleField: String, Codable, CaseIterable {
-    case from, to, subject, words, attachment
-    var title: String {
-        switch self { case .from: return "From"; case .to: return "To"; case .subject: return "Subject"; case .words: return "Anywhere in the email"; case .attachment: return "Has an attachment" }
-    }
-    var needsValue: Bool { self != .attachment }
+// RuleField, SmartRule, SmartFolder, SavedSearch and the shared list (Organizer) live in MailCore: the phone uses the same.
+
+struct OrganizerData: Codable {
+    var smart: [SmartFolder] = []; var searches: [SavedSearch] = []; var folded: [String] = []   // folded stays on this Mac only
+    var base: Organizer?      // what this Mac and the server last agreed on (optional so older files still load); nil = never shared yet
 }
-
-struct SmartRule: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var field: RuleField
-    var value = ""
-    /// The Gmail search words for this rule; nil while the rule is still empty.
-    // shortcut: matching is Gmail's own search (whole-word, not raw substring); fine for "contains" in names and subjects.
-    var term: String? {
-        if field == .attachment { return "has:attachment" }
-        let v = value.filter { !"\"(){}".contains($0) }.trimmingCharacters(in: .whitespaces)
-        if v.isEmpty { return nil }
-        let q = v.contains(" ") ? "\"\(v)\"" : v
-        switch field { case .from: return "from:\(q)"; case .to: return "to:\(q)"; case .subject: return "subject:\(q)"; default: return q }
-    }
-}
-
-struct SmartFolder: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var name = ""
-    var matchAll = true
-    var rules: [SmartRule] = [SmartRule(field: .from)]
-    /// Empty when no rule is filled in (so an empty folder never means "every email").
-    var query: String {
-        let t = rules.compactMap(\.term)
-        if t.isEmpty { return "" }
-        return matchAll || t.count == 1 ? t.joined(separator: " ") : "{" + t.joined(separator: " ") + "}"
-    }
-    var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && !query.isEmpty }
-}
-
-struct SavedSearch: Codable, Equatable, Identifiable {
-    var id = UUID()
-    var name: String
-    var query: String
-}
-
-struct OrganizerData: Codable { var smart: [SmartFolder] = []; var searches: [SavedSearch] = []; var folded: [String] = [] }
 
 final class OrganizerBook {
     private(set) var data: OrganizerData
@@ -69,6 +31,10 @@ final class OrganizerBook {
     func removeSmart(_ id: UUID) { data.smart.removeAll { $0.id == id }; save() }
     func put(_ s: SavedSearch) { if let i = data.searches.firstIndex(where: { $0.id == s.id }) { data.searches[i] = s } else { data.searches.append(s) }; save() }
     func removeSearch(_ id: UUID) { data.searches.removeAll { $0.id == id }; save() }
+    var current: Organizer { Organizer(smart: data.smart, searches: data.searches) }
+    var shared: Organizer { data.base ?? Organizer() }
+    /// The server and this Mac now agree on `o`.
+    func adopt(_ o: Organizer) { data.smart = o.smart; data.searches = o.searches; data.base = o; save() }
     private func save() {
         // test runs never write John's real file
         guard let url, !(Keychain.testMode && url == Self.defaultURL), let d = try? JSONEncoder().encode(data) else { return }
@@ -123,6 +89,27 @@ extension MailStore {
     }
 
     func closeEditor() { editor = nil; editorMessage = nil }
+
+    /// Smart Folders and saved searches are shared with the phone through the Mail server. The first time this runs, the Mac's own list is merged into the
+    /// server's (nothing is lost); after that every change here or on the phone reaches the other. Without the server the local list works as before.
+    func syncOrganizer() async {
+        guard let srv = timingServer, !organizerBusy else { return }
+        organizerBusy = true; defer { organizerBusy = false }
+        for _ in 0..<3 {
+            let before = organizer.current
+            do {
+                let r = try await OrganizerSync.run(base: organizer.shared, local: before, link: srv)
+                lastOrganizerAt = Date()
+                if organizer.current != before { continue }   // edited meanwhile: merge again so the edit is not overwritten
+                if r.merged != before || organizer.shared != r.merged {
+                    organizer.adopt(r.merged); objectWillChange.send()
+                    if r.merged != before { await refreshSmartCounts() }
+                }
+                return
+            } catch TimingServerError.unreachable { markOffline(); return }
+            catch { return }   // refused or busy: the list on this Mac still works; the next pass tries again
+        }
+    }
 
     // Folders
     @discardableResult
@@ -188,6 +175,7 @@ extension MailStore {
         var x = f; x.name = f.name.trimmingCharacters(in: .whitespaces)
         guard x.canSave else { editorMessage = "Give it a name and at least one rule."; return }
         organizer.put(x); closeEditor(); objectWillChange.send()
+        await syncOrganizer()
         await refreshSmartCounts()
         if mailbox == .smart(x.id) { await loadOther() }
     }
@@ -195,6 +183,7 @@ extension MailStore {
         organizer.removeSmart(id); smartCounts[id] = nil
         let wasHere = mailbox == .smart(id)
         closeEditor(); objectWillChange.send()
+        Task { await syncOrganizer() }
         if wasHere { await select(.inbox) }
     }
 
@@ -204,17 +193,20 @@ extension MailStore {
         guard !n.isEmpty else { editorMessage = "Give the search a name."; return }
         let s = SavedSearch(name: n, query: query)
         organizer.put(s); closeEditor(); objectWillChange.send()
+        Task { await syncOrganizer() }
         Task { await select(.saved(s.id)) }
     }
     func renameSearch(_ id: UUID, to name: String) {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard var s = organizer.searches.first(where: { $0.id == id }), !n.isEmpty else { editorMessage = "Give the search a name."; return }
         s.name = n; organizer.put(s); closeEditor(); objectWillChange.send()
+        Task { await syncOrganizer() }
     }
     func deleteSearch(_ id: UUID) async {
         organizer.removeSearch(id)
         let wasHere = mailbox == .saved(id)
         closeEditor(); objectWillChange.send()
+        Task { await syncOrganizer() }
         if wasHere { await select(.inbox) }
     }
     var currentSearchIsSaved: Bool { organizer.searches.contains { $0.query == search.trimmingCharacters(in: .whitespaces) } }

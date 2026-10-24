@@ -25,8 +25,8 @@ struct RootView: View {
         .tint(Theme.acc)
         .task { sel = initialTab; await store.start() }
         .onChange(of: phase) { _, p in
-            if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() } }
-            if p == .background { store.sendPendingNow() }   // leaving the app or locking the phone: held emails go out at once
+            if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() }; store.resumeHeld() }
+            if p == .background { store.sendPendingNow() }   // leaving the app or locking the phone: an email the server holds stays with it, any other goes out at once
         }
     }
 

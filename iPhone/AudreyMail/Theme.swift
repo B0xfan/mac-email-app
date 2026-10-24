@@ -31,6 +31,8 @@ enum Theme {
     static let accInk = Color("#7a4208", "#f5c98b")
     static let danger = Color("#a3261c", "#ff9d92")
     static let dangerText = Color("#ffffff", "#3a1b18")
+    static let pinBg = Color("#fff6df", "#2b2a1a")   // a pinned row, as on the Mac
+    static let dot = Color("#b45f0a", "#f5b25c")     // the pin
 }
 
 /// Round initials, colored by who the sender is: people teal or purple (steady per address), notifications and newsletters soft teal.

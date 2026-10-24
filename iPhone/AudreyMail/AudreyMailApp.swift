@@ -15,7 +15,8 @@ struct AudreyMailApp: App {
             }
             #endif
             let auth = PhoneAuth()
-            return (PhoneStore(sign: auth, gmail: GmailClient(auth: auth)), 0)
+            let server = PhoneServer(refreshToken: { await auth.refreshTokenForServer() }, keys: KeychainServerKey(), clientID: GoogleConfig.clientID)
+            return (PhoneStore(sign: auth, gmail: GmailClient(auth: auth), server: server), 0)
         }
         _store = StateObject(wrappedValue: made.store)
         initialTab = made.tab

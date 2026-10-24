@@ -27,6 +27,7 @@ protocol PhoneSignIn: AccessTokenProvider {
     func signOut() async
     func savedEmail() async -> String?             // nil = nobody is signed in
     func invalidateAccessToken() async             // the one in memory may be old: the next ask gets a new one
+    func refreshTokenForServer() async -> String?  // handed to the Mail server once, to register this phone (the Mac does the same)
 }
 
 struct StoredSignIn: Codable { var refreshToken: String; var email: String? }
@@ -91,6 +92,7 @@ actor PhoneAuth: PhoneSignIn {
     init(session: URLSession = .shared) { self.session = session }
 
     func savedEmail() -> String? { stored().map { $0.email ?? "" } }
+    func refreshTokenForServer() -> String? { stored()?.refreshToken }
     private func stored() -> StoredSignIn? { if cached == nil { cached = SignInKeychain.load() }; return cached }
 
     func signOut() { SignInKeychain.delete(); cached = nil; accessToken = nil; accessExpiry = .distantPast; refreshTask?.cancel(); refreshTask = nil }

@@ -97,3 +97,20 @@ struct TimingServer: Sendable {
 
     func forgetKey() async { await auth.setTimingKey(nil) }
 }
+
+/// Smart Folders and saved searches on the server (server/mail-timing/README.md, GET and PUT /organizer).
+extension TimingServer: OrganizerLink {
+    func read() async throws -> (version: Int, organizer: Organizer) {
+        let (c, o) = try await call("GET", "organizer")
+        guard c == 200 else { throw TimingServerError.refused(c) }
+        let r = OrganizerWire.decode(o)
+        return (r.version, r.organizer)
+    }
+
+    func write(base: Int, _ organizer: Organizer) async throws -> OrganizerWrite {
+        let (c, o) = try await call("PUT", "organizer", OrganizerWire.body(base: base, organizer))
+        if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
+        if c == 409 { let r = OrganizerWire.decode(o); return .conflict(version: r.version, r.organizer) }   // someone saved after we read: merge onto theirs
+        throw TimingServerError.refused(c)
+    }
+}

@@ -32,7 +32,7 @@ extension PhoneStore {
     // MARK: - Folders (Gmail labels)
 
     /// Gmail's own labels, labels hidden in Gmail, and Audrey Mail's own (Pinned, Set Aside, Blocked) are left out.
-    var folders: [FolderNode] { Folders.build(labelList, hiding: ["Pinned", "Set Aside", Self.blockLabelName]) }
+    var folders: [FolderNode] { Folders.build(labelList, hiding: [Self.pinLabelName, "Set Aside", Self.blockLabelName] + Self.snoozeLabelNames) }   // Snoozed has its own row in Mailboxes
 
     func loadFolders() async {
         do { labelList = try await gmail.labelsStrict() } catch { await fail(error, "Could not load your folders.") }
@@ -60,17 +60,24 @@ extension PhoneStore {
         catch { await fail(error, "Could not delete the folder.") }
     }
 
-    func openFolder(_ id: String) async {
-        if folderID != id { folderMails = [] }   // pulling down to refresh the same folder keeps what is shown
-        folderID = id; folderGen += 1
-        await loadFolderPage(id, token: nil, gen: folderGen)
+    func openFolder(_ id: String) async { await openList(.label(id)) }
+    func openList(_ source: MailListSource) async {
+        if folderSource != source { folderMails = [] }   // pulling down to refresh the same list keeps what is shown
+        folderSource = source; folderGen += 1
+        await loadFolderPage(source, token: nil, gen: folderGen)
     }
-    func loadMoreFolder() async { if let id = folderID, let t = folderNext, !folderLoading { await loadFolderPage(id, token: t, gen: folderGen) } }
+    func loadMoreFolder() async { if let s = folderSource, let t = folderNext, !folderLoading { await loadFolderPage(s, token: t, gen: folderGen) } }
+    /// The label of the open list when it is a folder or Snoozed (not a search).
+    var folderLabel: String? { if case .label(let l) = folderSource { return l } else { return nil } }
 
-    private func loadFolderPage(_ id: String, token: String?, gen: Int) async {
+    private func loadFolderPage(_ source: MailListSource, token: String?, gen: Int) async {
         folderLoading = true; defer { if gen == folderGen { folderLoading = false } }
         do {
-            let page = try await gmail.listPage(labels: [id], max: 50, pageToken: token)
+            let page: (ids: [String], next: String?)
+            switch source {
+            case .label(let id): page = try await gmail.listPage(labels: [id], max: 50, pageToken: token)
+            case .query(let q): page = try await gmail.listPage(q: q, max: 50, pageToken: token)
+            }
             let got = await gmail.messagesChecked(ids: page.ids)
             guard folderGen == gen, state == .signedIn else { return }   // the folder was opened again meanwhile: only the newest answer counts
             let base = token == nil ? [] : folderMails   // the first page replaces the list, later pages add to it

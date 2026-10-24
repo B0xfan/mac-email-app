@@ -20,6 +20,16 @@ final class DemoMailbox: @unchecked Sendable {
     var attFail = false        // every attachment download is refused
     var attFailOnce = false    // the next attachment download is refused, then it works (a changed attachment id)
     var attDownloads = 0
+    var draftRaw: [String: String] = [:]   // draft id -> the raw email as saved, so a draft that is sent shows what was in it
+    // the pretend Mail server (audreypka.com): registrations, held emails, and the shared Smart Folders
+    var srvDown = false                    // every server call fails, as with no network
+    var srvRegisters = 0
+    var srvKey: String?
+    var srvJobs: [String: (seconds: Int, grace: Int)] = [:]
+    var srvLog: [String] = []
+    var srvDeleteSays: String?             // a forced answer to Undo (for example "sent")
+    var srvVersion = 0
+    var srvSmart: [Any] = [], srvSearches: [Any] = []
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
     init() { reset() }
@@ -31,7 +41,8 @@ final class DemoMailbox: @unchecked Sendable {
         func add(_ id: String, _ labels: [String], _ from: String, _ subject: String, _ body: String, _ date: Date, unsub: Bool = false) {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
-        msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
+        msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
+        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvVersion = 0; srvSmart = []; srvSearches = []
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -56,6 +67,11 @@ final class DemoMailbox: @unchecked Sendable {
         add("a1", ["Label_old"], "Aerovia Airlines <bookings@aerovia.example>", "Your flight to Liberia is confirmed", "Departs Thursday 7:05 am. Check in opens 24 hours before.", t(9 * d))
         add("a2", ["Label_old"], "Maya Ortiz <maya.ortiz@example.com>", "Re: Picking you up after your flight", "I will be at arrivals with a sign.", t(14 * d))
         add("a3", ["Label_old"], "Sunrise Rentals <rentals@sunrise-rentals.example>", "Car pickup after your flight", "Bring your license and the booking number.", t(23 * d))
+        // older mail from Tom (a Smart Folder reads it by its rules) and two snoozed emails (the label the Mac uses)
+        add("t1", ["Label_old"], "Tom Becker <tom.becker@example.com>", "Invoice 114", "Second half of the work, thank you.", t(6 * d))
+        add("t2", ["Label_old"], "Tom Becker <tom.becker@example.com>", "Invoice and photos", "Here is the first invoice and the photos.", t(20 * d))
+        add("z1", ["Label_snoozed"], "Northwind Bank <noreply@northwind-bank.example>", "Review your card limit", "Sign in to the bank's own site.", t(2 * d))
+        add("z2", ["Label_snoozed"], "Daniel Reyes <daniel.reyes@example.com>", "Camping list", "Bring the stove and the long rope.", t(4 * d))
     }
 
     func with<T>(_ f: (DemoMailbox) -> T) -> T { lock.lock(); defer { lock.unlock() }; return f(self) }
@@ -91,6 +107,7 @@ final class DemoMailbox: @unchecked Sendable {
     func handle(_ req: URLRequest) -> (Int, String) {
         lock.lock(); defer { lock.unlock() }
         let u = req.url!
+        if u.host == "audreypka.com" { return serverHandle(req) }
         if expired { return (401, #"{"error":{"code":401,"message":"Invalid Credentials"}}"#) }
         let rel = u.path.replacingOccurrences(of: "/gmail/v1/users/me", with: ""), method = req.httpMethod ?? "GET"
         let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -125,6 +142,12 @@ final class DemoMailbox: @unchecked Sendable {
             writes.append("modify \(ids.sorted().joined(separator: ",")) +\(add.joined(separator: ",")) -\(rem.joined(separator: ","))")
             change(ids, add: add, remove: rem)
             return (200, "{}")
+        case ("POST", "/drafts/send"):   // a draft is sent: it becomes a sent email and the draft is gone (a second send finds nothing, as in Gmail)
+            if failSend { return (500, #"{"error":{"code":500,"message":"Backend Error"}}"#) }
+            guard let id = body["id"] as? String, let d = drafts.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Requested entity was not found."}}"#) }
+            sent.append(draftRaw[id] ?? ""); writes.append("send draft \(id)")
+            drafts.removeAll { $0.id == id }; msgs.removeAll { $0.id == d.msg }
+            return (200, "{\"id\":\"sent\(sent.count)\",\"threadId\":\"TS\"}")
         case ("POST", "/messages/send"):
             if failSend { return (500, #"{"error":{"code":500,"message":"Backend Error"}}"#) }
             sent.append(String(decoding: Base64URL.decode(body["raw"] as? String ?? "") ?? Data(), as: UTF8.self)); writes.append("send")
@@ -138,8 +161,15 @@ final class DemoMailbox: @unchecked Sendable {
             if query.hasPrefix("in:sent") { return reply([]) }
             if query.contains("in:inbox") { let a = addr("from:"); return reply(msgs.filter { $0.labels.contains("INBOX") && $0.from.lowercased().contains(a) }) }
             if query.hasPrefix("label:") { let a = addr("from:"); return reply(msgs.filter { $0.labels.contains("Label_blocked") && $0.from.lowercased().contains(a) }) }
-            let words = query.split(separator: " ").map(String.init)
-            return reply(msgs.filter { m in words.allSatisfy { (m.from + m.subject + m.body).lowercased().contains($0) } }.sorted { $0.date > $1.date })
+            // plain words, and the Smart Folder words: from:x subject:x to:x has:attachment, {a b} = any of them
+            let any = query.hasPrefix("{") && query.hasSuffix("}")
+            let words = (any ? String(query.dropFirst().dropLast()) : query).split(separator: " ").map { $0.replacingOccurrences(of: "\"", with: "") }
+            func hit(_ m: Msg, _ w: String) -> Bool {
+                if w == "has:attachment" { return !m.atts.isEmpty }
+                for (k, field) in [("from:", m.from), ("to:", m.to), ("subject:", m.subject)] where w.hasPrefix(k) { return field.lowercased().contains(w.dropFirst(k.count)) }
+                return (m.from + m.subject + m.body).lowercased().contains(w)
+            }
+            return reply(msgs.filter { m in any ? words.contains { hit(m, $0) } : words.allSatisfy { hit(m, $0) } }.sorted { $0.date > $1.date })
         default: break
         }
         if method == "PATCH", rel.hasPrefix("/labels/") {
@@ -184,6 +214,7 @@ final class DemoMailbox: @unchecked Sendable {
     private func putDraft(id: String, mid: String, body: [String: Any]) {
         let msg = body["message"] as? [String: Any] ?? [:]
         let raw = String(decoding: Base64URL.decode(msg["raw"] as? String ?? "") ?? Data(), as: UTF8.self)
+        draftRaw[id] = raw
         func header(_ n: String) -> String { raw.components(separatedBy: "\r\n").first { $0.hasPrefix(n + ": ") }.map { String($0.dropFirst(n.count + 2)) } ?? "" }
         var text = ""
         if let r = raw.range(of: "text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n") {
@@ -196,6 +227,55 @@ final class DemoMailbox: @unchecked Sendable {
         msgs.append(m)
     }
 
+    // MARK: the pretend Mail server
+
+    private func serverHandle(_ req: URLRequest) -> (Int, String) {
+        let method = req.httpMethod ?? "GET", path = req.url!.path.replacingOccurrences(of: "/api/mail-timing/", with: "")
+        let body = (try? JSONSerialization.jsonObject(with: Self.bodyData(req)) as? [String: Any]) ?? [:]
+        func out(_ o: [String: Any]) -> String { String(decoding: (try? JSONSerialization.data(withJSONObject: o)) ?? Data("{}".utf8), as: UTF8.self) }
+        if srvDown { return (503, "{}") }
+        if path == "register" {
+            srvRegisters += 1; srvKey = "K\(srvRegisters)"
+            srvLog.append("register \(body["device"] as? String ?? "") \(body["client_id"] as? String ?? "") \(body["refresh_token"] as? String ?? "")")
+            return (200, out(["api_key": srvKey!, "email": "alex.jordan@gmail.example", "device": body["device"] as? String ?? "mac"]))
+        }
+        guard let k = srvKey, req.value(forHTTPHeaderField: "Authorization") == "Bearer \(k)" else { srvLog.append("401"); return (401, "{}") }
+        if path.hasPrefix("jobs/") {
+            let id = String(path.dropFirst("jobs/".count))
+            if method == "PUT" {
+                srvJobs[id] = (body["send_in_seconds"] as? Int ?? -1, body["grace_seconds"] as? Int ?? -1)
+                srvLog.append("hold \(id) \(body["send_in_seconds"] as? Int ?? -1) \(body["grace_seconds"] as? Int ?? -1) \(body["send_at"] == nil ? "relative" : "absolute")")
+                return (200, out(["status": "pending"]))
+            }
+            if method == "DELETE" {
+                let had = srvJobs.removeValue(forKey: id) != nil
+                srvLog.append("release \(id)")
+                return (200, out(["status": srvDeleteSays ?? (had ? "pending" : "none")]))
+            }
+        }
+        if path == "organizer" {
+            if method == "GET" { return (200, out(["version": srvVersion, "smart": srvSmart, "searches": srvSearches])) }
+            if method == "PUT" {
+                guard body["base_version"] as? Int == srvVersion else { return (409, out(["version": srvVersion, "smart": srvSmart, "searches": srvSearches])) }
+                srvSmart = body["smart"] as? [Any] ?? []; srvSearches = body["searches"] as? [Any] ?? []; srvVersion += 1
+                srvLog.append("organizer saved v\(srvVersion)")
+                return (200, out(["version": srvVersion]))
+            }
+        }
+        return (404, "{}")
+    }
+
+    /// The server sends every held email whose time has come, as the real one does when the phone is gone: the Gmail draft is sent and the job is forgotten.
+    func serverSendsHeld() {
+        lock.lock(); defer { lock.unlock() }
+        for id in srvJobs.keys.sorted() {
+            guard let d = drafts.first(where: { $0.id == id }) else { continue }
+            sent.append(draftRaw[id] ?? ""); writes.append("server sent \(id)")
+            drafts.removeAll { $0.id == id }; msgs.removeAll { $0.id == d.msg }
+        }
+        srvJobs = [:]
+    }
+
     static func bodyData(_ r: URLRequest) -> Data {
         if let b = r.httpBody { return b }
         guard let s = r.httpBodyStream else { return Data() }
@@ -204,6 +284,14 @@ final class DemoMailbox: @unchecked Sendable {
         while s.hasBytesAvailable { let n = s.read(&buf, maxLength: buf.count); if n <= 0 { break }; out.append(buf, count: n) }
         return out
     }
+}
+
+/// The server key held in memory: the built-in checks never touch the Keychain.
+final class MemoryServerKey: ServerKeyStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var key: String?
+    func load() -> String? { lock.lock(); defer { lock.unlock() }; return key }
+    func save(_ k: String?) { lock.lock(); key = k; lock.unlock() }
 }
 
 final class DemoURLProtocol: URLProtocol {
@@ -223,6 +311,7 @@ struct DemoAuth: PhoneSignIn {
     var signedIn = true
     func validAccessToken() async throws -> String { if DemoMailbox.shared.with({ $0.expired }) { throw AuthError.signInAgain }; return "demo" }
     func invalidateAccessToken() async {}
+    func refreshTokenForServer() async -> String? { "demo-refresh" }
     func signIn() async throws -> String? { "alex.jordan@gmail.example" }
     func signOut() async {}
     func savedEmail() async -> String? { signedIn ? "alex.jordan@gmail.example" : nil }
@@ -234,15 +323,26 @@ enum DemoMode {
     static var screen: String? { args.firstIndex(of: "-demo").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
     static var selfTest: Bool { args.contains("-selftest") }
 
-    @MainActor static func makeStore(signedIn: Bool = true) -> PhoneStore {
+    /// A Smart Folder the screens and checks use.
+    static var demoSmart: SmartFolder { SmartFolder(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!, name: "Invoices from Tom", rules: [SmartRule(field: .from, value: "tom"), SmartRule(field: .subject, value: "invoice")]) }
+
+    static var demoOrganizer: Organizer {
+        Organizer(smart: [demoSmart, SmartFolder(name: "Travel bookings", rules: [SmartRule(field: .words, value: "flight")])],
+                  searches: [SavedSearch(name: "invoice", query: "invoice"), SavedSearch(name: "Lucia dinner", query: "dinner")])
+    }
+
+    @MainActor static func makeStore(signedIn: Bool = true, withServer: Bool = true) -> PhoneStore {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.protocolClasses = [DemoURLProtocol.self]
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("demo-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let auth = DemoAuth(signedIn: signedIn)
-        let gmail = GmailClient(auth: auth, session: URLSession(configuration: cfg))
+        let session = URLSession(configuration: cfg)
+        let gmail = GmailClient(auth: auth, session: session)
+        let server = withServer ? PhoneServer(refreshToken: { await auth.refreshTokenForServer() }, keys: MemoryServerKey(), session: session, clientID: "demo.apps.googleusercontent.com") : nil
         return PhoneStore(sign: auth, gmail: gmail, book: SenderBook(url: dir.appendingPathComponent("senders.json"), start: Date().addingTimeInterval(-10 * 86400)),
-                          cacheURL: dir.appendingPathComponent("inbox.json"), defaults: UserDefaults(suiteName: "demo-\(UUID().uuidString)")!)
+                          cacheURL: dir.appendingPathComponent("inbox.json"), defaults: UserDefaults(suiteName: "demo-\(UUID().uuidString)")!,
+                          server: server, organizerURL: dir.appendingPathComponent("organizer.json"))
     }
 
     @MainActor static func make() -> (store: PhoneStore, tab: Int)? {
@@ -251,14 +351,23 @@ enum DemoMode {
         DemoMailbox.shared.reset()
         let s = screen ?? ""
         let store = makeStore(signedIn: !s.hasPrefix("signin") && !selfTest)
+        let box = DemoMailbox.shared
+        if ["mailboxes", "smartfolder", "smartform"].contains(s) { store.organizer = demoOrganizer }
+        if s == "pinned" { box.with { b in for id in ["m3", "m5"] { if let i = b.msgs.firstIndex(where: { $0.id == id }) { b.msgs[i].labels.append("Label_pinned") } } } }
+        if s == "undooffline" { box.with { $0.srvDown = true } }
+        if s == "wentout" { Task { @MainActor in   // opening the app after the server sent an email that was held
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            store.remember(HeldSend(draftID: "DGONE", subject: "Re: Saturday at the beach?", deadline: Date().addingTimeInterval(-60)))
+            store.resumeHeld()
+        } }
         if s == "signinagain" { Task { @MainActor in store.state = .signedOut(again: true) } }
-        if s == "undo" { Task { @MainActor in   // the inbox with the Undo Send bar, as drawn
+        if s == "undo" || s == "undooffline" { Task { @MainActor in   // the inbox with the Undo Send bar, as drawn
             store.undoDelay = 30
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             let snap = ComposeSnapshot(mode: .new, source: nil, to: ["maya.ortiz@example.com"], cc: "", bcc: "", subject: "Saturday", text: "See you at 8", attachments: [], draftID: nil, threadID: nil)
             store.queueSend(snap, out: MIME.Outgoing(from: store.defaultFrom, to: "maya.ortiz@example.com", subject: "Saturday", html: "<p>See you at 8</p>", text: "See you at 8"), threadID: nil)
         } }
-        return (store, ["new": 1, "block": 1, "search": 2, "settings": 3][s] ?? 0)
+        return (store, ["new": 1, "block": 1, "search": 2, "savesearch": 2, "namesearch": 2, "settings": 3][s] ?? 0)
     }
 }
 #endif

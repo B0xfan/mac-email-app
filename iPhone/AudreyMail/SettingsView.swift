@@ -33,7 +33,16 @@ struct SettingsView: View {
                         }
                     }.padding(.horizontal, 16).padding(.vertical, 12)
                 }
-                Text("After you press Send, an Undo button shows for \(store.undoDelay) seconds.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
+                Text("After you press Send, Undo shows for \(store.undoDelay) seconds. The email is held safely, so it still goes out if you leave the app.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
+                head("Shared with your Mac")
+                group {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) { Text("Smart Folders and saved searches").font(.system(size: 17)); Text("Changes show on both").font(.system(size: 14)).foregroundStyle(Theme.sub) }
+                        Spacer()
+                        Text(store.sharing == false ? "Waiting" : "On").foregroundStyle(Theme.sub)
+                    }.frame(minHeight: 56).padding(.horizontal, 16)
+                    .accessibilityElement(children: .combine)
+                }
                 group {
                     Button { askSignOut = true } label: { Text("Sign out").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.danger).frame(maxWidth: .infinity, minHeight: 56) }
                 }

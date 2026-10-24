@@ -8,6 +8,7 @@ struct SearchView: View {
     @State private var searching = false
     @State private var failed: String?
     @State private var path: [Mail] = []
+    @State private var naming: SearchNameSheet.Mode?
     @FocusState private var focus: Bool
 
     var body: some View {
@@ -22,7 +23,12 @@ struct SearchView: View {
                     .padding(.horizontal, 12).frame(minHeight: 40).background(RoundedRectangle(cornerRadius: 12).fill(Theme.side))
                     if focus || !text.isEmpty { Button("Cancel") { text = ""; focus = false }.foregroundStyle(Theme.acc).font(.system(size: 17)).frame(minHeight: 44) }
                 }
-                .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
+                .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, text.trimmingCharacters(in: .whitespaces).isEmpty || store.isSaved(search: text) ? 10 : 2)
+                if !text.trimmingCharacters(in: .whitespaces).isEmpty, !store.isSaved(search: text) {   // like the Mac's Save this search button
+                    Button { naming = .save(query: text.trimmingCharacters(in: .whitespaces)) } label: {
+                        Label("Save this search", systemImage: "bookmark").font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    }.foregroundStyle(Theme.acc).padding(.horizontal, 20)
+                }
                 results
             }
             .background(Theme.bg)
@@ -31,8 +37,12 @@ struct SearchView: View {
             .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
         }
         .task(id: text) { await run() }
+        .sheet(item: $naming) { SearchNameSheet(mode: $0) { store.show("Saved. It is in Mailboxes.") }.presentationDetents([.height(380)]) }
         #if DEBUG
-        .onAppear { if DemoMode.screen == "search" { text = "flight" } }
+        .onAppear {
+            if DemoMode.screen == "search" || DemoMode.screen == "savesearch" { text = DemoMode.screen == "search" ? "flight" : "invoice" }
+            if DemoMode.screen == "namesearch" { text = "invoice"; naming = .save(query: "invoice") }
+        }
         #endif
     }
 

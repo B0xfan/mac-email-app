@@ -241,6 +241,7 @@ enum SelfTest {
         if !(await partSync()) { ok = false }
         if !(await partHistory()) { ok = false }
         if !(await partLocalLists()) { ok = false }
+        if !(await partOrganizerSync()) { ok = false }
         if !(await partOutbox()) { ok = false }
         if !(await partStoredFixes()) { ok = false }
         if !(await partStoredInbox()) { ok = false }

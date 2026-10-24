@@ -5,14 +5,18 @@ import MailCore
 struct FolderOpen: Hashable { let mail: Mail; let folder: String }
 
 /// Where the inbox's Mailboxes button leads. Folder is a Gmail label id.
-enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, folder(String) }
+enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, folder(String), smart(UUID), saved(UUID) }
 
-// MARK: - Mailboxes: Drafts, Blocked, Folders
+// MARK: - Mailboxes: Drafts, Blocked, Snoozed, Folders, Smart Folders, saved searches
 
 struct MailboxesView: View {
     @EnvironmentObject var store: PhoneStore
     @State private var sheet: FolderNameSheet.Mode?
     @State private var deleting: FolderNode?
+    @State private var smartSheet: SmartFolderForm.Mode?
+    @State private var searchSheet: SearchNameSheet.Mode?
+    @State private var deletingSmart: SmartFolder?
+    @State private var deletingSearch: SavedSearch?
 
     var body: some View {
         List {
@@ -22,6 +26,7 @@ struct MailboxesView: View {
                 NavigationLink(value: MailboxRoute.blocked) {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
+                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed") }
             }.modifier(CardRows())
             Section {
                 ForEach(store.folders) { f in
@@ -33,16 +38,52 @@ struct MailboxesView: View {
                 }
                 Button { sheet = .new } label: { row("plus", "New folder").foregroundStyle(Theme.acc).fontWeight(.bold) }
             } header: { Text("Folders").foregroundStyle(Theme.sub) }
-              footer: { Text("These are your real Gmail folders, so they match on your Mac and in Gmail. Swipe a folder left to rename or delete it. Smart Folders and saved searches stay on the Mac.").foregroundStyle(Theme.sub) }
+              footer: { Text("These are your real Gmail folders, so they match on your Mac and in Gmail. Swipe a folder left to rename or delete it.").foregroundStyle(Theme.sub) }
+                .modifier(CardRows())
+            Section {
+                ForEach(store.organizer.smart) { f in
+                    NavigationLink(value: MailboxRoute.smart(f.id)) { row("line.3.horizontal.decrease.circle", f.name, trailing: store.smartCounts[f.id].map(String.init) ?? "") }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button { deletingSmart = f } label: { Label("Delete", systemImage: "trash") }.tint(Theme.danger)
+                            Button { smartSheet = .edit(f) } label: { Label("Edit", systemImage: "pencil") }.tint(Theme.acc)
+                        }
+                }
+                Button { smartSheet = .new } label: { row("plus", "New Smart Folder").foregroundStyle(Theme.acc).fontWeight(.bold) }
+            } header: { Text("Smart Folders").foregroundStyle(Theme.sub) }
+              footer: { Text("A Smart Folder fills itself from its rules. It is shared with your Mac. Swipe one left to edit or delete it; deleting never deletes an email.").foregroundStyle(Theme.sub) }
+                .modifier(CardRows())
+            Section {
+                ForEach(store.organizer.searches) { s in
+                    NavigationLink(value: MailboxRoute.saved(s.id)) { row("magnifyingglass", s.name) }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button { deletingSearch = s } label: { Label("Delete", systemImage: "trash") }.tint(Theme.danger)
+                            Button { searchSheet = .rename(s) } label: { Label("Rename", systemImage: "pencil") }.tint(Theme.acc)
+                        }
+                }
+                if store.organizer.searches.isEmpty { Text("Search for something, then tap Save this search.").foregroundStyle(Theme.sub) }
+            } header: { Text("Saved searches").foregroundStyle(Theme.sub) }
                 .modifier(CardRows())
         }
         .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(Theme.bg)
         .navigationTitle("Mailboxes")
         #if DEBUG
-        .onAppear { if DemoMode.screen == "newfolder" { sheet = .new } }
+        .onAppear {
+            if DemoMode.screen == "newfolder" { sheet = .new }
+            if DemoMode.screen == "smartform" { smartSheet = .edit(DemoMode.demoSmart) }
+        }
         #endif
-        .task { async let a: Void = store.loadFolders(); async let b: Void = store.loadDrafts(); async let c: Void = store.loadBlocked(); _ = await (a, b, c) }
+        .task { async let a: Void = store.loadFolders(); async let b: Void = store.loadDrafts(); async let c: Void = store.loadBlocked(); _ = await (a, b, c); await store.syncOrganizer(); await store.refreshSmartCounts() }
         .sheet(item: $sheet) { FolderNameSheet(mode: $0).presentationDetents([.height(360)]) }
+        .sheet(item: $smartSheet) { SmartFolderForm(mode: $0) }
+        .sheet(item: $searchSheet) { SearchNameSheet(mode: $0).presentationDetents([.height(380)]) }
+        .confirmationDialog("Delete this Smart Folder?", isPresented: Binding(get: { deletingSmart != nil }, set: { if !$0 { deletingSmart = nil } }), titleVisibility: .visible, presenting: deletingSmart) { f in
+            Button("Delete \(f.name)", role: .destructive) { Task { await store.deleteSmart(f.id) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in Text("Only the folder goes. No email is deleted. It is removed on your Mac too.") }
+        .confirmationDialog("Delete this saved search?", isPresented: Binding(get: { deletingSearch != nil }, set: { if !$0 { deletingSearch = nil } }), titleVisibility: .visible, presenting: deletingSearch) { x in
+            Button("Delete \(x.name)", role: .destructive) { Task { await store.deleteSearch(x.id) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in Text("Only the saved search goes. No email is deleted. It is removed on your Mac too.") }
         .confirmationDialog("Delete this folder?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { f in
             Button("Delete \(f.leaf)", role: .destructive) { Task { await store.deleteFolder(f) } }
             Button("Cancel", role: .cancel) {}
@@ -153,22 +194,55 @@ struct MoveToFolderSheet: View {
     }
 }
 
-// MARK: - Inside a folder
+// MARK: - Inside a folder, Snoozed, a Smart Folder or a saved search
 
 struct FolderMailsView: View {
-    let id: String
+    let route: MailboxRoute
     @Binding var path: NavigationPath
     @EnvironmentObject var store: PhoneStore
+    @State private var editing: SmartFolder?
+
+    /// What this list reads from Gmail; nil = nothing to read (no Snoozed label yet, or a Smart Folder with no rule).
+    private var source: MailListSource? {
+        switch route {
+        case .folder(let id): return .label(id)
+        case .snoozed: return store.snoozeLabelID.map { .label($0) }
+        case .smart(let id): return store.organizer.smart.first { $0.id == id }.flatMap { $0.query.isEmpty ? nil : .query($0.query) }
+        case .saved(let id): return store.organizer.searches.first { $0.id == id }.map { .query(PhoneStore.gmailQuery(forSaved: $0.query)) }
+        default: return nil
+        }
+    }
+    private var title: String {
+        switch route {
+        case .folder(let id): return store.folders.first { $0.id == id }?.leaf ?? "Folder"
+        case .snoozed: return "Snoozed"
+        case .smart(let id): return store.organizer.smart.first { $0.id == id }?.name ?? "Smart Folder"
+        case .saved(let id): return store.organizer.searches.first { $0.id == id }?.name ?? "Saved search"
+        default: return ""
+        }
+    }
+    private var count: String {
+        let n = store.folderMails.count, more = store.folderNext == nil ? "" : " or more"
+        switch route {
+        case .smart(let id): return "\(n) email\(n == 1 ? "" : "s")\(more) match: " + (store.organizer.smart.first { $0.id == id }?.rulesText ?? "")
+        case .saved(let id): return "\(n) email\(n == 1 ? "" : "s")\(more) match: " + (store.organizer.searches.first { $0.id == id }?.query ?? "")
+        case .snoozed: return "\(n) snoozed\(more). Hidden from your inbox until their time."
+        default: return "\(n) email\(n == 1 ? "" : "s")\(more)"
+        }
+    }
+    private var emptyText: String {
+        switch route { case .snoozed: return "Nothing snoozed"; case .smart, .saved: return "No emails match"; default: return "Nothing in this folder" }
+    }
+    private var folderID: String { if case .folder(let id) = route { return id } else { return "" } }   // only a real folder lets an opened email leave it
 
     var body: some View {
-        let title = store.folders.first { $0.id == id }?.leaf ?? "Folder"
         VStack(spacing: 0) {
-            Text(store.folderLoading && store.folderMails.isEmpty ? "Loading…" : "\(store.folderMails.count) email\(store.folderMails.count == 1 ? "" : "s")\(store.folderNext == nil ? "" : " or more")")
+            Text(store.folderLoading && store.folderMails.isEmpty ? "Loading…" : count)
                 .foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
             if let b = store.banner { BannerView(text: b) }
             List {
                 ForEach(store.folderMails) { m in
-                    Button { path.append(FolderOpen(mail: m, folder: id)) } label: { MailRow(mail: m) }
+                    Button { path.append(FolderOpen(mail: m, folder: folderID)) } label: { MailRow(mail: m) }
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card).listRowSeparatorTint(Theme.line)
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
@@ -182,16 +256,27 @@ struct FolderMailsView: View {
                         .foregroundStyle(Theme.acc).listRowBackground(Theme.card).onAppear { Task { await store.loadMoreFolder() } }
                 }
                 if store.folderMails.isEmpty && !store.folderLoading {
-                    Text("Nothing in this folder").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                    Text(emptyText).foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24).listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain).scrollContentBackground(.hidden)
             .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-            .refreshable { await store.openFolder(id) }
+            .refreshable { await load() }
         }
         .background(Theme.bg)
         .navigationTitle(title)
-        .task(id: id) { await store.openFolder(id) }
+        .toolbar {
+            if case .smart(let id) = route, let f = store.organizer.smart.first(where: { $0.id == id }) {
+                ToolbarItem(placement: .topBarTrailing) { Button("Edit") { editing = f }.foregroundStyle(Theme.acc) }
+            }
+        }
+        .sheet(item: $editing) { SmartFolderForm(mode: .edit($0)) }
+        .task(id: source) { await load() }   // also when the folder's rules change (an edit here, or the Mac changed them)
+    }
+
+    private func load() async {
+        if let s = source { await store.openList(s) }
+        else { store.folderSource = nil; store.folderMails = []; store.folderNext = nil }
     }
 }
 

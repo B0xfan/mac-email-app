@@ -56,7 +56,7 @@ final class PhoneStore: ObservableObject {
     @Published var folderLoading = false
     @Published var blocked: [BlockedEntry] = []
     @Published var blockedLoaded = false
-    var folderID: String?
+    var folderSource: MailListSource?   // what the open list shows: a Gmail label (folders, Snoozed) or a Gmail search (Smart Folders, saved searches)
     var folderGen = 0   // counts folder openings, so a slow older answer never replaces a newer one
     @Published var folderNext: String?
     private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
@@ -78,15 +78,25 @@ final class PhoneStore: ObservableObject {
     private var lastRefresh = Date.distantPast
     static let blockLabelName = "Blocked"
 
-    init(sign: PhoneSignIn, gmail: GmailClient, book: SenderBook = SenderBook(), cacheURL: URL = Support.url("inbox.json"), defaults: UserDefaults = .standard) {
+    init(sign: PhoneSignIn, gmail: GmailClient, book: SenderBook = SenderBook(), cacheURL: URL = Support.url("inbox.json"), defaults: UserDefaults = .standard,
+         server: PhoneServer? = nil, organizerURL: URL = Support.url("organizer.json")) {
         self.sign = sign; self.gmail = gmail; self.book = book; self.cacheURL = cacheURL
-        self.defaults = defaults
+        self.defaults = defaults; self.server = server; self.organizerURL = organizerURL
         self.flow = BlockFlow(gmail: gmail, labelName: Self.blockLabelName) { ids, add, remove in try await gmail.modify(ids: ids, add: add, remove: remove) }
         tab = MailCategory(rawValue: defaults.string(forKey: "smartTab") ?? "") ?? .people
         let d = defaults.integer(forKey: "undoDelay")
         undoDelay = UndoSend.choices.contains(d) ? d : UndoSend.defaultDelay
+        loadOrganizer()
     }
-    private let defaults: UserDefaults
+    let defaults: UserDefaults
+    // shared with the Mac through the Mail server (PhoneStoreShared.swift)
+    let server: PhoneServer?
+    @Published var organizer = Organizer()   // Smart Folders and saved searches
+    @Published var smartCounts: [UUID: Int] = [:]
+    @Published var sharing: Bool?   // nil = not tried yet; false = the last try could not reach the server
+    var organizerBase = Organizer()
+    var organizerBusy = false
+    let organizerURL: URL
 
     // MARK: - Start, sign in, sign out
 
@@ -102,6 +112,8 @@ final class PhoneStore: ObservableObject {
         if accountEmail.isEmpty, let e = try? await gmail.profileEmail() { accountEmail = e }
         await refresh()
         sendAs = (try? await gmail.sendAs()) ?? []
+        resumeHeld()
+        await syncOrganizer()
     }
 
     func signIn() async {
@@ -132,9 +144,12 @@ final class PhoneStore: ObservableObject {
 
     private func clearLocal() {
         inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil; sendToast = nil
-        drafts = []; labelList = []; folderMails = []; folderID = nil; folderNext = nil; blocked = []; blockedLoaded = false
+        drafts = []; labelList = []; folderMails = []; folderSource = nil; folderNext = nil; blocked = []; blockedLoaded = false
+        organizer = Organizer(); organizerBase = Organizer(); smartCounts = [:]; sharing = nil; heldTask?.cancel(); heldTask = nil; defaults.removeObject(forKey: HeldSend.key)
+        Task { await server?.forgetKey() }   // the next account registers fresh
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
         try? FileManager.default.removeItem(at: cacheURL)
+        try? FileManager.default.removeItem(at: organizerURL)
     }
 
     private enum Fresh { case ok, ended, offline }
@@ -170,7 +185,7 @@ final class PhoneStore: ObservableObject {
     func setTab(_ c: MailCategory) { tab = c; defaults.set(c.rawValue, forKey: "smartTab") }
 
     /// Pull to refresh, and when the app comes back to the front (at most once a minute).
-    func refreshIfStale() async { if Date().timeIntervalSince(lastRefresh) > 60 { await refresh() } }
+    func refreshIfStale() async { if Date().timeIntervalSince(lastRefresh) > 60 { await refresh(); await syncOrganizer() } }
 
     func refresh() async {
         guard state == .signedIn, !refreshing else { return }
@@ -192,6 +207,7 @@ final class PhoneStore: ObservableObject {
             banner = got.failed.isEmpty ? nil : "Some conversations could not be loaded just now. Pull down to try again."
             lastRefresh = Date()
             saveCache()
+            if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
             await classifySenders()
         } catch { await fail(error, "Could not load mail.") }
     }
@@ -226,7 +242,7 @@ final class PhoneStore: ObservableObject {
         return out
     }
     var inboxMails: [Mail] { inbox.filter { !isNew($0) } }
-    var groups: [SmartGroup] { SmartInbox.groups(inboxMails, category: { MailCategory.guess($0) }) }
+    var groups: [SmartGroup] { SmartInbox.groups(unpinnedInbox, category: { MailCategory.guess($0) }) }   // pinned emails sit above the tabs, as on the Mac
     func unread(in c: MailCategory) -> Int { groups.first { $0.id == c.rawValue }?.unread ?? 0 }
     var shown: [Mail] { groups.first { $0.id == tab.rawValue }?.mails ?? [] }
     var totalUnread: Int { inboxMails.filter(\.unread).count }
@@ -307,7 +323,7 @@ final class PhoneStore: ObservableObject {
         inbox.removeAll { $0.threadID == m.threadID }
         if let i = folderMails.firstIndex(where: { $0.id == m.id }) {
             // it leaves the open folder only if it loses that folder's label (or goes to Trash); archiving just drops Inbox from it
-            if add.contains("TRASH") || folderID.map({ remove.contains($0) }) == true { folderMails.remove(at: i) }
+            if add.contains("TRASH") || folderLabel.map({ remove.contains($0) }) == true { folderMails.remove(at: i) }
             else { folderMails[i].labels = folderMails[i].labels.filter { !remove.contains($0) } + add.filter { !folderMails[i].labels.contains($0) } }
         }
         pendingGone.insert(m.threadID)
@@ -403,36 +419,69 @@ final class PhoneStore: ObservableObject {
         return accountEmail.split(separator: "@").first.map(String.init) ?? accountEmail
     }
 
-    /// One email waiting out its Undo Send delay. Nothing goes to Gmail until `run` starts.
-    private struct PendingSend {
-        let snapshot: ComposeSnapshot
+    /// One email waiting out its Undo Send delay. The email is saved as a Gmail draft first and the server is asked to send it after the delay, so it still leaves if the
+    /// app is closed. Without the server (or without a saved draft) the phone sends it itself, and leaving the app sends it at once.
+    struct PendingSend {
+        var snapshot: ComposeSnapshot
         let raw: Data
         let threadID: String?
         let toastID: UUID
+        let deadline: Date
+        var draftID: String?            // the saved Gmail draft; nil if it could not be saved (then the phone sends the raw email itself)
+        var held = false                // the server has it and will send it if the app is gone
+        var answered = false            // the draft is saved and the server has said yes or no
+        var undoing = false
         var countdown: Task<Void, Never>?
-        var run: Task<Void, Never>?   // set once the email is on its way: after this it can no longer be undone
+        var prep: Task<Void, Never>?    // saving the draft and telling the server
+        var run: Task<Void, Never>?     // set once the email is on its way: after this it can no longer be undone
     }
-    private var pending: [UUID: PendingSend] = [:]
+    private(set) var pending: [UUID: PendingSend] = [:]
+    private var undoTask: Task<Void, Never>?
+    var heldTask: Task<Void, Never>?   // watching an email the server held while the app was closed (PhoneStoreHeld.swift)
 
-    /// The email is held here for `undoDelay` seconds, then sent. Leaving the app sends it at once (`sendPendingNow`).
-    /// shortcut: a held email lives in memory only; if the app is killed during the countdown it is lost. Upgrade: save it like the Mac does.
     func queueSend(_ snap: ComposeSnapshot, out: MIME.Outgoing, threadID: String?) {
         for earlier in pending.keys { pending[earlier]?.countdown?.cancel(); startDelivery(earlier) }   // one Undo bar at a time: an email still waiting goes out now
+        heldTask?.cancel(); heldTask = nil
         let token = UUID(), delay = undoDelay
         let t = Toast(text: UndoSend.sendingText(delay), undo: { [weak self] in self?.undoSend(token) })
         sendToast = t
         UIAccessibility.post(notification: .announcement, argument: "\(UndoSend.sendingText(delay)) Undo is in the actions of the bar.")
-        pending[token] = PendingSend(snapshot: snap, raw: MIME.build(out), threadID: threadID, toastID: t.id)
+        pending[token] = PendingSend(snapshot: snap, raw: MIME.build(out), threadID: threadID, toastID: t.id, deadline: Date().addingTimeInterval(Double(delay)))
+        pending[token]?.prep = Task { [weak self] in await self?.prepare(token, delay: delay) }
+        startCountdown(token)
+    }
+
+    private func startCountdown(_ token: UUID) {
+        guard let deadline = pending[token]?.deadline else { return }
         pending[token]?.countdown = Task { [weak self] in
-            for left in stride(from: delay - 1, to: 0, by: -1) {
+            while true {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                if let self, self.sendToast?.id == t.id { self.sendToast?.text = UndoSend.sendingText(left) }
+                guard let self else { return }
+                let left = Int(deadline.timeIntervalSinceNow.rounded(.up))
+                if left <= 0 { break }
+                self.showCountdown(token, left: left)
             }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            if Task.isCancelled { return }
             await self?.startDelivery(token).value
         }
+    }
+
+    /// "Sending in 7 seconds." plus, once known, whether it is safe to leave the app.
+    private func showCountdown(_ token: UUID, left: Int) {
+        guard let p = pending[token], sendToast?.id == p.toastID, p.run == nil else { return }
+        sendToast?.text = UndoSend.sendingText(left) + (!p.answered ? "" : p.held ? " Safe to leave the app." : " Stay in the app: the safe hold is not available.")
+    }
+
+    /// Saves the draft and asks the server to hold it. Either may fail: then the phone sends the email itself, as before.
+    private func prepare(_ token: UUID, delay: Int) async {
+        guard let p = pending[token] else { return }
+        defer { pending[token]?.answered = true; if let q = pending[token] { showCountdown(token, left: max(1, Int(q.deadline.timeIntervalSinceNow.rounded(.up)))) } }
+        guard let id = try? await retryingSignIn({ try await gmail.saveDraft(p.raw, threadID: p.threadID, replacing: p.snapshot.draftID) }), !id.isEmpty, pending[token] != nil else { return }
+        pending[token]?.draftID = id; pending[token]?.snapshot.draftID = id
+        guard let server else { return }
+        do { try await server.hold(draftID: id, seconds: delay) } catch { return }
+        pending[token]?.held = true
+        remember(HeldSend(draftID: id, subject: p.snapshot.subject, deadline: Date().addingTimeInterval(Double(delay))))
     }
 
     /// Shows a Write screen; if one is already open it waits its turn, so nothing typed is ever replaced.
@@ -445,10 +494,43 @@ final class PhoneStore: ObservableObject {
         composeSeed = waitingSeeds.removeFirst()
     }
 
-    /// Undo: the email is not sent and the Write screen comes back with everything that was typed.
+    /// Undo: the server is told first (before anything else touches the draft). If it was cancelled in time, the email is not sent, stays a draft,
+    /// and the Write screen comes back with everything that was typed.
     func undoSend(_ token: UUID) {
-        guard let p = pending[token], p.run == nil else { return }
-        p.countdown?.cancel(); pending[token] = nil
+        guard let p = pending[token], p.run == nil, !p.undoing else { return }
+        pending[token]?.undoing = true
+        p.countdown?.cancel()
+        undoTask = Task { await finishUndo(token) }
+    }
+
+    /// Waits for a running Undo to finish (the built-in checks use it).
+    func settleUndo() async { await undoTask?.value }
+
+    private func finishUndo(_ token: UUID) async {
+        await pending[token]?.prep?.value
+        guard let p = pending[token] else { return }
+        if p.held, let d = p.draftID, let server {
+            var said: String?
+            for _ in 0..<3 {
+                do { said = try await server.release(draftID: d); break }
+                catch PhoneServerError.busy { try? await Task.sleep(nanoseconds: 2_000_000_000) }   // the server is sending it right now: ask again
+                catch { break }
+            }
+            guard let said else {   // no answer: the server may still send it, so it is not undone
+                pending[token]?.undoing = false
+                banner = "Could not reach the server to cancel the email. Try Undo again."
+                startCountdown(token)
+                return
+            }
+            if said == "sent" || said == "gone" {   // it already went out
+                pending[token] = nil; forgetHeld(d)
+                if sendToast?.id == p.toastID { sendToast = nil }
+                show("That email was already sent.")
+                return
+            }
+            forgetHeld(d)
+        }
+        pending[token] = nil
         if sendToast?.id == p.toastID { sendToast = nil }
         present(ComposeSeed(restoring: p.snapshot))
     }
@@ -458,38 +540,58 @@ final class PhoneStore: ObservableObject {
         if let r = pending[token]?.run { return r }
         guard let p = pending[token] else { return Task {} }
         if sendToast?.id == p.toastID { sendToast?.undo = nil; sendToast?.text = "Sending…" }
-        let r = Task { await deliver(token, p) }
+        let r = Task { await deliver(token) }
         pending[token]?.run = r
         return r
     }
 
-    private func deliver(_ token: UUID, _ p: PendingSend) async {
-        defer { pending[token] = nil }
+    private func deliver(_ token: UUID) async {
+        await pending[token]?.prep?.value   // the draft is saved (or could not be) before anything is sent
+        guard let p = pending[token] else { return }
+        defer { pending[token] = nil; if let d = p.draftID { forgetHeld(d) } }
         do {
-            try await sendNow(p.raw, threadID: p.threadID)
-            if let d = p.snapshot.draftID { await discardDraft(d) }   // the saved copy has been sent
+            if let d = p.draftID {
+                do { _ = try await retryingSignIn { try await gmail.sendDraft(id: d) } }
+                catch GmailError.http(404, _) {}   // the server sent it first
+                if p.held { _ = try? await server?.release(draftID: d) }   // done: the server forgets it
+            } else {
+                try await sendNow(p.raw, threadID: p.threadID)
+                if let d = p.snapshot.draftID { await discardDraft(d) }   // the saved copy has been sent
+            }
             if sendToast?.id == p.toastID { sendToast = nil; show("Sent.") }
         } catch {
-            // nothing typed is lost: the Write screen comes back with the reason on top
+            // nothing typed is lost: the Write screen comes back with the reason on top, and the server must not send it later
+            var reason = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here."
+            if p.held, let d = p.draftID {
+                let said = try? await server?.release(draftID: d)
+                if said == "sent" || said == "gone" { if sendToast?.id == p.toastID { sendToast = nil; show("Sent.") }; return }
+                if said == nil { reason += " It may still go out on its own: check your Sent folder before sending it again." }
+            }
             if sendToast?.id == p.toastID { sendToast = nil }
-            present(ComposeSeed(restoring: p.snapshot, notice: (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here."))
+            present(ComposeSeed(restoring: p.snapshot, notice: reason))
         }
     }
 
-    /// Sends every held email now and waits until Gmail has answered (used when the app leaves the screen, and by the built-in checks).
+    /// Sends every held email now and waits until Gmail has answered (signing out, and the built-in checks). The server is released for each.
     func flushPendingSends() async {
         let tokens = Array(pending.keys)
         for t in tokens { pending[t]?.countdown?.cancel() }
         for t in tokens { await startDelivery(t).value }
     }
 
-    /// The app is leaving the screen or the phone is locking: held emails go out at once. iOS is asked for a little time to finish the request.
+    /// The app is leaving the screen or the phone is locking. An email the server holds stays with it (it leaves on time even though the app is gone);
+    /// any other goes out at once. iOS is asked for a little time to finish the request.
     func sendPendingNow() {
         guard !pending.isEmpty else { return }
         var bg = UIBackgroundTaskIdentifier.invalid
         func end() { if bg != .invalid { UIApplication.shared.endBackgroundTask(bg); bg = .invalid } }
         bg = UIApplication.shared.beginBackgroundTask(withName: "send held emails") { end() }
-        Task { await flushPendingSends(); end() }
+        Task { await leaveApp(); end() }
+    }
+
+    func leaveApp() async {
+        for t in Array(pending.keys) { await pending[t]?.prep?.value }   // only then is it known whether the server has it
+        for t in Array(pending.keys) where pending[t]?.held != true { pending[t]?.countdown?.cancel(); await startDelivery(t).value }
     }
 
     /// Runs a Gmail change; one refused sign-in is not the end: a fresh token is asked for and the change is tried once more.
@@ -530,9 +632,9 @@ final class PhoneStore: ObservableObject {
 
     // MARK: - Small messages
 
-    func show(_ text: String, undo: (@MainActor () -> Void)? = nil) {
+    func show(_ text: String, undo: (@MainActor () -> Void)? = nil, seconds: UInt64 = 5) {
         let t = Toast(text: text, undo: undo)
         toast = t
-        Task { try? await Task.sleep(nanoseconds: 5_000_000_000); if self.toast?.id == t.id { self.toast = nil } }
+        Task { try? await Task.sleep(nanoseconds: seconds * 1_000_000_000); if self.toast?.id == t.id { self.toast = nil } }
     }
 }
