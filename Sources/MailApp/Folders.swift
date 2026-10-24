@@ -2,37 +2,6 @@ import SwiftUI
 import AppKit
 import MailCore
 
-// MARK: - Folders: John's Gmail labels shown as folders
-
-struct FolderNode: Identifiable, Hashable {
-    let id: String          // Gmail label id
-    let name: String        // full Gmail name, "Travel/Italy"
-    var depth: Int { name.filter { $0 == "/" }.count }
-    var leaf: String { name.split(separator: "/").last.map(String.init) ?? name }
-    var parent: String { depth == 0 ? "" : String(name[..<name.lastIndex(of: "/")!]) }
-}
-
-enum Folders {
-    /// Gmail's own labels, labels John hid in Gmail, and Mail's own labels (Pinned, Set Aside, Blocked) are left out.
-    static func build(_ labels: [GLabel], hiding: Set<String>) -> [FolderNode] {
-        labels.filter { $0.type != "system" && $0.labelListVisibility != "labelHide" && !hiding.contains($0.name) }
-            .map { FolderNode(id: $0.id, name: $0.name) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    static let reserved = ["inbox", "sent", "drafts", "trash", "spam", "starred", "important", "unread", "chat", "all mail", "archive", "pinned", "set aside", "blocked"]
-
-    /// nil = fine. Otherwise the sentence to show.
-    static func problem(_ raw: String, existing: [String], ignoring: String? = nil) -> String? {
-        let n = raw.trimmingCharacters(in: .whitespaces)
-        if n.isEmpty { return "Give the folder a name." }
-        if n.hasPrefix("/") || n.hasSuffix("/") || n.contains("//") { return "A name cannot start or end with a slash." }
-        if reserved.contains(n.lowercased()) { return "That name is already used by Audrey Mail or Gmail." }
-        if existing.contains(where: { $0.caseInsensitiveCompare(n) == .orderedSame && $0 != ignoring }) { return "A folder with that name already exists." }
-        return nil
-    }
-}
-
 // MARK: - Smart Folders and saved searches: kept on this Mac
 
 enum RuleField: String, Codable, CaseIterable {
@@ -171,16 +140,11 @@ extension MailStore {
     @discardableResult
     func renameFolder(_ id: String, to raw: String) async -> Bool {
         guard let f = folders.first(where: { $0.id == id }) else { return false }
-        let typed = raw.trimmingCharacters(in: .whitespaces)
-        let full = f.parent.isEmpty ? typed : f.parent + "/" + typed
+        let full = Folders.renamed(f, typed: raw)
         if let p = Folders.problem(full, existing: folders.map(\.name), ignoring: f.name) { editorMessage = p; return false }
         if full == f.name { closeEditor(); return true }
         do {
-            try await gmail.renameLabel(id: id, to: full)
-            // sub-folders keep their place under the renamed one (Gmail may already have moved them)
-            let fresh = (try? await gmail.labels()) ?? labelList
-            for c in fresh where c.name.hasPrefix(f.name + "/") { try? await gmail.renameLabel(id: c.id, to: full + String(c.name.dropFirst(f.name.count))) }
-            setLabels((try? await gmail.labels()) ?? labelList)
+            setLabels(try await Folders.rename(f, to: full, gmail: gmail) ?? labelList)
             closeEditor()
             return true
         } catch { editorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not rename the folder."; return false }

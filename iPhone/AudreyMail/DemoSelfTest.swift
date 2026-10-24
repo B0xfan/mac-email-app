@@ -68,7 +68,7 @@ enum DemoSelfTest {
         out.attachments = [("photo-1.jpg", Data([1, 2, 3]), "image/jpeg")]
         let snap = ComposeSnapshot(mode: .reply, source: src, to: [src.from.email], cc: "", bcc: "", subject: "Re: " + src.subject, text: "Sounds great",
                                    attachments: [ComposeAttachment(name: "photo-1.jpg", data: Data([1, 2, 3]), mime: "image/jpeg")], draftID: nil, threadID: nil)
-        check("the Undo Send delay starts at 10 seconds and only takes the offered choices", store.undoDelay == 10 && PhoneStore.undoChoices == [5, 10, 20, 30])
+        check("the Undo Send delay starts at 10 seconds and only takes the offered choices", store.undoDelay == 10 && UndoSend.choices == [5, 10, 20, 30])
         store.queueSend(snap, out: out, threadID: src.threadID)
         check("Send holds the email: nothing reaches Gmail yet and an Undo bar counts down", box.with { $0.sent.count } == 0 && store.sendToast?.undo != nil && store.sendToast?.text == "Sending in 10 seconds.")
         store.sendToast?.undo?()
@@ -92,6 +92,61 @@ enum DemoSelfTest {
         check("a send Gmail refuses brings the Write screen back with the reason", box.with { $0.sent.count } == 2 && store.composeSeed?.restore?.text == "Sounds great" && store.composeSeed?.notice != nil)
         box.with { $0.failSend = false }
         store.composeSeed = nil
+
+        // drafts (Gmail drafts)
+        await store.loadDrafts()
+        check("Drafts lists the two Gmail drafts, newest first", store.drafts.map(\.id) == ["D1", "D2"] && store.drafts[0].mail.to.contains("Maya"))
+        await store.openDraft(store.drafts[0])
+        let ds = store.composeSeed?.restore
+        check("opening a draft brings back who it is to, the subject and the words, and keeps its Gmail draft", ds?.draftID == "D1" && ds?.to == ["maya.ortiz@example.com"] && ds?.subject == "Re: Saturday at the beach?" && ds?.text == "Sounds great! I will drive. Pick you up at 8?")
+        store.composeSeed = nil
+        var dout = MIME.Outgoing(from: store.defaultFrom, to: "lucia.f@example.com", subject: "Dinner", html: "<p>Friday works</p>", text: "Friday works")
+        let newDraft = (try? await store.saveDraft(dout, threadID: nil, replacing: nil)) ?? ""
+        await store.loadDrafts()
+        check("Save draft makes a Gmail draft", !newDraft.isEmpty && store.drafts.count == 3 && store.drafts.contains { $0.id == newDraft && $0.mail.subject == "Dinner" })
+        dout.text = "Friday works, at 7"; dout.html = "<p>Friday works, at 7</p>"
+        _ = try? await store.saveDraft(dout, threadID: nil, replacing: newDraft)
+        await store.loadDrafts()
+        check("saving again replaces the same draft instead of making another", store.drafts.count == 3 && store.drafts.first { $0.id == newDraft }?.mail.snippet == "Friday works, at 7")
+        await store.discardDraft(newDraft)
+        check("Discard deletes the Gmail draft", store.drafts.count == 2 && box.with { b in !b.drafts.contains { $0.id == newDraft } })
+        let draftSnap = ComposeSnapshot(mode: .new, source: nil, to: ["maya.ortiz@example.com"], cc: "", bcc: "", subject: "Re: Saturday at the beach?", text: "Sounds great", attachments: [], draftID: "D1", threadID: nil)
+        store.queueSend(draftSnap, out: MIME.Outgoing(from: store.defaultFrom, to: "maya.ortiz@example.com", subject: "Re: Saturday at the beach?", html: "<p>Sounds great</p>", text: "Sounds great"), threadID: nil)
+        await store.flushPendingSends()
+        check("sending a draft removes the saved copy", box.with { b in !b.drafts.contains { $0.id == "D1" } } && store.drafts.count == 1)
+        store.composeSeed = nil
+
+        // folders (Gmail labels)
+        await store.loadFolders()
+        check("folders are the Gmail labels, nested ones included, without the Blocked label", store.folders.map(\.name) == ["Receipts", "Taxes", "Travel", "Travel/Italy"] && store.folders.last?.depth == 1 && store.folders.last?.leaf == "Italy")
+        let bad1 = await store.createFolder("Inbox"), bad2 = await store.createFolder("receipts"), bad3 = await store.createFolder("/x")
+        check("names Gmail or Audrey Mail use, repeats and bad slashes are refused with a sentence", bad1 != nil && bad2 != nil && bad3 != nil && box.with { $0.labels.count } == 5)
+        let made = await store.createFolder("Receipts/2026")
+        check("a new folder is made in Gmail and can sit inside another", made == nil && box.with { b in b.labels.contains { $0.name == "Receipts/2026" } } && store.folders.contains { $0.name == "Receipts/2026" })
+        let receipts = store.folders.first { $0.name == "Receipts" }!
+        let renamed = await store.renameFolder(receipts, to: "Bills")
+        check("renaming a folder keeps the folders inside it inside it", renamed == nil && box.with { b in b.labels.map(\.name).contains("Bills") && b.labels.map(\.name).contains("Bills/2026") && !b.labels.map(\.name).contains("Receipts") })
+        box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m9" }) { b.msgs[i].labels.append("Label_taxes") } }
+        let msgCount = box.with { $0.msgs.count }
+        await store.deleteFolder(store.folders.first { $0.name == "Taxes" }!)
+        check("deleting a folder removes only the label: its emails stay", box.with { b in !b.labels.contains { $0.name == "Taxes" } && b.msgs.count == msgCount && b.msgs.first { $0.id == "m9" }?.labels.contains("Label_taxes") == false } && !store.folders.contains { $0.name == "Taxes" })
+        await store.openFolder("Label_receipts")
+        check("opening a folder lists its emails", store.folderMails.contains { $0.id == "m5" } && store.folderMails.allSatisfy { $0.labels.contains("Label_receipts") })
+        let travel = store.folders.first { $0.name == "Travel" }!
+        let m2 = row("m2")!
+        store.moveToFolder(m2, travel); await store.settle()
+        check("moving an email to a folder adds the label and takes it out of the inbox", box.with { b in let l = b.msgs.first { $0.id == "m2" }!.labels; return l.contains("Label_travel") && !l.contains("INBOX") } && row("m2") == nil && store.toast?.text == "Moved to Travel.")
+        store.toast?.undo?(); await store.settle()
+        check("Undo puts it back exactly as it was", box.with { b in let l = b.msgs.first { $0.id == "m2" }!.labels; return l.contains("INBOX") && !l.contains("Label_travel") } && row("m2") != nil)
+
+        // blocked list and unblock
+        await store.loadBlocked()
+        let brightEntry = store.blocked.first { $0.from == "deals@brightside-offers.example" }
+        check("the Blocked list shows every block with how many emails came from it", store.blocked.count == 3 && brightEntry?.count == 2)
+        await store.unblock(brightEntry!)
+        check("Unblock removes the Gmail filter", box.with { b in !b.filters.contains { $0.from == "deals@brightside-offers.example" } && b.filters.count == 2 })
+        check("Unblock sends their old emails back to the inbox", box.with { b in b.msgs.filter { $0.from.contains("brightside") }.allSatisfy { $0.labels.contains("INBOX") && !$0.labels.contains("Label_blocked") } })
+        check("the list shrinks, the sender is not new again, and the bar says so", store.blocked.count == 2 && store.inboxMails.contains { $0.id == "n2" } && store.toast?.text.hasPrefix("Unblocked") == true)
 
         // sign out and sign-in ended
         await store.signOut()

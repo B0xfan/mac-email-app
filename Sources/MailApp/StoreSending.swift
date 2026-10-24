@@ -137,7 +137,7 @@ extension MailStore {
         }
         undoSend = (token, d, bodyHTML, tid)
     }
-    static func sendingText(_ s: Int) -> String { "Sending in \(s) second\(s == 1 ? "" : "s")." }
+    static func sendingText(_ s: Int) -> String { UndoSend.sendingText(s) }
 
     func undoPendingSend() {
         if pendingScheduled != nil { undoScheduledSend(); return }

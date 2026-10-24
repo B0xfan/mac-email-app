@@ -80,7 +80,7 @@ final class AppSettings: ObservableObject {
 
     init() {
         theme = ThemeChoice(rawValue: d.string(forKey: "theme") ?? "") ?? .system
-        undoDelay = d.object(forKey: "undoDelay") as? Int ?? 10
+        undoDelay = d.object(forKey: "undoDelay") as? Int ?? UndoSend.defaultDelay
         shortcuts = d.object(forKey: "shortcuts") as? Bool ?? true
         screenNewSenders = d.object(forKey: "screenNewSenders") as? Bool ?? true
         blockTrackers = d.object(forKey: "blockTrackers") as? Bool ?? true

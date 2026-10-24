@@ -11,6 +11,7 @@ struct ReadView: View {
     @State private var showImages = false
     @State private var webHeight: CGFloat = 120
     @State private var blockTarget: Mail?
+    @State private var moving = false
 
     var body: some View {
         let m = full ?? mail
@@ -63,6 +64,7 @@ struct ReadView: View {
         .onAppear { store.tabBarHidden = true }
         .onDisappear { store.tabBarHidden = false }
         .task { await load() }
+        .sheet(isPresented: $moving) { MoveToFolderSheet(mail: full ?? mail) { dismiss() }.presentationDetents([.medium, .large]) }
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) {
                 blockTarget = nil
@@ -97,8 +99,9 @@ struct ReadView: View {
             if let h = f.html { let p = HTMLSafety.process(h); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
             full = f; store.markRead(mail)
             #if DEBUG
-            if DemoMode.screen == "write" { store.composeSeed = ComposeSeed(mode: .reply, source: full) }
+            if ["write", "leave"].contains(DemoMode.screen ?? "") { store.composeSeed = ComposeSeed(mode: .reply, source: full) }
             if DemoMode.screen == "block" { blockTarget = full }
+            if DemoMode.screen == "move" { moving = true }
             #endif
         }
         catch {
@@ -116,6 +119,7 @@ struct ReadView: View {
             Menu {
                 Button { if let f = full { store.composeSeed = ComposeSeed(mode: .replyAll, source: f) } } label: { Label("Reply all", systemImage: "arrowshape.turn.up.left.2") }
                 Button { if let f = full { store.composeSeed = ComposeSeed(mode: .forward, source: f) } } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+                Button { moving = true } label: { Label("Move to folder", systemImage: "folder") }
             } label: { barLabel("More", "ellipsis.circle", Theme.acc) }.disabled(full == nil)
         }
         .frame(maxWidth: .infinity).padding(.top, 8).padding(.bottom, 2)

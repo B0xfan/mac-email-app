@@ -58,7 +58,7 @@ struct ComposeView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button("Cancel") { if hasContent { askLeave = true } else { Task { await discard() } } }.frame(minWidth: 44, minHeight: 44, alignment: .leading).disabled(sending)
+                Button("Cancel") { if hasContent { askLeave = true } else { dismiss() } }.frame(minWidth: 44, minHeight: 44, alignment: .leading).disabled(sending)
                 Spacer()
                 Text(mode.rawValue).font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.text)
                 Spacer()
@@ -124,7 +124,12 @@ struct ComposeView: View {
         .background(Theme.bg)
         .tint(Theme.acc)
         .foregroundStyle(Theme.text)
-        .onAppear { if let r = seed.restore { apply(r) } else { fill(first: true) } }
+        .onAppear {
+            if let r = seed.restore { apply(r) } else { fill(first: true) }
+            #if DEBUG
+            if DemoMode.screen == "leave" { text = "Sounds great! I will drive. Pick you up at 8?"; askLeave = true }
+            #endif
+        }
         .onChange(of: photos) { _, items in Task { await addPhotos(items) } }
         .fileImporter(isPresented: $pickFile, allowedContentTypes: [.item], allowsMultipleSelection: true) { r in if case .success(let urls) = r { addFiles(urls) } }
         .confirmationDialog("Keep this message?", isPresented: $askLeave, titleVisibility: .visible) {

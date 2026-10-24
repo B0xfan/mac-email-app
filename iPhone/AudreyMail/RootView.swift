@@ -21,7 +21,7 @@ struct RootView: View {
         }
         .animation(.default, value: store.toast?.id)
         .animation(.default, value: store.sendToast?.id)
-        .fullScreenCover(item: $store.composeSeed) { ComposeView(seed: $0) }
+        .fullScreenCover(item: $store.composeSeed, onDismiss: { DispatchQueue.main.async { store.showNextCompose() } }) { ComposeView(seed: $0) }
         .tint(Theme.acc)
         .task { sel = initialTab; await store.start() }
         .onChange(of: phase) { _, p in

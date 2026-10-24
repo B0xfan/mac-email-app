@@ -3,13 +3,17 @@ import MailCore
 
 struct InboxView: View {
     @EnvironmentObject var store: PhoneStore
-    @State private var path: [Mail] = []
+    @State private var path = NavigationPath()
 
     var body: some View {
         NavigationStack(path: $path) {
             ZStack(alignment: .bottomTrailing) {
                 VStack(spacing: 0) {
-                    LargeTitle(text: "Inbox")
+                    HStack {
+                        LargeTitle(text: "Inbox")
+                        NavigationLink(value: MailboxRoute.mailboxes) { Label("Mailboxes", systemImage: "tray.2").font(.system(size: 15, weight: .semibold)).frame(minHeight: 44) }
+                            .foregroundStyle(Theme.acc).padding(.trailing, 16)
+                    }
                     Text(store.totalUnread > 0 ? "\(store.totalUnread) new" : "All caught up").foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
                     SmartTabs()
                     if let b = store.banner { BannerView(text: b) }
@@ -25,10 +29,25 @@ struct InboxView: View {
             .navigationTitle("Inbox")
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
+            .navigationDestination(for: MailboxRoute.self) { route in
+                switch route {
+                case .mailboxes: MailboxesView()
+                case .drafts: DraftsView()
+                case .blocked: BlockedListView()
+                case .folder(let id): FolderMailsView(id: id, path: $path)
+                }
+            }
         }
         #if DEBUG
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself
-            if ["read", "write"].contains(DemoMode.screen ?? ""), path.isEmpty, let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
+            guard path.isEmpty else { return }
+            let s = DemoMode.screen ?? ""
+            if ["read", "write", "leave"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
+            if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
+            if ["mailboxes", "newfolder"].contains(s) { path.append(MailboxRoute.mailboxes) }
+            if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
+            if s == "blocked" { path.append(MailboxRoute.blocked) }
+            if s == "drafts" { path.append(MailboxRoute.drafts) }
         }
         #endif
     }

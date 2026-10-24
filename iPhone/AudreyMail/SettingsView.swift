@@ -6,41 +6,41 @@ struct SettingsView: View {
     @State private var askSignOut = false
     var body: some View {
         ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-            LargeTitle(text: "Settings")
-            head("Account")
-            group {
-                HStack(spacing: 12) {
-                    Avatar(address: Address(name: store.displayName, email: store.accountEmail), size: 34)
-                    VStack(alignment: .leading) { Text(store.displayName).font(.system(size: 16, weight: .bold)); Text(store.accountEmail).font(.system(size: 14)).foregroundStyle(Theme.sub) }
-                    Spacer()
-                }.frame(minHeight: 56).padding(.horizontal, 16)
-            }
-            head("Sending")
-            group {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Undo Send delay").font(.system(size: 17, weight: .bold))
-                    HStack(spacing: 6) {
-                        ForEach(PhoneStore.undoChoices, id: \.self) { n in
-                            let on = store.undoDelay == n
-                            Button { store.undoDelay = n } label: {
-                                Text("\(n) s").font(.system(size: 16, weight: on ? .bold : .semibold)).frame(maxWidth: .infinity, minHeight: 40)
-                                    .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.selStrong : Theme.card))
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.acc : Theme.line, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 0) {
+                LargeTitle(text: "Settings")
+                head("Account")
+                group {
+                    HStack(spacing: 12) {
+                        Avatar(address: Address(name: store.displayName, email: store.accountEmail), size: 34)
+                        VStack(alignment: .leading) { Text(store.displayName).font(.system(size: 16, weight: .bold)); Text(store.accountEmail).font(.system(size: 14)).foregroundStyle(Theme.sub) }
+                        Spacer()
+                    }.frame(minHeight: 56).padding(.horizontal, 16)
+                }
+                head("Sending")
+                group {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Undo Send delay").font(.system(size: 17, weight: .bold))
+                        HStack(spacing: 6) {
+                            ForEach(UndoSend.choices, id: \.self) { n in
+                                let on = store.undoDelay == n
+                                Button { store.undoDelay = n } label: {
+                                    Text("\(n) s").font(.system(size: 16, weight: on ? .bold : .semibold)).frame(maxWidth: .infinity, minHeight: 40)
+                                        .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.selStrong : Theme.card))
+                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.acc : Theme.line, lineWidth: 1))
+                                }
+                                .foregroundStyle(Theme.text).accessibilityLabel("\(n) seconds").accessibilityAddTraits(on ? .isSelected : [])
                             }
-                            .foregroundStyle(Theme.text).accessibilityLabel("\(n) seconds").accessibilityAddTraits(on ? .isSelected : [])
                         }
-                    }
-                }.padding(.horizontal, 16).padding(.vertical, 12)
+                    }.padding(.horizontal, 16).padding(.vertical, 12)
+                }
+                Text("After you press Send, an Undo button shows for \(store.undoDelay) seconds.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
+                group {
+                    Button { askSignOut = true } label: { Text("Sign out").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.danger).frame(maxWidth: .infinity, minHeight: 56) }
+                }
+                Text("Signing out removes your mail from this phone. Your Gmail and your Mac are not touched.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
+                head("About")
+                group { HStack { Text("Audrey Mail for iPhone"); Spacer(); Text(version).foregroundStyle(Theme.sub) }.frame(minHeight: 56).padding(.horizontal, 16) }
             }
-            Text("After you press Send, an Undo button shows for \(store.undoDelay) seconds.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
-            group {
-                Button { askSignOut = true } label: { Text("Sign out").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.danger).frame(maxWidth: .infinity, minHeight: 56) }
-            }
-            Text("Signing out removes your mail from this phone. Your Gmail and your Mac are not touched.").font(.system(size: 13)).foregroundStyle(Theme.sub).padding(.horizontal, 32).padding(.top, 6)
-            head("About")
-            group { HStack { Text("Audrey Mail for iPhone"); Spacer(); Text(version).foregroundStyle(Theme.sub) }.frame(minHeight: 56).padding(.horizontal, 16) }
-        }
         }
         .foregroundStyle(Theme.text).background(Theme.bg)
         .confirmationDialog("Sign out of Audrey Mail?", isPresented: $askSignOut, titleVisibility: .visible) {

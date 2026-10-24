@@ -7,7 +7,7 @@ import MailCore
 /// without any sign-in. Nothing here is in the release build.
 final class DemoMailbox: @unchecked Sendable {
     static let shared = DemoMailbox()
-    struct Msg { var id: String; var thread: String; var labels: [String]; var from: String; var to = "Alex Jordan <alex.jordan@gmail.example>"; var subject: String; var body: String; var date: Date; var hid = 1; var unsub = false }
+    struct Msg { var id: String; var thread: String; var labels: [String]; var from: String; var to = "Alex Jordan <alex.jordan@gmail.example>"; var subject: String; var body: String; var date: Date; var hid = 1; var unsub = false; var cc = ""; var bcc = ""; var atts: [(name: String, mime: String, size: Int)] = [] }
     private let lock = NSLock()
     var msgs: [Msg] = []
     var labels: [(id: String, name: String)] = []
@@ -16,6 +16,10 @@ final class DemoMailbox: @unchecked Sendable {
     var writes: [String] = []
     var expired = false
     var failSend = false
+    var drafts: [(id: String, msg: String)] = []
+    var attFail = false        // every attachment download is refused
+    var attFailOnce = false    // the next attachment download is refused, then it works (a changed attachment id)
+    var attDownloads = 0
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
     init() { reset() }
@@ -27,17 +31,22 @@ final class DemoMailbox: @unchecked Sendable {
         func add(_ id: String, _ labels: [String], _ from: String, _ subject: String, _ body: String, _ date: Date, unsub: Bool = false) {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
-        msgs = []; labels = []; filters = []; sent = []; writes = []; expired = false; failSend = false
+        msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
-        add("m4", ["INBOX"], "Tom Becker <tom.becker@example.com>", "Invoice for the fence", "Attached. No rush, pay whenever suits you.", t(3 * d))
-        add("m5", ["INBOX", "UNREAD"], "Northwind Bank <noreply@northwind-bank.example>", "Your October statement is ready", "Sign in to the bank's own site to view it.", t(2 * h))
+        add("m4", ["INBOX", "Label_receipts"], "Tom Becker <tom.becker@example.com>", "Invoice for the fence", "Attached. No rush, pay whenever suits you.", t(3 * d))
+        msgs[msgs.count - 1].atts = [("Invoice-0231.pdf", "application/pdf", 86_016), ("fence-finished.jpg", "image/jpeg", 2_202_009)]
+        add("m5", ["INBOX", "UNREAD", "Label_receipts"], "Northwind Bank <noreply@northwind-bank.example>", "Your October statement is ready", "Sign in to the bank's own site to view it.", t(2 * h))
         add("m6", ["INBOX", "UNREAD"], "ParcelPoint <no-reply@parcelpoint.example>", "Your package is out for delivery", "Expected today between 2 and 6 pm.", t(26 * h))
-        add("m7", ["INBOX"], "Cloudline <billing@cloudline.example>", "Receipt for your monthly plan", "Thanks for your payment of $12.00.", t(4 * d))
+        add("m7", ["INBOX", "Label_receipts"], "Cloudline <billing@cloudline.example>", "Receipt for your monthly plan", "Thanks for your payment of $12.00.", t(4 * d))
         add("m8", ["INBOX"], "Trailhead Weekly <news@trailhead.example>", "Five quiet trails for the rainy season", "This week: waterfalls, ridge walks and one good picnic spot.", t(2 * d), unsub: true)
         add("m9", ["INBOX"], "Pocket Garden <news@pocketgarden.example>", "Planting calendar for November", "What to sow now and what can wait.", t(5 * d), unsub: true)
         // first-time senders
+        // two drafts, saved in Gmail
+        add("dm1", ["DRAFT"], "Alex Jordan <alex.jordan@gmail.example>", "Re: Saturday at the beach?", "Sounds great! I will drive. Pick you up at 8?", t(25 * m)); msgs[msgs.count - 1].to = "Maya Ortiz <maya.ortiz@example.com>"
+        add("dm2", ["DRAFT"], "Alex Jordan <alex.jordan@gmail.example>", "Booking number", "Hello, I would like to change the pickup time to", t(2 * d)); msgs[msgs.count - 1].to = "Sunrise Rentals <rentals@sunrise-rentals.example>"
+        drafts = [(id: "D1", msg: "dm1"), (id: "D2", msg: "dm2")]
         add("n1", ["INBOX", "UNREAD"], "Sunrise Rentals <rentals@sunrise-rentals.example>", "Car pickup after your flight", "Bring your license and the booking number.", t(3 * h))
         add("n2", ["INBOX", "UNREAD"], "Brightside Deals <deals@brightside-offers.example>", "Last chance: 40% off everything", "Ends tonight. Hurry, only a few left.", t(30 * h), unsub: true)
         add("n3", ["INBOX"], "Priya Haddad <priya.haddad@example.net>", "Question about your listing", "Is the room still available in December?", t(5 * h))
@@ -58,10 +67,16 @@ final class DemoMailbox: @unchecked Sendable {
     private func esc(_ s: String) -> String { (try? String(data: JSONSerialization.data(withJSONObject: [s]), encoding: .utf8)).map { String($0.dropFirst().dropLast()) } ?? "\"\"" }
     private func json(_ m: Msg, full: Bool) -> String {
         var headers = "[{\"name\":\"From\",\"value\":\(esc(m.from))},{\"name\":\"To\",\"value\":\(esc(m.to))},{\"name\":\"Subject\",\"value\":\(esc(m.subject))},{\"name\":\"Message-ID\",\"value\":\"<\(m.id)@demo.example>\"}"
+        if !m.cc.isEmpty { headers += ",{\"name\":\"Cc\",\"value\":\(esc(m.cc))}" }
+        if !m.bcc.isEmpty { headers += ",{\"name\":\"Bcc\",\"value\":\(esc(m.bcc))}" }
         if m.unsub { headers += ",{\"name\":\"List-Unsubscribe\",\"value\":\"<https://unsub.example/\(m.id)>\"}" }
         headers += "]"
         let isHTML = m.body.hasPrefix("<")
-        let payload = full ? "{\"mimeType\":\"\(isHTML ? "text/html" : "text/plain")\",\"headers\":\(headers),\"body\":{\"size\":\(m.body.count),\"data\":\"\(b64(m.body))\"}}" : "{\"headers\":\(headers)}"
+        let textPart = "{\"mimeType\":\"\(isHTML ? "text/html" : "text/plain")\",\"body\":{\"size\":\(m.body.count),\"data\":\"\(b64(m.body))\"}}"
+        let attParts = m.atts.enumerated().map { "{\"mimeType\":\"\($1.mime)\",\"filename\":\"\($1.name)\",\"body\":{\"size\":\($1.size),\"attachmentId\":\"\(m.id)-att\($0)\"}}" }
+        let payload = !full ? "{\"headers\":\(headers)}"
+            : m.atts.isEmpty ? "{\"mimeType\":\"\(isHTML ? "text/html" : "text/plain")\",\"headers\":\(headers),\"body\":{\"size\":\(m.body.count),\"data\":\"\(b64(m.body))\"}}"
+            : "{\"mimeType\":\"multipart/mixed\",\"headers\":\(headers),\"parts\":[\(([textPart] + attParts).joined(separator: ","))]}"
         let snippet = isHTML ? m.body.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression) : m.body
         return "{\"id\":\"\(m.id)\",\"threadId\":\"\(m.thread)\",\"historyId\":\"\(m.hid)\",\"labelIds\":\(arr(m.labels)),\"internalDate\":\"\(Int(m.date.timeIntervalSince1970 * 1000))\",\"snippet\":\(esc(String(snippet.prefix(120)))),\"payload\":\(payload)}"
     }
@@ -83,6 +98,12 @@ final class DemoMailbox: @unchecked Sendable {
         let body = (try? JSONSerialization.jsonObject(with: Self.bodyData(req)) as? [String: Any]) ?? [:]
         switch (method, rel) {
         case ("GET", "/profile"): return (200, "{\"emailAddress\":\"alex.jordan@gmail.example\",\"messagesTotal\":\(msgs.count),\"historyId\":\"1\"}")
+        case ("GET", "/drafts"):
+            return (200, "{\"drafts\":[\(drafts.map { d in "{\"id\":\"\(d.id)\",\"message\":{\"id\":\"\(d.msg)\",\"threadId\":\"T\(d.msg)\"}}" }.joined(separator: ","))]}")
+        case ("POST", "/drafts"):
+            let id = "D\(drafts.count + 1 + writes.count)", mid = "dm" + id
+            putDraft(id: id, mid: mid, body: body); drafts.append((id: id, msg: mid)); writes.append("draft new \(id)")
+            return (200, "{\"id\":\"\(id)\",\"message\":{\"id\":\"\(mid)\"}}")
         case ("GET", "/threads"):
             let inbox = Dictionary(grouping: msgs.filter { $0.labels.contains("INBOX") }, by: \.thread)
             let rows = inbox.map { (id: $0.key, date: $0.value.map(\.date).max()!, hid: $0.value.map(\.hid).max()!) }.sorted { $0.date > $1.date }
@@ -110,6 +131,7 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, "{\"id\":\"sent\(sent.count)\",\"threadId\":\"\(body["threadId"] as? String ?? "TS")\"}")
         case ("GET", "/messages"):
             let query = (q("q") ?? "").lowercased()
+            if let lid = q("labelIds") { let ms = msgs.filter { $0.labels.contains(lid) }.sorted { $0.date > $1.date }; return (200, "{\"messages\":[\(ms.map { "{\"id\":\"\($0.id)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(ms.count)}") }
             func reply(_ ms: [Msg]) -> (Int, String) { (200, "{\"messages\":[\(ms.map { "{\"id\":\"\($0.id)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(ms.count)}") }
             func addr(_ marker: String) -> String { query.components(separatedBy: marker).dropFirst().first?.components(separatedBy: "\"").dropFirst().first ?? "" }
             if query.contains("before:") { let a = addr("from:"); return reply(known.contains(a) ? [msgs[0]] : []) }
@@ -119,6 +141,32 @@ final class DemoMailbox: @unchecked Sendable {
             let words = query.split(separator: " ").map(String.init)
             return reply(msgs.filter { m in words.allSatisfy { (m.from + m.subject + m.body).lowercased().contains($0) } }.sorted { $0.date > $1.date })
         default: break
+        }
+        if method == "PATCH", rel.hasPrefix("/labels/") {
+            let id = String(rel.dropFirst("/labels/".count)), name = body["name"] as? String ?? "?"
+            guard let i = labels.firstIndex(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            labels[i].name = name; writes.append("label rename \(id) \(name)")
+            return (200, "{\"id\":\"\(id)\",\"name\":\"\(name)\",\"type\":\"user\"}")
+        }
+        if method == "DELETE", rel.hasPrefix("/labels/") {
+            let id = String(rel.dropFirst("/labels/".count)); labels.removeAll { $0.id == id }; writes.append("label delete \(id)")   // the emails keep everything but this label
+            for i in msgs.indices { msgs[i].labels.removeAll { $0 == id } }
+            return (200, "{}")
+        }
+        if method == "DELETE", rel.hasPrefix("/settings/filters/") {
+            let id = String(rel.dropFirst("/settings/filters/".count)); filters.removeAll { $0.id == id }; writes.append("filter delete \(id)")
+            return (200, "{}")
+        }
+        if rel.hasPrefix("/drafts/") {
+            let id = String(rel.dropFirst("/drafts/".count))
+            guard let d = drafts.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            if method == "DELETE" { drafts.removeAll { $0.id == id }; msgs.removeAll { $0.id == d.msg }; writes.append("draft delete \(id)"); return (200, "") }
+            if method == "PUT" { putDraft(id: id, mid: d.msg, body: body); writes.append("draft update \(id)"); return (200, "{\"id\":\"\(id)\",\"message\":{\"id\":\"\(d.msg)\"}}") }
+        }
+        if method == "GET", rel.hasPrefix("/messages/"), rel.contains("/attachments/") {
+            attDownloads += 1
+            if attFail || attFailOnce { attFailOnce = false; return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            return (200, "{\"size\":16,\"data\":\"\(b64("%PDF-1.4 demo file"))\"}")
         }
         if method == "GET", rel.hasPrefix("/threads/") {
             let id = String(rel.dropFirst("/threads/".count)), ms = msgs.filter { $0.thread == id }.sorted { $0.date < $1.date }
@@ -130,6 +178,22 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, json(m, full: q("format") == "full"))
         }
         return (200, "{}")
+    }
+
+    /// A draft saved by the app: read the headers and the plain text part out of the raw email.
+    private func putDraft(id: String, mid: String, body: [String: Any]) {
+        let msg = body["message"] as? [String: Any] ?? [:]
+        let raw = String(decoding: Base64URL.decode(msg["raw"] as? String ?? "") ?? Data(), as: UTF8.self)
+        func header(_ n: String) -> String { raw.components(separatedBy: "\r\n").first { $0.hasPrefix(n + ": ") }.map { String($0.dropFirst(n.count + 2)) } ?? "" }
+        var text = ""
+        if let r = raw.range(of: "text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n") {
+            let b64Text = raw[r.upperBound...].components(separatedBy: "--").first ?? ""
+            text = String(decoding: Data(base64Encoded: b64Text.filter { !$0.isNewline }) ?? Data(), as: UTF8.self)
+        }
+        msgs.removeAll { $0.id == mid }
+        var m = Msg(id: mid, thread: (msg["threadId"] as? String) ?? "T" + mid, labels: ["DRAFT"], from: header("From"), subject: header("Subject"), body: text, date: Date())
+        m.to = header("To"); m.cc = header("Cc"); m.bcc = header("Bcc")
+        msgs.append(m)
     }
 
     static func bodyData(_ r: URLRequest) -> Data {
