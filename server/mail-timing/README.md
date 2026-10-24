@@ -17,7 +17,8 @@ the database, owner-only file modes, service runs as a non-root user). The email
    Same call edits the time. 200 `{"status":"pending"}`. 409 `{"status":"sending|sent|gone"}` = too late to change, treat as sent.
    400 = bad time (not more than 1 hour in the past, not more than 400 days ahead). 429 = 200 scheduled already.
    Optional `"grace_seconds"` (0 to 120): this job's head start for the app instead of the usual 2 minutes (the phone uses a few seconds so an Undo Send email goes out close to its time; the server checks every 10 seconds, so it can be up to ~10 s later). Like `remind_at`, an edit without it goes back to the usual 2 minutes.
-   The phone hands over an email for Undo Send exactly like Send Later: create the Gmail draft, `PUT /jobs/<draftId>` with `send_at` = now + the Undo delay and a small `grace_seconds`; Undo = `DELETE /jobs/<draftId>` before touching the draft.
+   The phone sends `"send_in_seconds": N` instead of `send_at` (and `"remind_in_seconds"` instead of `remind_at`): the server adds N to its own clock, so a phone clock that runs fast cannot send early. Giving both forms is a 400. The Mac keeps using `send_at`.
+   The phone hands over an email for Undo Send exactly like Send Later: create the Gmail draft, `PUT /jobs/<draftId>` with `send_in_seconds` = the Undo delay and a small `grace_seconds`; Undo = `DELETE /jobs/<draftId>` before touching the draft.
 4. Cancel / Keep as draft / Send now: `DELETE /jobs/<draftId>` BEFORE touching the draft. 200 with `status`:
    `pending` = cancelled in time; `none` = nothing there; `sent|gone|failed` = result acknowledged (it already happened).
    409 `sending` = the server is sending right now: ask again in a few seconds. The job can then be `sent`, `gone`, `failed`, or

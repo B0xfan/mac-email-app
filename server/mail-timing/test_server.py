@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # ---- pretend Google ----
 drafts, sent_log, mode = {"d1", "d2", "d3", "d4", "d5", "d6", "d7", "e1", "e2", "e3", "e4", "e5", "e6", "e7"}, [], {"send": 200, "token": 200, "raw": None, "terr": None}
 threads, modify_log, forms, bad_rt = {}, [], [], set()
+bad_cid = set()
 mode["modify"] = 200
 def thread(mid, *others): return [{"id": mid, "labelIds": ["SENT"], "internalDate": "1000000"}] + [{"id": o[0], "labelIds": o[1], "internalDate": str(o[2])} for o in others]
 class G(BaseHTTPRequestHandler):
@@ -20,6 +21,7 @@ class G(BaseHTTPRequestHandler):
         if self.path == "/token":
             form = dict(x.split("=") for x in raw.decode().split("&")); forms.append(form)
             if form["refresh_token"] in bad_rt: return self.reply(400, {"error": "invalid_grant"})
+            if form["client_id"] in bad_cid: return self.reply(400, {"error": "invalid_client"})
             if mode["terr"]: return self.reply(400, {"error": mode["terr"]})
             return self.reply(200, {"access_token": "AT", "expires_in": 3000}) if mode["token"] == 200 else self.reply(400, {"error": "invalid_grant"})
         if self.path == "/drafts/send":
@@ -322,4 +324,62 @@ big = {"base_version": 3, "smart": [{"id": "i%d" % i, "name": "n", "rules": "y" 
 check("organizer: a 40 KB list is accepted; over 64 KB is refused", req("PUT", "/organizer", big, K2)[0] == 200 and req("PUT", "/organizer", {"base_version": 4, "smart": [{"id": "i", "name": "n", "rules": "y" * 70000}], "searches": []}, K2)[0] == 400)
 check("organizer: one person never sees another's list", req("GET", "/organizer", key="bkey2") == (200, {"version": 0, "smart": [], "searches": []}))
 check("organizer: other jobs endpoints still refuse an oversized body", req("PUT", "/jobs/zz", {"send_at": now, "pad": "y" * 9000}, K2)[0] == 400)
+# ---- fix round 1 ----
+import socket, sqlite3
+def secs(d, key): return (row(d)[key] or 0) - int(time.time())
+# 1. phone clock skew: "in N seconds" is turned into a time by the server's own clock
+check("relative: send_in_seconds becomes server time + N", req("PUT", "/jobs/rl1", {"send_in_seconds": 60}, K2)[0] == 200 and 58 <= secs("rl1", "send_at") <= 61)
+check("relative: remind_in_seconds counts from now; must still be after the send", req("PUT", "/jobs/rl2", {"send_in_seconds": 60, "remind_in_seconds": 3600}, K2)[0] == 200 and 3598 <= secs("rl2", "remind_at") <= 3601
+      and req("PUT", "/jobs/rl3", {"send_in_seconds": 60, "remind_in_seconds": 30}, K2)[0] == 400 and row("rl3") is None)
+check("relative: both forms together, negative, text, true or absurd refused", all(req("PUT", "/jobs/rl4", b_, K2)[0] == 400 for b_ in
+      ({"send_at": now + 60, "send_in_seconds": 60}, {"send_in_seconds": -1}, {"send_in_seconds": "5"}, {"send_in_seconds": True}, {"send_in_seconds": 400 * 86400}, {"send_in_seconds": 60, "remind_at": now + 9000, "remind_in_seconds": 9000})) and row("rl4") is None)
+drafts.add("rl5"); req("PUT", "/jobs/rl5", {"send_in_seconds": 0, "grace_seconds": 0}, K2); server.tick(int(time.time()) + 11)
+check("relative: 0 seconds + grace 0 goes at the next check, once", sent_log.count("rl5") == 1)
+check("relative: the absolute form (the Mac) still works", req("PUT", "/jobs/rl6", {"send_at": now + 5000}, K2)[0] == 200 and row("rl6")["send_at"] == now + 5000)
+# 2. nested brackets: 400, not a crash
+deep = b"[" * 5000 + b"]" * 5000
+check("nested-bracket body: 400 on organizer, jobs and register", req("PUT", "/organizer", raw=deep, headers={"Authorization": "Bearer " + K2})[0] == 400
+      and req("PUT", "/jobs/rl7", raw=deep, headers={"Authorization": "Bearer " + K2})[0] == 400 and req("POST", "/register", raw=deep, headers={})[0] == 400)
+# 3. an anonymous caller is refused before any body is read
+def raw_put(key):
+    sk = socket.create_connection(("127.0.0.1", ms.server_port), timeout=3)   # promises 60000 bytes, sends none: a server that reads first would sit waiting
+    sk.sendall(("PUT %s/organizer HTTP/1.0\r\nContent-Length: 60000\r\n%s\r\n" % (server.PREFIX, "Authorization: Bearer %s\r\n" % key if key else "")).encode())
+    try: return sk.recv(64).split(b" ")[1]
+    except socket.timeout: return b"waited"
+    finally: sk.close()
+check("organizer: no key / wrong key answered 401 without reading the body", raw_put(None) == b"401" and raw_put("nope") == b"401")
+check("organizer: a good key still gets its 64 KB allowance", raw_put(K2) == b"waited")
+# 4. a trailing newline is not a valid name
+check("device name 'iphone\\n' refused, 'iphone' accepted", req("POST", "/register", {"refresh_token": "r" * 20, "device": "iphone\n"})[0] == 400
+      and req("POST", "/register", {"refresh_token": "r" * 20, "device": "iphone"})[0] == 200
+      and not server.DRAFT_RE.match("d1\n") and not server.DEVICE_RE.match("mac\n") and server.DRAFT_RE.match("d1"))
+c.execute("DELETE FROM devices WHERE email='me@example.com' AND device='iphone'"); c.commit()
+# 5. one device with a broken key setup does not block the account's other devices
+c.execute("INSERT INTO devices(email,device,key_hash,refresh_token,client_id,signin_ok,created) VALUES('me@example.com','phone2','h2','rtok','badcl',1,?)", (int(time.time()) + 100,)); c.commit()
+bad_cid.add("badcl"); server._tokens.clear(); drafts.add("fa1"); late("fa1"); server.tick(now + 2000)
+check("setup error on the newest device: falls through to the next device, sends once", sent_log.count("fa1") == 1 and row("fa1")["status"] == "sent"
+      and c.execute("SELECT COUNT(*) FROM devices WHERE email='me@example.com' AND signin_ok=0").fetchone()[0] == 0)
+c.execute("UPDATE devices SET signin_ok=0 WHERE email='me@example.com' AND device<>'phone2'"); c.commit(); drafts.add("fa2"); late("fa2"); server.tick(now + 2000)
+check("setup error and every other device refused: job waits to retry, nothing flagged failed", row("fa2")["status"] == "pending" and "fa2" not in sent_log
+      and c.execute("SELECT signin_ok FROM devices WHERE device='phone2'").fetchone()[0] == 1)
+c.execute("DELETE FROM devices WHERE device='phone2'"); c.execute("UPDATE devices SET signin_ok=1 WHERE email='me@example.com'"); c.execute("DELETE FROM jobs WHERE draft_id='fa2'"); c.commit(); bad_cid.clear()
+# 6. create + copy is one transaction
+def fresh_db(users_sql, path):
+    os.environ["DB_PATH"] = path; k = sqlite3.connect(path); k.execute(users_sql); k.commit(); k.close()
+good = tempfile.mkdtemp() + "/old.db"; broken = tempfile.mkdtemp() + "/old.db"; real = os.environ["DB_PATH"]
+fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT, refresh_token TEXT, signin_ok INTEGER, created INTEGER)", good)
+k = sqlite3.connect(good); k.execute("INSERT INTO users VALUES('a@x.example','kh','rt',1,5)"); k.commit(); k.close()
+errs = []
+def starter():
+    try: server.db().close()
+    except Exception as e: errs.append(e)
+ts = [threading.Thread(target=starter) for _ in range(6)]; [t.start() for t in ts]; [t.join() for t in ts]
+k = sqlite3.connect(good); mig = k.execute("SELECT email,device,key_hash,client_id FROM devices").fetchall(); keep = k.execute("SELECT COUNT(*) FROM users").fetchone()[0]; k.close()
+check("first start of an old database: six simultaneous starters, no error, the old sign-in copied exactly once, old table untouched", not errs and mig == [("a@x.example", "mac", "kh", None)] and keep == 1)
+fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT)", broken)   # cannot be copied (columns missing)
+try: server.db(); failed = False
+except sqlite3.Error: failed = True
+k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders')").fetchone()[0]; k.close()
+check("a copy that fails leaves no half-made tables behind (the next start tries again)", failed and left == 0)
+os.environ["DB_PATH"] = real
 print("FAILURES:", fails); sys.exit(1 if fails else 0)
