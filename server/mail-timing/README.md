@@ -5,13 +5,20 @@ Runs on the droplet (`audrey-server`) as `mail-timing.service`, code in `/opt/PK
 the database, owner-only file modes, service runs as a non-root user). The email itself stays in Gmail.
 
 ## What the Mac does
-1. Once per install: `POST /register` `{"refresh_token": "<the Mac's Google refresh token>"}` -> `{"api_key","email"}`.
-   Store `api_key` in the same private file as the sign-in. Signing in again gives a new key (the old one stops).
-   400 = body missing/invalid or no refresh token; 403 = address not on the list; 503 = Google unreachable (retry).
+1. Once per install: `POST /register` `{"refresh_token": "<the Mac's Google refresh token>"}` -> `{"api_key","email","device"}`.
+   Store `api_key` in the same private file as the sign-in. Signing in again gives a new key (the old one stops) for THAT device only.
+   400 = body missing/invalid or no refresh token or bad device name; 403 = address not on the list, or the app's Google key is not known; 429 = already 5 devices; 503 = Google unreachable (retry).
+   **Several devices per person (v3).** Optional body fields `"device"` (lowercase letters, digits, `-`, up to 20; default `"mac"`, so the Mac sends nothing new) and
+   `"client_id"` (the Google client ID the refresh token was issued to; omit it or send the Mac's own for the Mac; the phone sends its iOS client ID, which must be in the server's
+   `EXTRA_CLIENT_IDS` setting; it has no secret, so the server refreshes it without one). Each device has its own key and sign-in. Jobs, reminders and the Smart Folder list belong to the person, not the device.
+   The server sends and reminds through whichever of the person's devices still has a working sign-in (newest first); a device whose sign-in Google refuses is flagged (`signin_ok` false in its own `GET /jobs`), the others carry on.
 2. Every request after: header `Authorization: Bearer <api_key>`. 401 = key wrong or replaced: register again.
 3. Schedule or change time: create/keep the Gmail draft as today, then `PUT /jobs/<draftId>` `{"send_at": <unix seconds>}`.
    Same call edits the time. 200 `{"status":"pending"}`. 409 `{"status":"sending|sent|gone"}` = too late to change, treat as sent.
    400 = bad time (not more than 1 hour in the past, not more than 400 days ahead). 429 = 200 scheduled already.
+   Optional `"grace_seconds"` (0 to 120): this job's head start for the app instead of the usual 2 minutes (the phone uses a few seconds so an Undo Send email goes out close to its time; the server checks every 10 seconds, so it can be up to ~10 s later). Like `remind_at`, an edit without it goes back to the usual 2 minutes.
+   The phone sends `"send_in_seconds": N` instead of `send_at` (and `"remind_in_seconds"` instead of `remind_at`): the server adds N to its own clock, so a phone clock that runs fast cannot send early. Giving both forms is a 400. The Mac keeps using `send_at`.
+   The phone hands over an email for Undo Send exactly like Send Later: create the Gmail draft, `PUT /jobs/<draftId>` with `send_in_seconds` = the Undo delay and a small `grace_seconds`; Undo = `DELETE /jobs/<draftId>` before touching the draft.
 4. Cancel / Keep as draft / Send now: `DELETE /jobs/<draftId>` BEFORE touching the draft. 200 with `status`:
    `pending` = cancelled in time; `none` = nothing there; `sent|gone|failed` = result acknowledged (it already happened).
    409 `sending` = the server is sending right now: ask again in a few seconds. The job can then be `sent`, `gone`, `failed`, or
@@ -57,6 +64,11 @@ Message ids and thread ids are the Gmail ids Mail already has (letters, digits, 
   rule as Send Later and stops Mail re-surfacing an email the server already brought back (and the user may have archived since).
 - Adding the labels twice is harmless in itself; the risk is only a re-surfaced email after the user archived it, which the DELETE-first rule prevents.
 - A reply found but a time edit later: a `replied`/`fired` reminder cannot be edited (409); set a new reminder on the new sent email instead.
+
+## Smart Folders and saved searches (shared by the person's devices)
+Names, rules and search words only, never email text. The server keeps the lists exactly as the apps send them (each entry needs a string `id` up to 64 characters and a string `name` up to 200; up to 100 of each; the whole call up to 64 KB). Anything else the app sends, such as the Mac's `folded` list, is not kept.
+- `GET /organizer` -> `{"version": n, "smart": [...], "searches": [...]}` (`version` 0 and empty lists until someone saves).
+- `PUT /organizer` `{"base_version": n, "smart": [...], "searches": [...]}` (both lists required) -> 200 `{"version": n+1}`. 409 = someone saved first: the body is the current `{"version","smart","searches"}`; merge onto it and try again with its version. 400 = malformed.
 
 ## Not here
 No snooze, no big-file/Drive attachments (the Mac still refuses those), no email content.

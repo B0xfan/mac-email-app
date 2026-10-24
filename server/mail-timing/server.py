@@ -8,7 +8,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 E = os.environ.get
 PREFIX = "/api/mail-timing"
-DRAFT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+DRAFT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")   # \Z, not $: "$" lets a trailing newline through
+DEVICE_RE = re.compile(r"^[a-z0-9-]{1,20}\Z")   # "mac" (what an app that sends no name means) or "iphone"
+MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536
 GRACE = lambda: int(E("GRACE_SECONDS", "120"))   # the Mac, if awake, goes first; this is the backstop
 MAX_PENDING = 200
 _tokens = {}   # email -> (access token, expiry); memory only
@@ -17,24 +19,36 @@ _lock = threading.Lock()
 def cfg_token_url(): return E("GOOGLE_TOKEN_URL", "https://oauth2.googleapis.com/token")
 def cfg_gmail(): return E("GMAIL_BASE", "https://gmail.googleapis.com/gmail/v1/users/me")
 
+SCHEMA = ["""CREATE TABLE IF NOT EXISTS devices(email TEXT NOT NULL, device TEXT NOT NULL, key_hash TEXT NOT NULL, refresh_token TEXT NOT NULL,
+        client_id TEXT, signin_ok INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, PRIMARY KEY(email, device))""",   # client_id NULL = the Mac's Google key
+  """CREATE TABLE IF NOT EXISTS organizer(email TEXT PRIMARY KEY, version INTEGER NOT NULL, doc TEXT NOT NULL, updated INTEGER NOT NULL)""",   # Smart Folders + saved searches: names, rules, search words
+  """CREATE TABLE IF NOT EXISTS jobs(email TEXT NOT NULL, draft_id TEXT NOT NULL, send_at INTEGER NOT NULL,
+        status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
+        sent_id TEXT, thread_id TEXT, note TEXT, updated INTEGER NOT NULL, remind_at INTEGER, PRIMARY KEY(email, draft_id))""",
+  """CREATE TABLE IF NOT EXISTS reminders(email TEXT NOT NULL, message_id TEXT NOT NULL, thread_id TEXT NOT NULL, remind_at INTEGER NOT NULL,
+        status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
+        note TEXT, updated INTEGER NOT NULL, PRIMARY KEY(email, message_id))"""]   # ids and times only, never email text
+
 def db():
     c = sqlite3.connect(E("DB_PATH", "data/timing.db"), timeout=10); c.row_factory = sqlite3.Row
-    c.executescript("""
-      CREATE TABLE IF NOT EXISTS users(email TEXT PRIMARY KEY, key_hash TEXT NOT NULL, refresh_token TEXT NOT NULL,
-        signin_ok INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS jobs(email TEXT NOT NULL, draft_id TEXT NOT NULL, send_at INTEGER NOT NULL,
-        status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
-        sent_id TEXT, thread_id TEXT, note TEXT, updated INTEGER NOT NULL, remind_at INTEGER, PRIMARY KEY(email, draft_id));
-      CREATE TABLE IF NOT EXISTS reminders(email TEXT NOT NULL, message_id TEXT NOT NULL, thread_id TEXT NOT NULL, remind_at INTEGER NOT NULL,
-        status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
-        note TEXT, updated INTEGER NOT NULL, PRIMARY KEY(email, message_id));""")   # ids and times only, never email text
-    if "remind_at" not in [r[1] for r in c.execute("PRAGMA table_info(jobs)")]: c.execute("ALTER TABLE jobs ADD COLUMN remind_at INTEGER")   # older database
+    try:
+        c.execute("BEGIN IMMEDIATE")   # create + migrate in ONE transaction: a crash or a second starter can never see the new table without its copied rows
+        fresh = c.execute("SELECT 1 FROM sqlite_master WHERE name='devices'").fetchone() is None
+        for q in SCHEMA: c.execute(q)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(jobs)")]
+        if "remind_at" not in cols: c.execute("ALTER TABLE jobs ADD COLUMN remind_at INTEGER")   # older database
+        if "grace" not in cols: c.execute("ALTER TABLE jobs ADD COLUMN grace INTEGER")   # per-job head start; NULL = GRACE_SECONDS
+        if fresh and c.execute("SELECT 1 FROM sqlite_master WHERE name='users'").fetchone():   # one sign-in per person before: that was the Mac. The old table stays untouched.
+            c.execute("INSERT OR IGNORE INTO devices(email,device,key_hash,refresh_token,client_id,signin_ok,created) SELECT email,'mac',key_hash,refresh_token,NULL,signin_ok,created FROM users")
+        c.commit()
+    except BaseException: c.close(); raise
     return c
 
 # ---- Google ----
 
 class SignInGone(Exception): pass          # the saved sign-in no longer works (revoked, expired)
 class Retry(Exception): pass               # network trouble, Google 5xx, rate limit: try again later
+class SetupError(Retry): pass              # our own Google key setup is wrong for this device (invalid_client): another device may still work
 
 def call(url, data=None, headers=None, method=None):
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
@@ -50,33 +64,49 @@ def call(url, data=None, headers=None, method=None):
     except (urllib.error.URLError, TimeoutError, OSError, ValueError, AttributeError) as e:
         raise Retry(str(e))
 
-def access_token(email, refresh):
-    with _lock: t = _tokens.get(email)
+def extra_clients(): return [x.strip() for x in E("EXTRA_CLIENT_IDS", "").split(",") if x.strip()]   # the phone's Google key(s): public, no secret
+
+def access_token(key, refresh, cid=None):
+    """key: cache name for this sign-in. cid None = the Mac's Google key (with its secret); else the phone's, which has no secret."""
+    with _lock: t = _tokens.get(key)
     if t and t[1] > time.time() + 60: return t[0]
-    form = urllib.parse.urlencode({"client_id": E("GOOGLE_CLIENT_ID", ""), "client_secret": E("GOOGLE_CLIENT_SECRET", ""),
-                                   "refresh_token": refresh, "grant_type": "refresh_token"}).encode()
+    f = {"client_id": cid or E("GOOGLE_CLIENT_ID", ""), "refresh_token": refresh, "grant_type": "refresh_token"}
+    if not cid: f["client_secret"] = E("GOOGLE_CLIENT_SECRET", "")
+    form = urllib.parse.urlencode(f).encode()
     s, b = call(cfg_token_url(), form, {"Content-Type": "application/x-www-form-urlencoded"})
     if s == 200 and "access_token" in b:
-        with _lock: _tokens[email] = (b["access_token"], time.time() + int(b.get("expires_in", 3000)))
+        with _lock: _tokens[key] = (b["access_token"], time.time() + int(b.get("expires_in", 3000)))
         return b["access_token"]
     if s in (400, 401) and b.get("error") == "invalid_grant": raise SignInGone("invalid_grant")
-    if b.get("error") in ("invalid_client", "unauthorized_client"): print("token config error:", b["error"], flush=True)   # our setup, not the user's sign-in
+    if b.get("error") in ("invalid_client", "unauthorized_client"):   # our setup, not the user's sign-in
+        print("token config error:", b["error"], flush=True); raise SetupError(f"token {s}")
     raise Retry(f"token {s}")
 
-def gmail(email, refresh, method, path, body=None):
+def gmail(key, refresh, method, path, body=None, cid=None):
     for attempt in (0, 1):
-        tok = access_token(email, refresh)
+        tok = access_token(key, refresh, cid)
         s, b = call(cfg_gmail() + path, json.dumps(body).encode() if body is not None else None,
                     {"Authorization": "Bearer " + tok, "Content-Type": "application/json"}, method)
         if s == 401 and attempt == 0:
-            with _lock: _tokens.pop(email, None)
+            with _lock: _tokens.pop(key, None)
             continue
         return s, b
+
+def as_user(c, email, method, path, body=None):
+    """A Gmail call as this person, through whichever of their devices still has a working sign-in (newest first)."""
+    setup = None
+    for d in c.execute("SELECT * FROM devices WHERE email=? AND signin_ok=1 ORDER BY created DESC, device", (email,)).fetchall():
+        try: return gmail(email + "/" + d["device"], d["refresh_token"], method, path, body, d["client_id"])
+        except SignInGone:
+            with c: c.execute("UPDATE devices SET signin_ok=0 WHERE email=? AND device=?", (email, d["device"]))
+        except SetupError as e: setup = e   # this device's key setup is broken, not its sign-in: try the next device, never flag it
+    if setup: raise setup   # nobody worked, but at least one only for a setup reason: retry later instead of failing the job
+    raise SignInGone("no sign-in")
 
 # ---- sending ----
 
 def claim(c, email, draft_id, now):
-    with c: n = c.execute("UPDATE jobs SET status='sending', claimed_at=? WHERE email=? AND draft_id=? AND status='pending' AND send_at + ? <= ?",
+    with c: n = c.execute("UPDATE jobs SET status='sending', claimed_at=? WHERE email=? AND draft_id=? AND status='pending' AND send_at + COALESCE(grace, ?) <= ?",
                           (now, email, draft_id, GRACE(), now)).rowcount   # time re-checked: an edit landing mid-sweep wins
     return n == 1
 
@@ -92,12 +122,8 @@ def finish(c, email, draft_id, status, now, note=None, sent=None, thread=None, r
 def process(c, job, now):
     email, did = job["email"], job["draft_id"]
     if not claim(c, email, did, now): return   # someone else (or a cancel) got there first
-    user = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
-    try:
-        if not user or not user["signin_ok"]: raise SignInGone("no sign-in")
-        s, b = gmail(email, user["refresh_token"], "POST", "/drafts/send", {"id": did})
+    try: s, b = as_user(c, email, "POST", "/drafts/send", {"id": did})
     except SignInGone:
-        with c: c.execute("UPDATE users SET signin_ok=0 WHERE email=?", (email,))
         return finish(c, email, did, "failed", now, "signin")
     except Exception as e:   # Retry, or anything odd: the attempt cap below still applies
         s, b = 599, {}
@@ -130,10 +156,8 @@ def remind(c, r, now):
     with c: n = c.execute("UPDATE reminders SET status='firing', claimed_at=? WHERE email=? AND message_id=? AND status='pending' AND remind_at + ? <= ?",
                           (now, email, mid, GRACE(), now)).rowcount   # one winner; a cancel or edit that landed first wins
     if n != 1: return
-    user = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
     try:
-        if not user or not user["signin_ok"]: raise SignInGone("no sign-in")
-        s, b = gmail(email, user["refresh_token"], "GET", "/threads/" + r["thread_id"] + "?format=metadata&metadataHeaders=From&metadataHeaders=Auto-Submitted&metadataHeaders=X-Autoreply&metadataHeaders=Precedence")
+        s, b = as_user(c, email, "GET", "/threads/" + r["thread_id"] + "?format=metadata&metadataHeaders=From&metadataHeaders=Auto-Submitted&metadataHeaders=X-Autoreply&metadataHeaders=Precedence")
         if s == 200:
             msgs = [m for m in b.get("messages", []) if isinstance(m, dict)]
             me = next((m for m in msgs if m.get("id") == mid), None)
@@ -141,10 +165,9 @@ def remind(c, r, now):
             sent = int(me.get("internalDate") or 0)   # someone else, later; drafts and my own later emails do not count
             if any(m.get("id") != mid and int(m.get("internalDate") or 0) > sent and real_reply(m) for m in msgs):
                 return rfinish(c, email, mid, "replied", now)
-            s, b = gmail(email, user["refresh_token"], "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"]})
+            s, b = as_user(c, email, "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"]})
             if s == 200: return rfinish(c, email, mid, "fired", now)   # back at the top of the inbox, unread
     except SignInGone:
-        with c: c.execute("UPDATE users SET signin_ok=0 WHERE email=?", (email,))
         return rfinish(c, email, mid, "failed", now, "signin")
     except Exception: s, b = 599, {}
     if s == 404: return rfinish(c, email, mid, "gone", now, "email deleted")
@@ -165,7 +188,7 @@ def _tick(c, now):
         c.execute("UPDATE reminders SET status='failed', note='could not remind', attempts=attempts+1, claimed_at=NULL WHERE status='firing' AND claimed_at < ? AND attempts >= 19", (now - 300,))
         c.execute("UPDATE reminders SET status='pending', attempts=attempts+1 WHERE status='firing' AND claimed_at < ?", (now - 300,))   # a crash counts as an attempt
         c.execute("DELETE FROM reminders WHERE status IN ('fired','replied','gone','failed') AND updated < ?", (now - 14 * 86400,))
-    for j in c.execute("SELECT * FROM jobs WHERE status='pending' AND send_at + ? <= ? AND retry_at <= ? ORDER BY send_at",
+    for j in c.execute("SELECT * FROM jobs WHERE status='pending' AND send_at + COALESCE(grace, ?) <= ? AND retry_at <= ? ORDER BY send_at",
                        (GRACE(), now, now)).fetchall():
         process(c, j, now)
     for r in c.execute("SELECT * FROM reminders WHERE status='pending' AND remind_at + ? <= ? AND retry_at <= ? ORDER BY remind_at", (GRACE(), now, now)).fetchall():
@@ -179,6 +202,10 @@ def worker():
 
 # ---- HTTP ----
 
+def org_doc(c, email):
+    r = c.execute("SELECT version, doc FROM organizer WHERE email=?", (email,)).fetchone()
+    return {"version": r["version"], **json.loads(r["doc"])} if r else {"version": 0, "smart": [], "searches": []}
+
 def rrow(r): return {k: r[k] for k in ("message_id", "thread_id", "remind_at", "status", "note")}
 def jrow(r): return {k: r[k] for k in ("draft_id", "send_at", "status", "sent_id", "thread_id", "note")}
 
@@ -188,32 +215,36 @@ class H(BaseHTTPRequestHandler):
     def out(self, code, obj):
         b = json.dumps(obj).encode(); self.send_response(code)
         self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
-    def body(self):
+    def body(self, limit=8192):
         n = int(self.headers.get("Content-Length") or 0)
-        if not 0 <= n <= 8192: raise ValueError("too big")
+        if not 0 <= n <= limit: raise ValueError("too big")
         try: d = json.loads(self.rfile.read(n) or b"{}")
-        except ValueError: raise ValueError("bad json")
+        except (ValueError, RecursionError): raise ValueError("bad json")   # "[[[[..." nests past Python's limit: RecursionError, not ValueError
         if not isinstance(d, dict): raise ValueError("bad json")
         return d
     def user(self, c):
         a = self.headers.get("Authorization") or ""
         k = a[7:] if a.startswith("Bearer ") else ""
-        return c.execute("SELECT * FROM users WHERE key_hash=?", (hashlib.sha256(k.encode()).hexdigest(),)).fetchone() if k else None
+        return c.execute("SELECT * FROM devices WHERE key_hash=?", (hashlib.sha256(k.encode()).hexdigest(),)).fetchone() if k else None
     def handle_any(self, method):
         try:
             path = urllib.parse.urlparse(self.path).path
             if not path.startswith(PREFIX): return self.out(404, {})
             parts = [p for p in path[len(PREFIX):].split("/") if p]
-            data = self.body() if method in ("POST", "PUT") else {}
             c = db()
             try:
-                if method == "POST" and parts == ["register"]: return self.register(c, data)
-                u = self.user(c)
-                if not u: return self.out(401, {"error": "bad key"})
+                reg = method == "POST" and parts == ["register"]
+                u = None if reg else self.user(c)
+                if not reg and not u: return self.out(401, {"error": "bad key"})   # key first: an anonymous caller never gets the big read
+                data = self.body(MAX_ORGANIZER_BODY if parts == ["organizer"] else 8192) if method in ("POST", "PUT") else {}
+                if reg: return self.register(c, data)
                 if method == "GET" and parts == ["jobs"]:
                     return self.out(200, {"signin_ok": bool(u["signin_ok"]), "jobs": [jrow(r) for r in c.execute("SELECT * FROM jobs WHERE email=? ORDER BY send_at", (u["email"],))]})
                 if method == "GET" and parts == ["reminders"]:
                     return self.out(200, {"signin_ok": bool(u["signin_ok"]), "reminders": [rrow(r) for r in c.execute("SELECT * FROM reminders WHERE email=? ORDER BY remind_at", (u["email"],))]})
+                if parts == ["organizer"]:
+                    if method == "GET": return self.out(200, org_doc(c, u["email"]))
+                    if method == "PUT": return self.put_organizer(c, u, data)
                 if len(parts) == 2 and parts[0] == "reminders" and DRAFT_RE.match(parts[1]):
                     if method == "PUT": return self.put_reminder(c, u, parts[1], data)
                     if method == "DELETE": return self.del_reminder(c, u, parts[1])
@@ -231,36 +262,55 @@ class H(BaseHTTPRequestHandler):
     def register(self, c, d):
         rt = d.get("refresh_token")
         if not isinstance(rt, str) or not 10 < len(rt) < 2048: raise ValueError("refresh_token needed")
+        dev, cid = d.get("device", "mac"), d.get("client_id")   # an app that sends neither is the Mac of before, unchanged
+        if not isinstance(dev, str) or not DEVICE_RE.match(dev): raise ValueError("bad device name")
+        if cid is not None:
+            if not isinstance(cid, str) or len(cid) > 200: raise ValueError("bad client_id")
+            if cid == E("GOOGLE_CLIENT_ID", ""): cid = None
+            elif cid not in extra_clients(): return self.out(403, {"error": "that app's Google key is not known to the server"})
         try:
-            s, b = gmail("reg:" + hashlib.sha256(rt.encode()).hexdigest()[:12], rt, "GET", "/profile")
+            s, b = gmail("reg:" + hashlib.sha256(rt.encode()).hexdigest()[:12], rt, "GET", "/profile", None, cid)
         except SignInGone: return self.out(403, {"error": "Google did not accept that sign-in"})
         except Retry: return self.out(503, {"error": "could not reach Google"})
         email = (b.get("emailAddress") or "").lower() if s == 200 else ""
         if not email or email not in [a.strip().lower() for a in E("ALLOWED_EMAILS", "").split(",") if a.strip()]:
             return self.out(403, {"error": "this address is not on the list"})
         key = secrets.token_urlsafe(32); now = int(time.time())
-        with c:   # signing in again: new key, new token, jobs that failed only because of the old sign-in get another go
-            c.execute("INSERT INTO users(email,key_hash,refresh_token,signin_ok,created) VALUES(?,?,?,1,?) ON CONFLICT(email) DO UPDATE SET key_hash=excluded.key_hash, refresh_token=excluded.refresh_token, signin_ok=1",
-                      (email, hashlib.sha256(key.encode()).hexdigest(), rt, now))
+        with c:   # signing in again: this device gets a new key and token (the other devices are untouched); jobs that failed only because of a sign-in get another go
+            c.execute("BEGIN IMMEDIATE")
+            if c.execute("SELECT 1 FROM devices WHERE email=? AND device=?", (email, dev)).fetchone() is None and c.execute("SELECT COUNT(*) FROM devices WHERE email=?", (email,)).fetchone()[0] >= MAX_DEVICES:
+                return self.out(429, {"error": "too many devices"})
+            c.execute("INSERT INTO devices(email,device,key_hash,refresh_token,client_id,signin_ok,created) VALUES(?,?,?,?,?,1,?) ON CONFLICT(email,device) DO UPDATE SET key_hash=excluded.key_hash, refresh_token=excluded.refresh_token, client_id=excluded.client_id, signin_ok=1",
+                      (email, dev, hashlib.sha256(key.encode()).hexdigest(), rt, cid, now))
             c.execute("UPDATE jobs SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
             c.execute("UPDATE reminders SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
-        with _lock: _tokens.pop(email, None)
-        self.out(200, {"api_key": key, "email": email})
+        with _lock: _tokens.pop(email + "/" + dev, None)
+        self.out(200, {"api_key": key, "email": email, "device": dev})
+
+    def when(self, d, key, now):
+        """An absolute time (key) or seconds from now (key_in_seconds, by the server's own clock: a phone clock that runs fast cannot send early). Not both."""
+        a, r = d.get(key), d.get(key.replace("_at", "_in_seconds"))
+        if r is None: return a
+        if a is not None: raise ValueError(f"send either {key} or its _in_seconds form, not both")
+        if not isinstance(r, int) or isinstance(r, bool) or not 0 <= r < 400 * 86400: raise ValueError(key.replace("_at", "_in_seconds") + " must be 0 to 400 days of seconds")
+        return now + r
 
     def put_job(self, c, u, did, d):
-        at, now = d.get("send_at"), int(time.time())
+        now = int(time.time()); at = self.when(d, "send_at", now)
         if not isinstance(at, int) or isinstance(at, bool) or not now - 3600 <= at < now + 400 * 86400: raise ValueError("send_at must be within the last hour or the next 400 days")
-        rem = d.get("remind_at")   # optional: start a reminder on the sent email if this goes out while the Mac is off
+        rem = self.when(d, "remind_at", now)   # optional: start a reminder on the sent email if this goes out while the Mac is off
         if rem is not None and (not isinstance(rem, int) or isinstance(rem, bool) or not now - 3600 <= rem < now + 400 * 86400): raise ValueError("remind_at must be within the last hour or the next 400 days")
         if rem is not None and rem <= at: raise ValueError("remind_at must be after send_at")
+        gr = d.get("grace_seconds")   # optional head start for the app (phone emails: a few seconds); none = the server's usual 2 minutes
+        if gr is not None and (not isinstance(gr, int) or isinstance(gr, bool) or not 0 <= gr <= GRACE()): raise ValueError("grace_seconds must be 0 to %d" % GRACE())
         with c:   # one transaction: no gap between the check and the write
             c.execute("BEGIN IMMEDIATE")
             r = c.execute("SELECT status FROM jobs WHERE email=? AND draft_id=?", (u["email"], did)).fetchone()
             if r and r["status"] in ("sending", "sent", "gone"): return self.out(409, {"status": r["status"]})
             if not r and c.execute("SELECT COUNT(*) FROM jobs WHERE email=? AND status='pending'", (u["email"],)).fetchone()[0] >= MAX_PENDING:
                 return self.out(429, {"error": "too many scheduled emails"})
-            c.execute("INSERT INTO jobs(email,draft_id,send_at,status,updated,remind_at) VALUES(?,?,?, 'pending', ?, ?) ON CONFLICT(email,draft_id) DO UPDATE SET send_at=excluded.send_at, status='pending', attempts=0, retry_at=0, note=NULL, updated=excluded.updated, remind_at=excluded.remind_at",
-                      (u["email"], did, at, now, rem))
+            c.execute("INSERT INTO jobs(email,draft_id,send_at,status,updated,remind_at,grace) VALUES(?,?,?, 'pending', ?, ?, ?) ON CONFLICT(email,draft_id) DO UPDATE SET send_at=excluded.send_at, status='pending', attempts=0, retry_at=0, note=NULL, updated=excluded.updated, remind_at=excluded.remind_at, grace=excluded.grace",
+                      (u["email"], did, at, now, rem, gr))
         self.out(200, {"status": "pending"})
 
     def del_job(self, c, u, did):
@@ -271,6 +321,23 @@ class H(BaseHTTPRequestHandler):
             if r["status"] == "sending": return self.out(409, {"status": "sending"})   # in flight: ask again in a moment
             c.execute("DELETE FROM jobs WHERE email=? AND draft_id=?", (u["email"], did))
         self.out(200, {"status": r["status"]})   # "pending" = cancelled; sent/gone/failed = result acknowledged
+
+    def put_organizer(self, c, u, d):
+        bv = d.get("base_version")
+        if not isinstance(bv, int) or isinstance(bv, bool) or bv < 0: raise ValueError("base_version needed")
+        doc = {}
+        for k in ("smart", "searches"):   # both lists required, so a half-formed call can never wipe the other list; anything else the app sends (e.g. "folded") is not kept
+            v = d.get(k)
+            if not isinstance(v, list) or len(v) > 100: raise ValueError(k + " must be a list of up to 100")
+            if not all(isinstance(x, dict) and isinstance(x.get("id"), str) and 0 < len(x["id"]) <= 64 and isinstance(x.get("name"), str) and len(x["name"]) <= 200 for x in v): raise ValueError("every entry in " + k + " needs an id and a name")
+            doc[k] = v
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            cur = org_doc(c, u["email"])
+            if cur["version"] != bv: return self.out(409, cur)   # someone else saved first: the app merges onto this and tries again
+            c.execute("INSERT INTO organizer(email,version,doc,updated) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET version=excluded.version, doc=excluded.doc, updated=excluded.updated",
+                      (u["email"], bv + 1, json.dumps(doc), int(time.time())))
+        self.out(200, {"version": bv + 1})
 
     def put_reminder(self, c, u, mid, d):
         at, th, now = d.get("remind_at"), d.get("thread_id"), int(time.time())
