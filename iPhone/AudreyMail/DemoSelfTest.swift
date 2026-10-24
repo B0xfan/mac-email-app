@@ -131,10 +131,17 @@ enum DemoSelfTest {
         box.with { $0.srvDown = true }
         store.queueSend(snap, out: out, threadID: src.threadID)
         store.sendToast?.undo?()
-        await store.leaveApp(); await store.settleUndo()
-        check("Undo wins over leaving the app: nothing is sent and the Write screen comes back once", box.with { $0.sent.count } == 3 && store.composeSeed?.restore?.text == "Sounds great" && store.pending.isEmpty)
+        store.queueSend(snap, out: out, threadID: src.threadID)   // a new Send while the Undo runs would send the first email at once if the guard were missing
+        await store.settleUndo()
+        check("Undo wins over a new Send: the first email is not sent and its Write screen comes back", box.with { $0.sent.count } == 3 && store.composeSeed?.restore?.text == "Sounds great")
+        store.sendToast?.undo?(); await store.settleUndo()
+        await store.leaveApp()
+        check("nothing is sent by leaving the app after Undo either", box.with { $0.sent.count } == 3 && store.pending.isEmpty)
         box.with { $0.srvDown = false }
-        if let d = store.composeSeed?.restore?.draftID { await store.discardDraft(d) }
+        for _ in 0..<2 {   // both Write screens that came back (the second waited its turn)
+            if let d = store.composeSeed?.restore?.draftID { await store.discardDraft(d) }
+            store.composeSeed = nil; store.showNextCompose()
+        }
         store.composeSeed = nil
 
         // opening the app after an email was held while it was closed

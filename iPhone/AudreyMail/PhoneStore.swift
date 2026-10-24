@@ -584,6 +584,7 @@ final class PhoneStore: ObservableObject {
 
     /// Sends every held email now and waits until Gmail has answered (signing out, and the built-in checks). The server is released for each.
     func flushPendingSends() async {
+        await settleUndo()   // an Undo still running decides its email first
         let tokens = Array(pending.keys)
         for t in tokens { pending[t]?.countdown?.cancel() }
         for t in tokens { await startDelivery(t).value }
@@ -600,6 +601,7 @@ final class PhoneStore: ObservableObject {
     }
 
     func leaveApp() async {
+        await settleUndo()
         for t in Array(pending.keys) { await pending[t]?.prep?.value }   // only then is it known whether the server has it
         for t in Array(pending.keys) where pending[t]?.held != true { pending[t]?.countdown?.cancel(); await startDelivery(t).value }
     }
