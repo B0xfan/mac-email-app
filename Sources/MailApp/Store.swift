@@ -149,7 +149,7 @@ final class MailStore: ObservableObject {
     var inboxFromMac = false                     // the Inbox on screen was read from the mail kept on this Mac, so `inboxNext` is not a Gmail token
     static let inboxPage = 80
     @Published var loadingMore = false
-    var lastLabelsAt: Date?, lastSmartAt: Date?, lastOrganizerAt: Date?, organizerBusy = false, timingViewBusy = false, timingViewSynced = false
+    var lastLabelsAt: Date?, lastSmartAt: Date?, lastOrganizerAt: Date?, organizerBusy = false, timingViewBusy = false, timingViewSynced = false, timingViewRetryAt = Date.distantPast
     static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
     var pendingSends: [UUID: Task<Void, Never>] = [:]
     var pendingMail: [UUID: (ComposeDraft, String)] = [:]   // the mail behind each countdown (draft, body)

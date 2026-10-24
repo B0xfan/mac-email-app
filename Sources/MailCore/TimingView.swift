@@ -14,7 +14,7 @@ public struct TimingView: Codable, Equatable, Sendable {
     }
 
     /// The server takes ids of 1 to 64 letters, digits, `_` and `-`, times above 0, and up to 2000 entries per part (64 KB per call).
-    // shortcut: a part is cut at 500 entries (the soonest or newest kept); real use is a handful, raise it if John ever snoozes hundreds.
+    // shortcut: a part is cut at 500 entries (snoozes: the soonest; surfaced: the newest; the two lists: the first 500 ids in order); real use is a handful, raise it if John ever snoozes hundreds.
     public static let limit = 500
     static func validID(_ s: String) -> Bool { (1...64).contains(s.utf8.count) && s.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) || $0 == 95 || $0 == 45 } }
 
@@ -50,8 +50,8 @@ public struct TimingView: Codable, Equatable, Sendable {
 
     /// "Tue 3:00 PM"
     public static func short(_ d: Date) -> String { shortFormat.string(from: d) }
-    nonisolated(unsafe) private static let shortFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE h:mm a"; return f }()
-    nonisolated(unsafe) private static let arrivedFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"; return f }()
+    nonisolated(unsafe) private static let shortFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE h:mm a"; f.timeZone = .autoupdatingCurrent; f.locale = .autoupdatingCurrent; return f }()
+    nonisolated(unsafe) private static let arrivedFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"; f.timeZone = .autoupdatingCurrent; f.locale = .autoupdatingCurrent; return f }()
     /// The tag on a Snoozed row.
     public func backText(_ id: String) -> String? { snoozes[id].map { "Back " + Self.short(Date(timeIntervalSince1970: TimeInterval($0))) } }
     /// The line under a returned email's subject; nil once it has been opened (or when it is not tagged).
@@ -81,8 +81,10 @@ public enum TimingViewSync {
     /// Reads the server's state, merges ours into it and writes it back if that changed anything (a stale version is read again, up to three times).
     public static func run(base: TimingView, local: TimingView, link: TimingViewLink) async throws -> (merged: TimingView, version: Int) {
         var (version, server) = try await link.readTiming()
+        // a server that came back empty at version 0 (reset, new account) is a first start: join, never treat our entries as "deleted elsewhere"
+        let agreed = version == 0 ? TimingView() : base
         for _ in 0..<3 {
-            let merged = TimingView.merge(base: base, local: local, server: server)
+            let merged = TimingView.merge(base: agreed, local: local, server: server)
             if merged == server { return (merged, version) }
             switch try await link.writeTiming(base: version, merged) {
             case .saved(let v): return (merged, v)
@@ -95,9 +97,11 @@ public enum TimingViewSync {
 public enum TimingViewSyncError: Error { case busy }
 
 public enum TimingViewWire {
-    public static func decode(_ o: [String: Any]) -> (version: Int, view: TimingView) {
+    /// nil when the answer is not the four-part shape the spec describes: it must never be read as "everything is empty".
+    public static func decode(_ o: [String: Any]) -> (version: Int, view: TimingView)? {
         func times(_ k: String) -> [String: Int] { (o[k] as? [String: Any] ?? [:]).compactMapValues { ($0 as? NSNumber)?.intValue } }
-        return (o["version"] as? Int ?? 0, TimingView(snoozes: times("snoozes"), surfaced: times("surfaced"), backTag: o["back_tag"] as? [String] ?? [], noReply: o["no_reply"] as? [String] ?? []))
+        guard let version = o["version"] as? Int, o["snoozes"] is [String: Any], o["surfaced"] is [String: Any], o["back_tag"] is [Any], o["no_reply"] is [Any] else { return nil }
+        return (version, TimingView(snoozes: times("snoozes"), surfaced: times("surfaced"), backTag: o["back_tag"] as? [String] ?? [], noReply: o["no_reply"] as? [String] ?? []))
     }
     public static func body(base: Int, _ v: TimingView) -> [String: Any] {
         ["base_version": base, "snoozes": v.snoozes, "surfaced": v.surfaced, "back_tag": v.backTag, "no_reply": v.noReply]

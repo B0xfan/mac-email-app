@@ -104,7 +104,8 @@ actor PhoneServer: OrganizerLink {
     func readTiming() async throws -> (version: Int, view: TimingView) {
         let (c, o) = try await call("GET", "timing-view")
         guard c == 200 else { throw PhoneServerError.refused(c) }
-        return TimingViewWire.decode(o)
+        guard let r = TimingViewWire.decode(o) else { throw PhoneServerError.refused(c) }   // an odd answer is not "empty"
+        return r
     }
 
     // MARK: Smart Folders and saved searches

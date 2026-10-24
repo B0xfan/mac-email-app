@@ -11,16 +11,20 @@ enum DemoSelfTest {
     static func check(_ name: String, _ ok: Bool) { print("\(ok ? "PASS" : "FAIL") \(name)"); if !ok { failures += 1 } }
 
     /// Width of the page in a 390 point wide web view, before and after the same fit the Read screen applies. Scripts of the email stay off; ours runs in its own world.
+    /// One web view for all layouts (each new one starts a web process, which is slow on the cloud machine).
+    private static var fitHost: (view: WKWebView, window: UIWindow, loader: FitLoader)?
     static func fitWidths(_ body: String) async -> (before: CGFloat, after: CGFloat, zoom: String) {
-        let cfg = WKWebViewConfiguration()
-        cfg.defaultWebpagePreferences.allowsContentJavaScript = false
-        cfg.websiteDataStore = .nonPersistent()
-        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 800), configuration: cfg)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
-        window.addSubview(wv); window.isHidden = false; window.alpha = 0.01   // laid out like on screen, but not seen
-        defer { window.isHidden = true }
-        let loader = FitLoader()
-        wv.navigationDelegate = loader
+        if fitHost == nil {
+            let cfg = WKWebViewConfiguration()
+            cfg.defaultWebpagePreferences.allowsContentJavaScript = false
+            cfg.websiteDataStore = .nonPersistent()
+            let v = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 800), configuration: cfg)
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+            window.addSubview(v); window.isHidden = false; window.alpha = 0.01   // laid out like on screen, but not seen
+            let l = FitLoader(); v.navigationDelegate = l
+            fitHost = (v, window, l)
+        }
+        let wv = fitHost!.view, loader = fitHost!.loader
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in loader.done = c; wv.loadHTMLString(MailWebView.page(body, allowRemote: false, plain: false), baseURL: nil) }
         func run(_ js: String) async -> Any? { await withCheckedContinuation { (c: CheckedContinuation<Any?, Never>) in wv.evaluateJavaScript(js) { v, _ in c.resume(returning: v) } } }
         func width() async -> CGFloat { (await run("document.documentElement.scrollWidth") as? NSNumber).map { CGFloat(truncating: $0) } ?? 0 }
@@ -315,7 +319,7 @@ enum DemoSelfTest {
         // snooze times and returned emails, written by the Mac to the server and read here
         let ownTime = row("m6")!.date
         await store.syncTimingView()
-        check("before the Mac has written anything nothing changes: no tag, the email keeps its own time", store.timingView?.snoozes.isEmpty == true && store.backText(row("z1") ?? row("m6")!) == nil && row("m6")!.date == ownTime)
+        check("before the Mac has written anything nothing changes: no tag, the email keeps its own time", store.timingView?.snoozes.isEmpty == true && store.timingView?.backText("z1") == nil && row("m6")!.date == ownTime)
         let nowS = Int(Date().timeIntervalSince1970)
         box.with { b in b.srvTVVersion = 3; b.srvTV = ["snoozes": ["z1": nowS + 5 * 3600, "z2": nowS + 86400], "surfaced": ["m6": nowS - 60], "back_tag": ["m6"], "no_reply": ["m2"]] }
         await store.syncTimingView()

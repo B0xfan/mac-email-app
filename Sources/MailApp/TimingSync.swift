@@ -81,7 +81,7 @@ extension MailStore {
     }
 
     /// First pass after launch, and whenever the snooze state here differs from what the server has.
-    var timingViewDue: Bool { !timingViewSynced || timing.data.view != (timing.data.sharedView ?? TimingView()) }
+    var timingViewDue: Bool { Date() >= timingViewRetryAt && (!timingViewSynced || timing.data.view != (timing.data.sharedView ?? TimingView())) }
 
     /// Moves the snooze times, came-back times and the "Back from snooze" / "No reply yet" lists to the Mail server so the phone shows them.
     /// The first time, what this Mac already has is merged into the server's (nothing is lost); after that each change here is written. Without the server the Mac works as before.
@@ -97,7 +97,7 @@ extension MailStore {
                 if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) }; objectWillChange.send() }
                 return
             } catch TimingServerError.unreachable { markOffline(); return }
-            catch { return }   // refused or busy: the Mac works on its own; the next pass tries again
+            catch { timingViewRetryAt = Date().addingTimeInterval(600); return }   // refused (an older server, too big) or busy: the Mac works on its own; tries again in 10 minutes
         }
     }
 

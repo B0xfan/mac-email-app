@@ -46,9 +46,17 @@ extension SelfTest {
         check("timing view sync: a stale version is read again and merged onto the newer state, nothing overwritten", r3 != nil && link.server.snoozes.keys.sorted() == ["a2", "n1"] && link.server.backTag.contains("a1"))
 
         let body = TimingViewWire.body(base: 3, mine)
-        let back = TimingViewWire.decode(["version": 4, "snoozes": body["snoozes"] as Any, "surfaced": body["surfaced"] as Any, "back_tag": body["back_tag"] as Any, "no_reply": body["no_reply"] as Any])
+        let reply: [String: Any] = ["version": 4, "snoozes": body["snoozes"] as Any, "surfaced": body["surfaced"] as Any, "back_tag": body["back_tag"] as Any, "no_reply": body["no_reply"] as Any]
+        let back = TimingViewWire.decode(reply)
         check("timing view wire: the state survives the trip, with the four parts the server wants and nothing else",
-              back.version == 4 && back.view == mine && body["base_version"] as? Int == 3 && Set(body.keys) == ["base_version", "snoozes", "surfaced", "back_tag", "no_reply"])
+              back?.version == 4 && back?.view == mine && body["base_version"] as? Int == 3 && Set(body.keys) == ["base_version", "snoozes", "surfaced", "back_tag", "no_reply"])
+
+        var oddReply = reply; oddReply["no_reply"] = nil
+        check("timing view wire: an answer missing a part or the version is refused, never read as empty", TimingViewWire.decode(oddReply) == nil && TimingViewWire.decode(["snoozes": [String: Int]()]) == nil)
+        // the server was reset (version 0, empty) after this Mac had agreed with it: the Mac's own state is joined in, never dropped
+        let reset = FakeTimingViewLink()
+        let r4 = try? await TimingViewSync.run(base: mine, local: mine, link: reset)
+        check("timing view sync: a server that came back empty gets the Mac's state back, nothing is dropped", r4?.merged == mine && reset.server == mine && reset.writes == 1)
 
         // how a row reads, and what a returned email looks like
         let mail = Mail(id: "b1", from: Address(name: "Market & More", email: "hi@mm.example"), subject: "Sale", snippet: "", date: Date(timeIntervalSince1970: 1_800_000_000), labels: ["INBOX", "UNREAD"])
@@ -97,6 +105,10 @@ extension SelfTest {
         book.change { $0.noReply = [] }
         await st.syncTimingView()
         check("timing view on the Mac: what the server already holds is kept and merged with the Mac's change", book.data.snoozes.keys.sorted() == ["a2", "z9"] && fake.tvVersion == 4 && ((fake.tvState["no_reply"] as? [String]) ?? ["x"]).isEmpty)
+        fake.tvVersion = 0; fake.tvState = ["snoozes": [String: Int](), "surfaced": [String: Int](), "back_tag": [String](), "no_reply": [String]()]   // the server's copy is wiped
+        let held = book.data.snoozes.count
+        await st.syncTimingView()
+        check("timing view on the Mac: after the server's copy was wiped the Mac keeps every snooze and sends them again", book.data.snoozes.count == held && (fake.tvState["snoozes"] as? [String: Int])?.count == held)
         fake.down = true
         book.change { $0.snoozes["q1"] = Date(timeIntervalSince1970: 2_300_000_000) }
         let before = fake.tvPuts

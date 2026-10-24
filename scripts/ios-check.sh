@@ -19,7 +19,7 @@ BID=com.johnhesch.audreymail
 rc=0
 echo "== built-in checks =="
 for try in 1 2; do
-  perl -e 'alarm 180; exec @ARGV' xcrun simctl launch --console --terminate-running-process "$UDID" $BID -selftest > "$OUT/selftest.txt" 2>&1 || true
+  perl -e 'alarm 420; exec @ARGV' xcrun simctl launch --console --terminate-running-process "$UDID" $BID -selftest > "$OUT/selftest.txt" 2>&1 || true
   cat "$OUT/selftest.txt"
   grep -q "^DONE" "$OUT/selftest.txt" && break
   echo "-- the checks did not finish (try $try); crash reports:"
