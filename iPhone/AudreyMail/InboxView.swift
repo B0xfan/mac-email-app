@@ -45,7 +45,7 @@ struct InboxView: View {
             let s = DemoMode.screen ?? ""
             if ["read", "write", "leave"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
             if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
-            if ["mailboxes", "newfolder"].contains(s) { path.append(MailboxRoute.mailboxes) }
+            if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
             if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
             if s == "snoozed" { path.append(MailboxRoute.snoozed) }
             if s == "smartfolder", let f = store.organizer.smart.first { path.append(MailboxRoute.smart(f.id)) }

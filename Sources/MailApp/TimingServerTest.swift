@@ -36,7 +36,7 @@ extension SelfTest {
                 }
                 if p.hasSuffix("/organizer") {
                     func current() -> String { String(decoding: (try? JSONSerialization.data(withJSONObject: ["version": orgVersion, "smart": orgSmart, "searches": orgSearches])) ?? Data(), as: UTF8.self) }
-                    if m == "GET" { log.append("get organizer"); return (200, current()) }
+                    if m == "GET" { return (200, current()) }
                     if m == "PUT" {
                         guard body["base_version"] as? Int == orgVersion else { log.append("organizer 409"); return (409, current()) }
                         orgSmart = body["smart"] as? [Any] ?? []; orgSearches = body["searches"] as? [Any] ?? []; orgVersion += 1; orgPuts += 1
