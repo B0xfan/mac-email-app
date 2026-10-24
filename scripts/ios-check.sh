@@ -29,7 +29,7 @@ done
 grep -q "^DONE failures=0" "$OUT/selftest.txt" || rc=1
 for mode in light dark; do
   xcrun simctl ui "$UDID" appearance $mode
-  for s in signin signinagain inbox undo undooffline wentout read write leave search savesearch namesearch new block settings mailboxes newfolder smartfolder smartform snoozed pinned folder move blocked drafts attach; do
+  for s in signin signinagain inbox undo undooffline wentout read write leave search savesearch namesearch new block settings mailboxes newfolder smartfolder smartform snoozed pinned returned newsletter folder move blocked drafts attach; do
     xcrun simctl terminate "$UDID" $BID >/dev/null 2>&1 || true
     xcrun simctl launch "$UDID" $BID -demo $s >/dev/null || rc=1
     sleep 9

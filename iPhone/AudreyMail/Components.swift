@@ -6,6 +6,9 @@ import MailCore
 struct MailRow: View {
     let mail: Mail
     var pinned = false
+    var tag: String? = nil        // "Back Tue 3:00 PM" on a Snoozed row, "No reply yet"
+    var below: String? = nil      // the line under the subject: "Back from snooze"
+    var fromText: String? = nil   // "You, to Maya" on a "No reply yet" row
     var body: some View {
         let people = MailCategory.guess(mail) == .people
         HStack(alignment: .top, spacing: 12) {
@@ -13,12 +16,14 @@ struct MailRow: View {
             Avatar(address: mail.from, people: people)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
+                    Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
+                    if let tag { RowTag(text: tag) }
                     Spacer(minLength: 4)
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
                     Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
                 }
                 Text(mail.subject).font(.system(size: 14.5, weight: mail.unread ? .bold : .regular)).lineLimit(1)
+                if let below { RowTag(text: below) }
                 Text(mail.snippet).font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
             }
         }
@@ -26,7 +31,17 @@ struct MailRow: View {
         .frame(minHeight: 54, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(mail.from.display). \(mail.subject). \(Fmt.short(mail.date))")
+        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(fromText ?? mail.from.display). \(tag.map { $0 + ". " } ?? "")\(mail.subject). \(Fmt.short(mail.date))\(below.map { ". " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")")
+    }
+}
+
+/// The small warm pill the Mac puts on a row ("Back Tue 3:00 PM", "No reply yet", "Back from snooze").
+struct RowTag: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.system(size: 11, weight: .bold)).lineLimit(1).fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 1)
+            .background(Capsule().fill(Theme.accSoft)).foregroundStyle(Theme.accInk).accessibilityHidden(true)
     }
 }
 
@@ -85,6 +100,20 @@ struct MailWebView: UIViewRepresentable {
     var plain = false
     @Binding var height: CGFloat
 
+    /// Fits any email to the screen width: CSS caps pictures and tables and lets long words break; after loading, anything still wider than the screen
+    /// (a fixed-width table or box) is set to its natural width, and what is still too wide is scaled down. Checked on fixed-width newsletters in a real WebKit.
+    // shortcut: a 3-column fixed layout wraps narrow rather than scrolling sideways; scaling is the last resort for a layout that cannot wrap.
+    static let fitCSS = """
+    html{-webkit-text-size-adjust:100%}
+    body{overflow-wrap:anywhere}
+    img,video,svg{max-width:100%!important;height:auto!important}
+    div,table,td,th,p,img{max-width:100%!important;min-width:0!important}
+    td[nowrap],th[nowrap]{white-space:normal!important}
+    """.replacingOccurrences(of: "\n", with: "")
+    static let fitScript = """
+    (function(){var d=document.documentElement,vw=d.clientWidth;document.body.querySelectorAll('table,td,th,div,center,section,article').forEach(function(e){if(e.getBoundingClientRect().width>vw+1){e.style.setProperty('width','auto','important')}});var w=d.scrollWidth;if(w>vw+1){document.body.style.zoom=vw/w}return d.scrollWidth})()
+    """
+
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
     nonisolated(unsafe) static var compiled: WKContentRuleList?
 
@@ -93,7 +122,7 @@ struct MailWebView: UIViewRepresentable {
         let look = plain ? "html,body{background:transparent}body{color:#0f2326}@media(prefers-color-scheme:dark){body{color:#e8f3f3}}" : "body{padding:10px}"
         return HTMLSafety.page(body, allowRemote: allowRemote)
             .replacingOccurrences(of: "<head>", with: "<head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
-            .replacingOccurrences(of: "</style></head>", with: "body{font-size:16px;line-height:1.5}\(look)</style></head>")
+            .replacingOccurrences(of: "</style></head>", with: "body{font-size:16px;line-height:1.5}\(look)\(fitCSS)</style></head>")
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -139,6 +168,10 @@ struct MailWebView: UIViewRepresentable {
                     go()
                 }
             }
+        }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // our own script in its own world: the page's scripts stay off
+            webView.evaluateJavaScript(MailWebView.fitScript, in: nil, in: .defaultClient) { _ in }
         }
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if action.navigationType == .linkActivated, let u = action.request.url {

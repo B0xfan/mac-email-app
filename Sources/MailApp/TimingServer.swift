@@ -114,3 +114,20 @@ extension TimingServer: OrganizerLink {
         throw TimingServerError.refused(c)
     }
 }
+
+/// The snooze state the phone also shows (server/mail-timing/README.md, GET and PUT /timing-view). The Mac writes it, the phone reads it.
+extension TimingServer: TimingViewLink {
+    func readTiming() async throws -> (version: Int, view: TimingView) {
+        let (c, o) = try await call("GET", "timing-view")
+        guard c == 200 else { throw TimingServerError.refused(c) }
+        let r = TimingViewWire.decode(o)
+        return (r.version, r.view)
+    }
+
+    func writeTiming(base: Int, _ view: TimingView) async throws -> TimingViewWrite {
+        let (c, o) = try await call("PUT", "timing-view", TimingViewWire.body(base: base, view))
+        if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
+        if c == 409 { let r = TimingViewWire.decode(o); return .conflict(version: r.version, r.view) }   // someone saved after we read: merge onto theirs
+        throw TimingServerError.refused(c)
+    }
+}

@@ -24,6 +24,30 @@ extension PhoneStore {
 
     var snoozeLabelID: String? { Self.snoozeLabelNames.lazy.compactMap { n in self.labelList.first { $0.name == n }?.id }.first }
 
+    // MARK: - Snooze times and returned emails (the Mac writes them to the Mail server, the phone reads them)
+
+    func loadTimingView() {
+        guard let d = try? Data(contentsOf: timingURL), let v = try? JSONDecoder().decode(TimingView.self, from: d) else { return }
+        timingView = v
+    }
+    /// Returned emails show at the top with the time they came back. Until the Mac's state has been read once, rows look as Gmail has them.
+    func withTiming(_ ms: [Mail]) -> [Mail] {
+        (timingView.map { v in ms.map { v.applied(to: $0) } } ?? ms).sorted { $0.date > $1.date }
+    }
+    func syncTimingView() async {
+        guard let server, state == .signedIn, !timingBusy else { return }
+        timingBusy = true; defer { timingBusy = false }
+        guard let r = try? await server.readTiming(), state == .signedIn, r.view != timingView else { return }   // no server or no answer: the last state stays
+        timingView = r.view
+        inbox = withTiming(inbox)
+        if let d = try? JSONEncoder().encode(r.view) { try? d.write(to: timingURL, options: .atomic) }
+    }
+    /// The tag on a Snoozed row ("Back Tue 3:00 PM"), as on the Mac.
+    func backText(_ m: Mail) -> String? { timingView?.backText(m.id) }
+    /// The line under a returned email, as on the Mac; it goes once the email has been opened.
+    func backLine(_ m: Mail) -> String? { m.unread ? timingView?.backLine(m.id, arrived: m.arrived) : nil }
+    func isNoReply(_ m: Mail) -> Bool { timingView?.noReply.contains(m.id) == true }
+
     // MARK: - Smart Folders and saved searches
 
     private struct OrganizerFile: Codable { var current: Organizer; var base: Organizer }

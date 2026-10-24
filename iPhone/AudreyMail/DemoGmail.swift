@@ -31,6 +31,7 @@ final class DemoMailbox: @unchecked Sendable {
     var srvTimeoutPut = false              // the server stores the held email but the answer never comes back
     var srvVersion = 0
     var srvSmart: [Any] = [], srvSearches: [Any] = []
+    var srvTVVersion = 0, srvTV: [String: Any] = [:]   // the Mac's snooze state (the phone only reads it)
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
     init() { reset() }
@@ -43,7 +44,7 @@ final class DemoMailbox: @unchecked Sendable {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
         msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
-        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []
+        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -255,6 +256,10 @@ final class DemoMailbox: @unchecked Sendable {
                 return (200, out(["status": srvDeleteSays ?? (had ? "pending" : "none")]))
             }
         }
+        if path == "timing-view", method == "GET" {   // not logged: the phone reads it on every refresh
+            var o = srvTV; if o.isEmpty { o = ["snoozes": [String: Int](), "surfaced": [String: Int](), "back_tag": [String](), "no_reply": [String]()] }
+            o["version"] = srvTVVersion; return (200, out(o))
+        }
         if path == "organizer" {
             if method == "GET" { return (200, out(["version": srvVersion, "smart": srvSmart, "searches": srvSearches])) }
             if method == "PUT" {
@@ -285,6 +290,70 @@ final class DemoMailbox: @unchecked Sendable {
         var out = Data(), buf = [UInt8](repeating: 0, count: 4096)
         while s.hasBytesAvailable { let n = s.read(&buf, maxLength: buf.count); if n <= 0 { break }; out.append(buf, count: n) }
         return out
+    }
+}
+
+/// A fixed-width newsletter of the kind that used to run off the screen: a 600 pixel table, a three-column row, a wide picture and a long link.
+enum DemoNewsletter {
+    private static func pic(_ w: Int, _ h: Int) -> String { "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='\(w)' height='\(h)'%3E%3Crect width='100%25' height='100%25' fill='%23c8dcd0'/%3E%3C/svg%3E" }
+    static let long = "Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week."
+    /// Layouts that used to run off the screen, to be shown at phone width: the built-in checks load each in a real web view and measure it.
+    static var fixtures: [(name: String, html: String)] { [
+        ("columns", """
+<table width="640" style="width:640px"><tr>
+<td width="200" style="width:200px;vertical-align:top"><img src="\(pic(200, 120))" width="200" height="120" alt="A"><p>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></td>
+<td width="200" style="width:200px;vertical-align:top"><img src="\(pic(200, 120))" width="200" height="120" alt="B"><p>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></td>
+<td width="200" style="width:200px;vertical-align:top"><img src="\(pic(200, 120))" width="200" height="120" alt="C"><p>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></td></tr></table>
+"""),
+        ("fixedlayout", """
+<table style="table-layout:fixed;width:700px" width="700"><tr><td style="width:350px" width="350">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</td><td style="width:350px" width="350">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</td></tr></table>
+<table style="width:640px"><tr><td style="white-space:nowrap">Item with a long name that stays on one line</td><td style="white-space:nowrap">$12.00</td></tr><tr><td colspan="2"><img src="\(pic(640, 1))" width="640" height="1"></td></tr></table>
+"""),
+        ("fixedpx", """
+<div style="width:1000px;overflow:hidden"><p style="font-size:16px;white-space:nowrap">nowrap line that is long: Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p><div style="position:absolute;left:0;width:900px;background:#eee">abs wide block</div></div>
+"""),
+        ("flex", """
+<div style="display:flex;width:720px"><div style="width:360px;font-size:16px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div><div style="width:360px;font-size:16px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div></div>
+<div style="background:url(x.png);width:650px;height:80px;font-size:18px">Overlay text on a banner that is wider than the screen</div>
+"""),
+        ("inline", """
+<center><div style="width:600px"><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div><div style="display:inline-block;width:200px;vertical-align:top;font-size:15px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team and we love our community.</div></div></center>
+"""),
+        ("mm", """
+<table width="100%" bgcolor="#f4f4f4"><tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" style="width:600px;background:#f4f4f4"><tr><td style="padding:40px"><img src="\(pic(200, 60))" alt="Logo" width="200" height="60">
+<p style="font:20px Georgia,serif;color:#555;white-space:normal">Hi John,</p>
+<p style="font:22px Georgia,serif;color:#555">Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p>
+<table><tr><td style="background:#1e4a2f;color:#fff;padding:20px 50px;border-radius:30px"><a style="color:#fff">SHOP NOW</a></td></tr></table>
+</td></tr></table></td></tr></table>
+"""),
+        ("outlook", """
+<table width="700" border="0" cellpadding="0" cellspacing="0"><tr><td><table width="660" align="center"><tr><td style="min-width:660px" width="660"><h1 style="font-size:30px">This week at the market</h1><p style="font-size:18px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></td></tr></table></td></tr></table>
+"""),
+        ("responsive", """
+<style>.c{width:600px;margin:0 auto}@media only screen and (max-width:480px){.c{width:100%!important}}</style>
+<div class="c"><p style="font-size:17px">Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p><table width="100%"><tr><td>Plain full-width table cell with Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</td></tr></table></div>
+"""),
+        ("url", """
+<p>Link: https://example.com/a/very/long/tracking/path/with/no/spaces/at/all/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789/end</p><pre>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week. Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week. Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</pre><table><tr><td nowrap>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</td></tr></table>
+"""),
+        ("wideimg", """
+<div style="width:800px"><img src="\(pic(800, 300))" width="800" height="300" style="width:800px;height:300px;display:block" alt="Hero"><p>Natural Brand is owned by Brandon, who is a valued member of the Market and More team. We are proud to support a Costa Rican business and would love your help this week.</p></div>
+"""),
+        ("market and more", html),
+    ] }
+    static var html: String {
+        """
+        <table width="100%" bgcolor="#f4f4f4"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" style="width:600px;background:#f4f4f4"><tr><td style="padding:40px">
+        <img src="\(pic(200, 60))" alt="Logo" width="200" height="60">
+        <p style="font:20px Georgia,serif;color:#555">Hi John,</p>
+        <p style="font:22px Georgia,serif;color:#555">\(long)</p>
+        <img src="\(pic(800, 260))" width="800" height="260" style="width:800px;height:260px;display:block" alt="Hero">
+        <table width="520"><tr><td width="160" style="width:160px;vertical-align:top;font-size:15px">\(long)</td><td width="160" style="width:160px;vertical-align:top;font-size:15px">\(long)</td><td width="160" style="width:160px;vertical-align:top;font-size:15px">\(long)</td></tr></table>
+        <table><tr><td style="background:#1e4a2f;color:#fff;padding:20px 50px;border-radius:30px;font:bold 18px Arial">SHOP NOW</td></tr></table>
+        <p style="font-size:15px">https://marketandmore.example/a/very/long/tracking/path/with/no/spaces/at/all/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789</p>
+        </td></tr></table></td></tr></table>
+        """
     }
 }
 
@@ -345,7 +414,7 @@ enum DemoMode {
         let server = withServer ? PhoneServer(refreshToken: { await auth.refreshTokenForServer() }, keys: MemoryServerKey(), session: session, clientID: "demo.apps.googleusercontent.com") : nil
         return PhoneStore(sign: auth, gmail: gmail, book: SenderBook(url: dir.appendingPathComponent("senders.json"), start: Date().addingTimeInterval(-10 * 86400)),
                           cacheURL: dir.appendingPathComponent("inbox.json"), defaults: UserDefaults(suiteName: "demo-\(UUID().uuidString)")!,
-                          server: server, organizerURL: dir.appendingPathComponent("organizer.json"))
+                          server: server, organizerURL: dir.appendingPathComponent("organizer.json"), timingURL: dir.appendingPathComponent("timing-view.json"))
     }
 
     @MainActor static func make() -> (store: PhoneStore, tab: Int)? {
@@ -357,6 +426,11 @@ enum DemoMode {
         let box = DemoMailbox.shared
         if ["mailboxes", "smartfolder", "smartform"].contains(s) { store.organizer = demoOrganizer }
         if s == "pinned" { box.with { b in for id in ["m3", "m5"] { if let i = b.msgs.firstIndex(where: { $0.id == id }) { b.msgs[i].labels.append("Label_pinned") } } } }
+        if ["snoozed", "returned"].contains(s) {   // what the Mac wrote to the server: two snoozed emails, one email that came back from snooze
+            let now = Int(Date().timeIntervalSince1970)
+            box.with { b in b.srvTVVersion = 1; b.srvTV = ["snoozes": ["z1": now + 5 * 3600, "z2": now + 2 * 86400], "surfaced": ["m6": now - 300], "back_tag": ["m6"], "no_reply": [String]()] }
+        }
+        if s == "newsletter" { box.with { b in b.msgs.append(DemoMailbox.Msg(id: "mm1", thread: "Tmm1", labels: ["INBOX", "UNREAD"], from: "Market & More <news@marketandmore.example>", subject: "Enjoy 20% off Natural Brand this week", body: DemoNewsletter.html, date: Date().addingTimeInterval(-3600))) } }
         if s == "undooffline" { box.with { $0.srvDown = true } }
         if s == "wentout" { Task { @MainActor in   // opening the app after the server sent an email that was held
             try? await Task.sleep(nanoseconds: 2_000_000_000)

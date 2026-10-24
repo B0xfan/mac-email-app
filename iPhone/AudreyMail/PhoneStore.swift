@@ -79,14 +79,14 @@ final class PhoneStore: ObservableObject {
     static let blockLabelName = "Blocked"
 
     init(sign: PhoneSignIn, gmail: GmailClient, book: SenderBook = SenderBook(), cacheURL: URL = Support.url("inbox.json"), defaults: UserDefaults = .standard,
-         server: PhoneServer? = nil, organizerURL: URL = Support.url("organizer.json")) {
+         server: PhoneServer? = nil, organizerURL: URL = Support.url("organizer.json"), timingURL: URL = Support.url("timing-view.json")) {
         self.sign = sign; self.gmail = gmail; self.book = book; self.cacheURL = cacheURL
-        self.defaults = defaults; self.server = server; self.organizerURL = organizerURL
+        self.defaults = defaults; self.server = server; self.organizerURL = organizerURL; self.timingURL = timingURL
         self.flow = BlockFlow(gmail: gmail, labelName: Self.blockLabelName) { ids, add, remove in try await gmail.modify(ids: ids, add: add, remove: remove) }
         tab = MailCategory(rawValue: defaults.string(forKey: "smartTab") ?? "") ?? .people
         let d = defaults.integer(forKey: "undoDelay")
         undoDelay = UndoSend.choices.contains(d) ? d : UndoSend.defaultDelay
-        loadOrganizer()
+        loadOrganizer(); loadTimingView()
     }
     let defaults: UserDefaults
     // shared with the Mac through the Mail server (PhoneStoreShared.swift)
@@ -97,6 +97,9 @@ final class PhoneStore: ObservableObject {
     var organizerBase = Organizer()
     var organizerBusy = false
     let organizerURL: URL
+    @Published var timingView: TimingView?   // the Mac's snooze state; nil = never read yet (rows then look as Gmail has them)
+    let timingURL: URL
+    var timingBusy = false
 
     // MARK: - Start, sign in, sign out
 
@@ -149,7 +152,7 @@ final class PhoneStore: ObservableObject {
         Task { await server?.forgetKey() }   // the next account registers fresh
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
         try? FileManager.default.removeItem(at: cacheURL)
-        try? FileManager.default.removeItem(at: organizerURL)
+        try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil
     }
 
     private enum Fresh { case ok, ended, offline }
@@ -202,12 +205,13 @@ final class PhoneStore: ObservableObject {
             let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
             let walked = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
             let deeper = oldest.map { o in have.values.filter { !walked.contains($0.threadID) && $0.date < o } } ?? []   // older pages already loaded stay
-            inbox = (all + deeper).filter { !pendingGone.contains($0.threadID) }.sorted { $0.date > $1.date }
+            inbox = withTiming((all + deeper).filter { !pendingGone.contains($0.threadID) })
             if deeper.isEmpty { next = page.next }
             banner = got.failed.isEmpty ? nil : "Some conversations could not be loaded just now. Pull down to try again."
             lastRefresh = Date()
             saveCache()
             if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
+            Task { await syncTimingView() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
             await classifySenders()
         } catch { await fail(error, "Could not load mail.") }
     }
@@ -220,7 +224,7 @@ final class PhoneStore: ObservableObject {
             let have = Set(inbox.map(\.threadID))
             let got = await gmail.threads(page.refs.map(\.id).filter { !have.contains($0) })
             guard state == .signedIn else { return }
-            inbox = (inbox + page.refs.compactMap { got.mails[$0.id] }).filter { !pendingGone.contains($0.threadID) }.sorted { $0.date > $1.date }
+            inbox = withTiming((inbox + page.refs.compactMap { got.mails[$0.id] }).filter { !pendingGone.contains($0.threadID) })
             next = page.next
             saveCache()
             await classifySenders()

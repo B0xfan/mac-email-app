@@ -1,12 +1,41 @@
 #if DEBUG
 import Foundation
 import MailCore
+import UIKit
+import WebKit
 
 /// `-selftest`: drives the real store against the pretend Gmail and prints PASS or FAIL for each check, then exits with 0 or 1.
 @MainActor
 enum DemoSelfTest {
     static var failures = 0
     static func check(_ name: String, _ ok: Bool) { print("\(ok ? "PASS" : "FAIL") \(name)"); if !ok { failures += 1 } }
+
+    /// Width of the page in a 390 point wide web view, before and after the same fit the Read screen applies. Scripts of the email stay off; ours runs in its own world.
+    static func fitWidths(_ body: String) async -> (before: CGFloat, after: CGFloat) {
+        let cfg = WKWebViewConfiguration()
+        cfg.defaultWebpagePreferences.allowsContentJavaScript = false
+        cfg.websiteDataStore = .nonPersistent()
+        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 800), configuration: cfg)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
+        window.addSubview(wv); window.isHidden = false; window.alpha = 0.01   // laid out like on screen, but not seen
+        defer { window.isHidden = true }
+        let loader = FitLoader()
+        wv.navigationDelegate = loader
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in loader.done = c; wv.loadHTMLString(MailWebView.page(body, allowRemote: false, plain: false), baseURL: nil) }
+        func width() async -> CGFloat {
+            let v = try? await wv.evaluateJavaScript("document.documentElement.scrollWidth", in: nil, contentWorld: .defaultClient)
+            return (v as? NSNumber).map { CGFloat(truncating: $0) } ?? 0
+        }
+        let before = await width()
+        _ = try? await wv.evaluateJavaScript(MailWebView.fitScript, in: nil, contentWorld: .defaultClient)
+        return (before, await width())
+    }
+    final class FitLoader: NSObject, WKNavigationDelegate {
+        var done: CheckedContinuation<Void, Never>?
+        func webView(_ w: WKWebView, didFinish n: WKNavigation!) { done?.resume(); done = nil }
+        func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { done?.resume(); done = nil }
+        func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { done?.resume(); done = nil }
+    }
 
     static func run() async {
         setvbuf(stdout, nil, _IONBF, 0)   // lines reach the log even if the app stops suddenly
@@ -283,6 +312,36 @@ enum DemoSelfTest {
         check("the Pinned and Snoozed labels are not listed as folders", !store.folders.map(\.name).contains("Pinned") && !store.folders.map(\.name).contains("Snoozed"))
         await store.openList(.label(store.snoozeLabelID ?? ""))
         check("Snoozed lists the emails that carry the Snoozed label", store.snoozeLabelID == "Label_snoozed" && Set(store.folderMails.map(\.id)) == ["z1", "z2"])
+
+        // snooze times and returned emails, written by the Mac to the server and read here
+        let own = row("m6")!.date
+        await store.syncTimingView()
+        check("before the Mac has written anything nothing changes: no tag, the email keeps its own time", store.timingView?.snoozes.isEmpty == true && store.backText(row("z1") ?? row("m6")!) == nil && row("m6")!.date == own)
+        let nowS = Int(Date().timeIntervalSince1970)
+        box.with { b in b.srvTVVersion = 3; b.srvTV = ["snoozes": ["z1": nowS + 5 * 3600, "z2": nowS + 86400], "surfaced": ["m6": nowS - 60], "back_tag": ["m6"], "no_reply": ["m2"]] }
+        await store.syncTimingView()
+        await store.openList(.label("Label_snoozed"))
+        check("a Snoozed row says Back and the time, the same words as the Mac", store.backText(store.folderMails.first { $0.id == "z1" }!) == "Back " + TimingView.short(Date(timeIntervalSince1970: TimeInterval(nowS + 5 * 3600))))
+        check("a returned email goes to the top of the inbox with the time it came back, and remembers when it arrived", store.inbox.first?.id == "m6" && store.inbox.first?.arrived == own && abs(store.inbox.first!.date.timeIntervalSince1970 - Double(nowS - 60)) < 1)
+        check("its line says Back from snooze while unread, and goes once it is read", store.backLine(row("m6")!)?.hasPrefix("\u{263E} Back from snooze") == true && store.backLine({ var r = row("m6")!; r.labels.removeAll { $0 == "UNREAD" }; return r }()) == nil)
+        check("an email that came back because nobody replied is marked", store.isNoReply(row("m2")!) && !store.isNoReply(row("m1")!))
+        await store.refresh()
+        check("a refresh keeps the returned email at the top (not set back by Gmail's own time)", store.inbox.first?.id == "m6" && store.inbox.first?.arrived != nil)
+        box.with { b in b.srvTVVersion = 4; b.srvTV = ["snoozes": [String: Int](), "surfaced": [String: Int](), "back_tag": [String](), "no_reply": [String]()] }
+        await store.syncTimingView()
+        check("when the Mac clears it the email goes back to its own place and time", row("m6")!.date == own && row("m6")!.arrived == nil && store.backLine(row("m6")!) == nil)
+        box.with { $0.srvDown = true }
+        await store.syncTimingView()
+        check("with the server down the last state stays and nothing breaks", store.timingView != nil && row("m6")!.date == own)
+        box.with { $0.srvDown = false }
+
+        // a wide email fits the screen: each layout is loaded in a real web view at phone width and measured before and after the fit
+        for f in DemoNewsletter.fixtures {
+            let w = await fitWidths(f.html)
+            check("the email fits the screen width and wraps: \(f.name) (\(Int(w.before)) wide before, \(Int(w.after)) after)", w.after > 0 && w.after <= 391)
+        }
+        let widest = await fitWidths(DemoNewsletter.html)
+        check("the check really sees a wide email (the Market and More newsletter is wider than the screen before the fit)", widest.before > 450)
 
         // sign out and sign-in ended
         await store.signOut()

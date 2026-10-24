@@ -80,6 +80,27 @@ extension MailStore {
         catch {}   // no sign-in yet: the next check tries again
     }
 
+    /// First pass after launch, and whenever the snooze state here differs from what the server has.
+    var timingViewDue: Bool { !timingViewSynced || timing.data.view != (timing.data.sharedView ?? TimingView()) }
+
+    /// Moves the snooze times, came-back times and the "Back from snooze" / "No reply yet" lists to the Mail server so the phone shows them.
+    /// The first time, what this Mac already has is merged into the server's (nothing is lost); after that each change here is written. Without the server the Mac works as before.
+    func syncTimingView() async {
+        guard let srv = timingServer, !timingViewBusy else { return }
+        timingViewBusy = true; defer { timingViewBusy = false }
+        for _ in 0..<3 {
+            let before = timing.data.view
+            do {
+                let r = try await TimingViewSync.run(base: timing.data.sharedView ?? TimingView(), local: before, link: srv)
+                timingViewSynced = true
+                if timing.data.view != before { continue }   // changed meanwhile: merge again so the change is not overwritten
+                if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) }; objectWillChange.send() }
+                return
+            } catch TimingServerError.unreachable { markOffline(); return }
+            catch { return }   // refused or busy: the Mac works on its own; the next pass tries again
+        }
+    }
+
     private func markFollow(_ id: String, _ f: (inout FollowUp) -> Void) {
         timing.change { t in if let i = t.followUps.firstIndex(where: { $0.messageID == id }) { f(&t.followUps[i]) } }
     }

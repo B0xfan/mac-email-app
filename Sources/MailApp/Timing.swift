@@ -54,7 +54,7 @@ enum TimeParser {
     }
 
     /// "Sun 8:00 AM" for the preset list.
-    static func short(_ d: Date) -> String { fmt("EEE h:mm a").string(from: d) }
+    static func short(_ d: Date) -> String { TimingView.short(d) }   // the phone says the same words
     /// "Tue 13 Oct, 3:00 PM" for the line under the typing box.
     static func long(_ d: Date) -> String { fmt("EEE d MMM, h:mm a").string(from: d) }
     private static func fmt(_ f: String) -> DateFormatter { let x = DateFormatter(); x.dateFormat = f; return x }
@@ -133,6 +133,22 @@ struct TimingData: Codable, Equatable {
     var backTag: [String]?                     // snoozed emails that came back and are not opened yet: the row says "Back from snooze" (optional so older files still load)
     var noReply: [String] = []                 // came back because nobody answered: "No reply yet"
     var bigFiles: [DriveFile]?                 // big files on Drive that Mail deletes at their time (optional so older files still load)
+    var sharedView: TimingView?                // what this Mac and the Mail server last agreed on for the snooze state (optional so older files still load); nil = never shared yet
+}
+
+/// The snooze state the phone also shows, kept on the Mail server (MailCore/TimingView.swift).
+extension TimingData {
+    var view: TimingView {
+        func secs(_ d: [String: Date]) -> [String: Int] { d.mapValues { Int($0.timeIntervalSince1970) } }
+        return TimingView(snoozes: secs(snoozes), surfaced: secs(surfaced), backTag: backTag ?? [], noReply: noReply)
+    }
+    /// The server and this Mac now agree on `v`. A time that did not change keeps its exact value here.
+    mutating func adopt(_ v: TimingView) {
+        func dates(_ old: [String: Date], _ new: [String: Int]) -> [String: Date] {
+            new.reduce(into: [:]) { out, e in out[e.key] = old[e.key].flatMap { Int($0.timeIntervalSince1970) == e.value ? $0 : nil } ?? Date(timeIntervalSince1970: TimeInterval(e.value)) }
+        }
+        snoozes = dates(snoozes, v.snoozes); surfaced = dates(surfaced, v.surfaced); backTag = v.backTag; noReply = v.noReply; sharedView = v
+    }
 }
 
 final class TimingBook {

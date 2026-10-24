@@ -99,6 +99,14 @@ actor PhoneServer: OrganizerLink {
         return o["status"] as? String ?? "none"
     }
 
+    // MARK: Snooze state (the Mac writes it; the phone only reads it)
+
+    func readTiming() async throws -> (version: Int, view: TimingView) {
+        let (c, o) = try await call("GET", "timing-view")
+        guard c == 200 else { throw PhoneServerError.refused(c) }
+        return TimingViewWire.decode(o)
+    }
+
     // MARK: Smart Folders and saved searches
 
     func read() async throws -> (version: Int, organizer: Organizer) {

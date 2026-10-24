@@ -44,6 +44,7 @@ struct InboxView: View {
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""
             if ["read", "write", "leave"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
+            if s == "newsletter", let m = store.inbox.first(where: { $0.id == "mm1" }) { path.append(m) }
             if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
             if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
             if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
@@ -86,7 +87,8 @@ struct InboxView: View {
     }
 
     private func row(_ m: Mail, pinned: Bool) -> some View {
-        Button { path.append(m) } label: { MailRow(mail: m, pinned: pinned) }
+        let noReply = store.isNoReply(m)
+        return Button { path.append(m) } label: { MailRow(mail: m, pinned: pinned, tag: noReply ? "No reply yet" : nil, below: store.backLine(m), fromText: noReply ? "You, to \(Address.parse(m.to).display)" : nil) }
             .buttonStyle(.plain)
             .listRowBackground(pinned ? Theme.pinBg : Theme.card).listRowSeparatorTint(Theme.line)
             .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))

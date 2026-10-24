@@ -11,6 +11,7 @@ extension SelfTest {
         var jobs: [String: (at: Int, status: String, sentID: String, thread: String, note: String)] = [:]
         var log: [String] = []   // timing-server calls and Gmail sends, in order
         var gmailSendStatus = 200
+        var tvVersion = 0, tvState: [String: Any] = ["snoozes": [String: Int](), "surfaced": [String: Int](), "back_tag": [String](), "no_reply": [String]()], tvPuts = 0   // the shared snooze state
         var orgVersion = 0, orgSmart: [Any] = [], orgSearches: [Any] = [], orgPuts = 0   // Smart Folders and saved searches kept for the person
         var reminders: [String: (at: Int, status: String)] = [:], jobRemind: [String: Int] = [:], deleteSays: String?, deleteCode = 200, deleteTimeout = false, hits = 0
         var key: String { "K\(keyN)" }
@@ -33,6 +34,16 @@ extension SelfTest {
                     log.append("get")
                     let js = jobs.map { #"{"draft_id":"\#($0.key)","send_at":\#($0.value.at),"status":"\#($0.value.status)","sent_id":"\#($0.value.sentID)","thread_id":"\#($0.value.thread)","note":"\#($0.value.note)"}"# }
                     return (200, #"{"signin_ok":\#(signinOK),"jobs":[\#(js.joined(separator: ","))]}"#)
+                }
+                if p.hasSuffix("/timing-view") {   // reads and writes are not logged: they happen on every pass
+                    func current() -> String { String(decoding: (try? JSONSerialization.data(withJSONObject: tvState.merging(["version": tvVersion]) { a, _ in a })) ?? Data(), as: UTF8.self) }
+                    if m == "GET" { return (200, current()) }
+                    if m == "PUT" {
+                        guard body["base_version"] as? Int == tvVersion else { return (409, current()) }
+                        for k in ["snoozes", "surfaced", "back_tag", "no_reply"] { tvState[k] = body[k] }
+                        tvVersion += 1; tvPuts += 1
+                        return (200, #"{"version":\#(tvVersion)}"#)
+                    }
                 }
                 if p.hasSuffix("/organizer") {
                     func current() -> String { String(decoding: (try? JSONSerialization.data(withJSONObject: ["version": orgVersion, "smart": orgSmart, "searches": orgSearches])) ?? Data(), as: UTF8.self) }

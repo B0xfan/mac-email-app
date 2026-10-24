@@ -233,6 +233,11 @@ struct FolderMailsView: View {
     private var emptyText: String {
         switch route { case .snoozed: return "Nothing snoozed"; case .smart, .saved: return "No emails match"; default: return "Nothing in this folder" }
     }
+    /// Snoozed: the soonest to come back first, as on the Mac.
+    private var rows: [Mail] {
+        guard route == .snoozed, let v = store.timingView else { return store.folderMails }
+        return store.folderMails.sorted { (v.snoozes[$0.id] ?? .max) < (v.snoozes[$1.id] ?? .max) }
+    }
     private var folderID: String { if case .folder(let id) = route { return id } else { return "" } }   // only a real folder lets an opened email leave it
 
     var body: some View {
@@ -241,8 +246,8 @@ struct FolderMailsView: View {
                 .foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
             if let b = store.banner { BannerView(text: b) }
             List {
-                ForEach(store.folderMails) { m in
-                    Button { path.append(FolderOpen(mail: m, folder: folderID)) } label: { MailRow(mail: m) }
+                ForEach(rows) { m in
+                    Button { path.append(FolderOpen(mail: m, folder: folderID)) } label: { MailRow(mail: m, tag: route == .snoozed ? store.backText(m) : nil) }
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card).listRowSeparatorTint(Theme.line)
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
@@ -271,6 +276,7 @@ struct FolderMailsView: View {
             }
         }
         .sheet(item: $editing) { SmartFolderForm(mode: .edit($0)) }
+        .task { if route == .snoozed { await store.syncTimingView() } }   // the times the Mac wrote
         .task(id: source) { await load() }   // also when the folder's rules change (an edit here, or the Mac changed them)
     }
 
