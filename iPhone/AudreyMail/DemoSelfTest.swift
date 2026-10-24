@@ -117,6 +117,26 @@ enum DemoSelfTest {
         if let d = store.composeSeed?.restore?.draftID { await store.discardDraft(d) }
         store.composeSeed = nil
 
+        // Undo when the hold request timed out: the server may have it, so it is told to forget it
+        box.with { $0.srvTimeoutPut = true }
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        await store.pending.values.first?.prep?.value
+        check("a hold request that times out is not trusted for leaving the app, but Undo still tells the server", store.pending.values.first?.held == false && store.pending.values.first?.maybeHeld == true && box.with { $0.srvJobs.count } == 1)
+        store.sendToast?.undo?(); await store.settleUndo()
+        check("so the server forgets it and the email does not go out after Undo", box.with { $0.srvJobs.isEmpty } && box.with { $0.sent.count } == 3 && store.composeSeed?.restore?.text == "Sounds great")
+        box.with { $0.srvTimeoutPut = false }
+        if let d = store.composeSeed?.restore?.draftID { await store.discardDraft(d) }
+        store.composeSeed = nil
+        // Undo, then leaving the app before the draft was saved: the email must not go out
+        box.with { $0.srvDown = true }
+        store.queueSend(snap, out: out, threadID: src.threadID)
+        store.sendToast?.undo?()
+        await store.leaveApp(); await store.settleUndo()
+        check("Undo wins over leaving the app: nothing is sent and the Write screen comes back once", box.with { $0.sent.count } == 3 && store.composeSeed?.restore?.text == "Sounds great" && store.pending.isEmpty)
+        box.with { $0.srvDown = false }
+        if let d = store.composeSeed?.restore?.draftID { await store.discardDraft(d) }
+        store.composeSeed = nil
+
         // opening the app after an email was held while it was closed
         store.remember(HeldSend(draftID: "DGONE", subject: "Re: Saturday at the beach?", deadline: Date().addingTimeInterval(-60)))
         store.resumeHeld(); await store.heldTask?.value

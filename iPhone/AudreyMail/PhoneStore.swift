@@ -429,6 +429,7 @@ final class PhoneStore: ObservableObject {
         let deadline: Date
         var draftID: String?            // the saved Gmail draft; nil if it could not be saved (then the phone sends the raw email itself)
         var held = false                // the server has it and will send it if the app is gone
+        var maybeHeld = false           // the hold request timed out: the server may have it, so Undo still tells it (but leaving the app sends it, as without a server)
         var answered = false            // the draft is saved and the server has said yes or no
         var undoing = false
         var countdown: Task<Void, Never>?
@@ -479,7 +480,9 @@ final class PhoneStore: ObservableObject {
         guard let id = try? await retryingSignIn({ try await gmail.saveDraft(p.raw, threadID: p.threadID, replacing: p.snapshot.draftID) }), !id.isEmpty, pending[token] != nil else { return }
         pending[token]?.draftID = id; pending[token]?.snapshot.draftID = id
         guard let server else { return }
-        do { try await server.hold(draftID: id, seconds: delay) } catch { return }
+        do { try await server.hold(draftID: id, seconds: delay) }
+        catch PhoneServerError.timedOut { pending[token]?.maybeHeld = true; return }
+        catch { return }
         pending[token]?.held = true
         remember(HeldSend(draftID: id, subject: p.snapshot.subject, deadline: Date().addingTimeInterval(Double(delay))))
     }
@@ -509,14 +512,8 @@ final class PhoneStore: ObservableObject {
     private func finishUndo(_ token: UUID) async {
         await pending[token]?.prep?.value
         guard let p = pending[token] else { return }
-        if p.held, let d = p.draftID, let server {
-            var said: String?
-            for _ in 0..<3 {
-                do { said = try await server.release(draftID: d); break }
-                catch PhoneServerError.busy { try? await Task.sleep(nanoseconds: 2_000_000_000) }   // the server is sending it right now: ask again
-                catch { break }
-            }
-            guard let said else {   // no answer: the server may still send it, so it is not undone
+        if p.held || p.maybeHeld, let d = p.draftID {
+            guard let said = await cancelAtServer(d) else {   // no answer: the server may still send it, so it is not undone
                 pending[token]?.undoing = false
                 banner = "Could not reach the server to cancel the email. Try Undo again."
                 startCountdown(token)
@@ -535,10 +532,22 @@ final class PhoneStore: ObservableObject {
         present(ComposeSeed(restoring: p.snapshot))
     }
 
+    /// Tells the server to forget a held email (Undo, or a send that failed). The server's word: pending (cancelled in time), none, sent, gone. nil = no answer, so it may still send.
+    /// Busy means it is sending right now: ask again a little later.
+    func cancelAtServer(_ draftID: String) async -> String? {
+        guard let server else { return nil }
+        for _ in 0..<3 {
+            do { return try await server.release(draftID: draftID) }
+            catch PhoneServerError.busy { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            catch { return nil }
+        }
+        return nil
+    }
+
     @discardableResult
     private func startDelivery(_ token: UUID) -> Task<Void, Never> {
         if let r = pending[token]?.run { return r }
-        guard let p = pending[token] else { return Task {} }
+        guard let p = pending[token], !p.undoing else { return Task {} }   // an Undo in progress owns the email
         if sendToast?.id == p.toastID { sendToast?.undo = nil; sendToast?.text = "Sending…" }
         let r = Task { await deliver(token) }
         pending[token]?.run = r
@@ -553,7 +562,8 @@ final class PhoneStore: ObservableObject {
             if let d = p.draftID {
                 do { _ = try await retryingSignIn { try await gmail.sendDraft(id: d) } }
                 catch GmailError.http(404, _) {}   // the server sent it first
-                if p.held { _ = try? await server?.release(draftID: d) }   // done: the server forgets it
+                drafts.removeAll { $0.id == d }   // the Drafts list no longer shows it
+                if p.held || p.maybeHeld { _ = try? await server?.release(draftID: d) }   // done: the server forgets it
             } else {
                 try await sendNow(p.raw, threadID: p.threadID)
                 if let d = p.snapshot.draftID { await discardDraft(d) }   // the saved copy has been sent
@@ -562,8 +572,8 @@ final class PhoneStore: ObservableObject {
         } catch {
             // nothing typed is lost: the Write screen comes back with the reason on top, and the server must not send it later
             var reason = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent. Your text is still here."
-            if p.held, let d = p.draftID {
-                let said = try? await server?.release(draftID: d)
+            if p.held || p.maybeHeld, let d = p.draftID {
+                let said = await cancelAtServer(d)
                 if said == "sent" || said == "gone" { if sendToast?.id == p.toastID { sendToast = nil; show("Sent.") }; return }
                 if said == nil { reason += " It may still go out on its own: check your Sent folder before sending it again." }
             }

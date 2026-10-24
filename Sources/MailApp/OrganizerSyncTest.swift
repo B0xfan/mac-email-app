@@ -52,6 +52,44 @@ extension SelfTest {
         let rough = OrganizerWire.decode(["version": 2, "smart": [["id": "not-a-uuid", "name": "x"], body["smart"].flatMap { $0 as? [Any] }?.first as Any], "searches": []])
         check("organizer wire: an entry this app cannot read is skipped, not fatal", rough.organizer.smart == [a])
         check("organizer: the line under a Smart Folder lists its rules", SmartFolder(name: "T", rules: [SmartRule(field: .from, value: "tomas"), SmartRule(field: .subject, value: "invoice")]).rulesText == "From contains tomas, Subject contains invoice")
+        if !(await partOrganizerStore()) { ok = false }
+        return ok
+    }
+
+    /// The Mac's store against the pretend server: the list moves to the server on the first start, phone changes arrive, Mac changes leave.
+    @MainActor static func partOrganizerStore() async -> Bool {
+        var ok = true
+        func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        let fake = FakeTiming()
+        StubProtocol.handler = { fake.handle($0) }
+        defer { StubProtocol.handler = nil }
+        func tmp(_ n: String) -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("selftest-org-\(UUID().uuidString)-\(n).json") }
+        let a = GoogleAuth(session: session, credentials: creds, file: signedFile("org-\(UUID().uuidString).json", "RTORG"), legacy: noKeychain)
+        let orgURL = tmp("organizer")
+        defer { try? FileManager.default.removeItem(at: orgURL) }
+        let book = OrganizerBook(url: orgURL)
+        let mine = SmartFolder(name: "Invoices", rules: [SmartRule(field: .from, value: "tomas")])
+        book.put(mine); book.put(SavedSearch(name: "dinner", query: "dinner"))
+        let st = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),
+                           asides: AsideBook(url: nil), organizer: book, timing: TimingBook(url: nil), timingServer: TimingServer(auth: a, session: session))
+        await st.syncOrganizer()
+        check("organizer on the Mac: the first start moves the Mac's own list to the server (and registers once)", fake.orgVersion == 1 && fake.orgSmart.count == 1 && fake.orgSearches.count == 1 && fake.registered == 1 && book.shared == book.current)
+        let phone = SmartFolder(name: "From the phone", rules: [SmartRule(field: .attachment)])
+        let w = OrganizerWire.body(base: 1, Organizer(smart: [mine, phone], searches: [SavedSearch(name: "dinner", query: "dinner")]))
+        fake.orgSmart = w["smart"] as? [Any] ?? []; fake.orgVersion = 2   // the phone saved
+        await st.syncOrganizer()
+        check("organizer on the Mac: a Smart Folder made on the phone arrives, and the saved search made here stays", book.smart.map(\.name) == ["Invoices", "From the phone"] && book.searches.map(\.name) == ["dinner"])
+        var renamed = mine; renamed.name = "Invoices 2026"
+        await st.saveSmart(renamed)
+        check("organizer on the Mac: a change made here reaches the server, and the phone's folder is still there", fake.orgVersion == 3 && fake.orgSmart.count == 2 && (fake.orgSmart.first as? [String: Any])?["name"] as? String == "Invoices 2026")
+        await st.deleteSearch(book.searches[0].id)
+        for _ in 0..<20 where fake.orgSearches.count != 0 { try? await Task.sleep(nanoseconds: 100_000_000) }   // the delete syncs in the background
+        check("organizer on the Mac: deleting a saved search removes it on the server too", fake.orgSearches.isEmpty && book.searches.isEmpty)
+        fake.down = true; fake.log = []
+        let putsBefore = fake.orgPuts
+        await st.syncOrganizer()
+        check("organizer on the Mac: with the server down nothing breaks and nothing is written", fake.orgPuts == putsBefore && book.smart.count == 2)
+        fake.down = false
         return ok
     }
 }

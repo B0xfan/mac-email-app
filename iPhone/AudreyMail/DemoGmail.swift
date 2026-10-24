@@ -28,6 +28,7 @@ final class DemoMailbox: @unchecked Sendable {
     var srvJobs: [String: (seconds: Int, grace: Int)] = [:]
     var srvLog: [String] = []
     var srvDeleteSays: String?             // a forced answer to Undo (for example "sent")
+    var srvTimeoutPut = false              // the server stores the held email but the answer never comes back
     var srvVersion = 0
     var srvSmart: [Any] = [], srvSearches: [Any] = []
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
@@ -42,7 +43,7 @@ final class DemoMailbox: @unchecked Sendable {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
         msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
-        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvVersion = 0; srvSmart = []; srvSearches = []
+        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -244,6 +245,7 @@ final class DemoMailbox: @unchecked Sendable {
             let id = String(path.dropFirst("jobs/".count))
             if method == "PUT" {
                 srvJobs[id] = (body["send_in_seconds"] as? Int ?? -1, body["grace_seconds"] as? Int ?? -1)
+                if srvTimeoutPut { return (-1, "") }
                 srvLog.append("hold \(id) \(body["send_in_seconds"] as? Int ?? -1) \(body["grace_seconds"] as? Int ?? -1) \(body["send_at"] == nil ? "relative" : "absolute")")
                 return (200, out(["status": "pending"]))
             }
@@ -299,6 +301,7 @@ final class DemoURLProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let (code, body) = DemoMailbox.shared.handle(request)
+        if code == -1 { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }
         let resp = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))

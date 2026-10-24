@@ -52,16 +52,13 @@ extension PhoneStore {
 
     /// Undo for an email that was left with the server before the app was closed: the server is told first; if it was cancelled in time the draft opens in the Write screen.
     func undoHeld(_ h: HeldSend) {
-        guard let server else { return }
         Task { [weak self] in
             guard let self else { return }
-            do {
-                let said = try await server.release(draftID: h.draftID)
-                forgetHeld(h.draftID); sendToast = nil
-                if said == "sent" || said == "gone" { show("That email was already sent."); return }
-                await loadDrafts()
-                if let row = drafts.first(where: { $0.id == h.draftID }) { await openDraft(row) } else { show("Not sent. It is in Drafts.") }
-            } catch { banner = "Could not reach the server to cancel the email. Try Undo again." }
+            guard let said = await cancelAtServer(h.draftID) else { banner = "Could not reach the server to cancel the email. Try Undo again."; return }
+            forgetHeld(h.draftID); sendToast = nil
+            if said == "sent" || said == "gone" { show("That email was already sent."); return }
+            await loadDrafts()
+            if let row = drafts.first(where: { $0.id == h.draftID }) { await openDraft(row) } else { show("Not sent. It is in Drafts.") }
         }
     }
 }
