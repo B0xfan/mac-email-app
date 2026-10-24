@@ -101,7 +101,7 @@ extension MailStore {
         let token = UUID()
         let delay = settings.undoDelay
         compose = nil
-        toast = ToastInfo(text: MailStore.sendingText(delay), action: "Undo")
+        toast = ToastInfo(text: UndoSend.sendingText(delay), action: "Undo")
         let tid = toast!.id
         pendingMail[token] = (d, bodyHTML)
         savePending(token)
@@ -109,7 +109,7 @@ extension MailStore {
             for left in stride(from: delay - 1, to: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                if self?.toast?.id == tid { self?.toast?.text = MailStore.sendingText(left) }
+                if self?.toast?.id == tid { self?.toast?.text = UndoSend.sendingText(left) }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if Task.isCancelled { return }
@@ -137,7 +137,6 @@ extension MailStore {
         }
         undoSend = (token, d, bodyHTML, tid)
     }
-    static func sendingText(_ s: Int) -> String { UndoSend.sendingText(s) }
 
     func undoPendingSend() {
         if pendingScheduled != nil { undoScheduledSend(); return }

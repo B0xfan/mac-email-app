@@ -57,6 +57,7 @@ final class PhoneStore: ObservableObject {
     @Published var blocked: [BlockedEntry] = []
     @Published var blockedLoaded = false
     var folderID: String?
+    var folderGen = 0   // counts folder openings, so a slow older answer never replaces a newer one
     @Published var folderNext: String?
     private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
     @Published var tabBarHidden = false   // the read screen has its own bar, as drawn
@@ -116,7 +117,7 @@ final class PhoneStore: ObservableObject {
 
     func signOut() async {
         await flushPendingSends()   // an email just sent is not lost by signing out
-        composeSeed = nil; waitingSeeds = []
+        if composeSeed != nil || !waitingSeeds.isEmpty { show("An email could not be sent yet. Send or save it first, then sign out."); return }   // never throw away something typed
         await sign.signOut()
         clearLocal()
         state = .signedOut(again: false)
@@ -304,7 +305,11 @@ final class PhoneStore: ObservableObject {
         let ids = [m.id] + (m.siblings ?? [])
         let fromInbox = inbox.contains { $0.threadID == m.threadID }, fromFolder = folderMails.contains { $0.id == m.id }
         inbox.removeAll { $0.threadID == m.threadID }
-        folderMails.removeAll { $0.id == m.id }
+        if let i = folderMails.firstIndex(where: { $0.id == m.id }) {
+            // it leaves the open folder only if it loses that folder's label (or goes to Trash); archiving just drops Inbox from it
+            if add.contains("TRASH") || folderID.map({ remove.contains($0) }) == true { folderMails.remove(at: i) }
+            else { folderMails[i].labels = folderMails[i].labels.filter { !remove.contains($0) } + add.filter { !folderMails[i].labels.contains($0) } }
+        }
         pendingGone.insert(m.threadID)
         saveCache()
         show(text, undo: { [weak self] in self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) })
@@ -321,7 +326,10 @@ final class PhoneStore: ObservableObject {
 
     private func putBack(_ m: Mail, inbox toInbox: Bool, folder toFolder: Bool) {
         if toInbox, !inbox.contains(where: { $0.threadID == m.threadID }) { inbox = (inbox + [m]).sorted { $0.date > $1.date } }
-        if toFolder, !folderMails.contains(where: { $0.id == m.id }) { folderMails = (folderMails + [m]).sorted { $0.date > $1.date } }
+        if toFolder {
+            if let i = folderMails.firstIndex(where: { $0.id == m.id }) { folderMails[i] = m }
+            else { folderMails = (folderMails + [m]).sorted { $0.date > $1.date } }
+        }
     }
 
     private func undoMove(_ m: Mail, ids: [String], add: [String], remove: [String], fromInbox: Bool, fromFolder: Bool) {

@@ -13,6 +13,7 @@ struct ReadView: View {
     @State private var webHeight: CGFloat = 120
     @State private var blockTarget: Mail?
     @State private var moving = false
+    @State private var movedAway = false   // the sheet closes first, then this screen
     @State private var previewURL: URL?   // the file shown in Apple's built-in preview (it has the share button)
     @State private var opening: Attachment?
     @State private var failedFile: Attachment?
@@ -79,7 +80,7 @@ struct ReadView: View {
         .onDisappear { store.tabBarHidden = false }
         .task { await load() }
         .quickLookPreview($previewURL)
-        .sheet(isPresented: $moving) { MoveToFolderSheet(mail: full ?? mail) { dismiss() }.presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail) { movedAway = true }.presentationDetents([.medium, .large]) }
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) {
                 blockTarget = nil

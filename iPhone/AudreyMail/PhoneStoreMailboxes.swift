@@ -20,11 +20,12 @@ extension PhoneStore {
         do {
             let full = try await gmail.message(id: r.mail.id, full: true)
             // saving would replace the whole draft, so one with files (made on the Mac) is not opened here: the files would be lost
-            guard full.attachments.isEmpty else { banner = "This draft has attachments. Open it on your Mac to keep them."; return }
-            let body = (full.text ?? "").isEmpty ? TextTools.htmlToPlain(full.html ?? "") : full.text!
+            guard full.attachments.isEmpty else { show("This draft has attachments. Open it on your Mac to keep them."); return }
+            let body = full.text.flatMap { $0.isEmpty ? nil : $0 } ?? TextTools.htmlToPlain(full.html ?? "")
             present(ComposeSeed(restoring: ComposeSnapshot(
                 mode: .new, source: nil, to: Address.parseList(full.to).map(\.email).filter { $0.contains("@") }, cc: full.cc, bcc: full.bcc ?? "",
-                subject: full.subject == "(no subject)" ? "" : full.subject, text: body, attachments: [], draftID: r.id, threadID: full.threadID)))
+                subject: full.subject == "(no subject)" ? "" : full.subject, text: body, attachments: [], draftID: r.id, threadID: full.threadID,
+                inReplyTo: full.references.split(separator: " ").last.map(String.init) ?? "", references: full.references)))   // a reply draft stays a reply
         } catch { await fail(error, "This draft could not be opened.") }
     }
 
@@ -49,7 +50,7 @@ extension PhoneStore {
         let full = Folders.renamed(f, typed: raw)
         if let p = Folders.problem(full, existing: folders.map(\.name), ignoring: f.name) { return p }
         if full == f.name { return nil }
-        do { labelList = try await Folders.rename(f, to: full, gmail: gmail) ?? labelList; return nil }
+        do { labelList = try await Folders.rename(f, to: full, gmail: gmail, known: labelList); return nil }
         catch { return (error as? LocalizedError)?.errorDescription ?? "Could not rename the folder." }
     }
 
@@ -61,17 +62,17 @@ extension PhoneStore {
 
     func openFolder(_ id: String) async {
         if folderID != id { folderMails = [] }   // pulling down to refresh the same folder keeps what is shown
-        folderID = id
-        await loadFolderPage(id, token: nil)
+        folderID = id; folderGen += 1
+        await loadFolderPage(id, token: nil, gen: folderGen)
     }
-    func loadMoreFolder() async { if let id = folderID, let t = folderNext { await loadFolderPage(id, token: t) } }
+    func loadMoreFolder() async { if let id = folderID, let t = folderNext, !folderLoading { await loadFolderPage(id, token: t, gen: folderGen) } }
 
-    private func loadFolderPage(_ id: String, token: String?) async {
-        folderLoading = true; defer { folderLoading = false }
+    private func loadFolderPage(_ id: String, token: String?, gen: Int) async {
+        folderLoading = true; defer { if gen == folderGen { folderLoading = false } }
         do {
             let page = try await gmail.listPage(labels: [id], max: 50, pageToken: token)
             let got = await gmail.messagesChecked(ids: page.ids)
-            guard folderID == id, state == .signedIn else { return }   // another folder was opened meanwhile
+            guard folderGen == gen, state == .signedIn else { return }   // the folder was opened again meanwhile: only the newest answer counts
             let base = token == nil ? [] : folderMails   // the first page replaces the list, later pages add to it
             let have = Set(base.map(\.id))
             folderMails = (base + got.mails.filter { !have.contains($0.id) }).sorted { $0.date > $1.date }
@@ -81,10 +82,12 @@ extension PhoneStore {
     }
 
     /// From an open email: it leaves the inbox and sits in the folder. Undo puts it back exactly.
-    /// shortcut: an email opened from another folder stays in that folder too (it gets the new label, loses only Inbox); upgrade if "move" must also leave the old folder.
+    /// Like the Mac: it also leaves the folder it was opened from.
     func moveToFolder(_ m: Mail, _ f: FolderNode) {
         if m.labels.contains(f.id) { show("Already in \(f.leaf)."); return }
-        move(m, add: [f.id], remove: m.labels.contains("INBOX") ? ["INBOX"] : [], text: "Moved to \(f.leaf).")
+        var remove = m.labels.contains("INBOX") ? ["INBOX"] : []
+        if let cur = folderID, folderMails.contains(where: { $0.id == m.id }) { remove.append(cur) }
+        move(m, add: [f.id], remove: remove, text: "Moved to \(f.leaf).")
     }
 
     // MARK: - Blocked senders
@@ -95,13 +98,13 @@ extension PhoneStore {
 
     /// Removes the Gmail filter and sends their old emails back to the inbox (the same steps as the Mac, in the shared BlockFlow).
     func unblock(_ e: BlockedEntry) async {
-        let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }   // another filter still blocks the same sender
+        let covered = BlockFlow.isCovered(e, among: blocked)
         do {
             let r = try await flow.unblock(e, covered: covered)
             blocked.removeAll { $0.id == e.id }
+            if r.moveBackFailure != nil { show("\(e.title) is unblocked, but their old emails could not be moved back. They are still in the Blocked folder in Gmail."); return }
             if !e.isCompany && !covered { book.approve(all: [e.from]) }   // not a "new sender" again
-            if r.moveBackFailure != nil { banner = "\(e.title) is unblocked, but their old emails could not be moved back. They are still in the Blocked folder in Gmail." }
-            else { show(covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox.") }
+            show(BlockFlow.unblockedText(e, covered: covered))
             if !covered && !e.toTrash { await refresh() }
         } catch { await fail(error, "Could not unblock \(e.title).") }
     }

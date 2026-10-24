@@ -71,13 +71,13 @@ extension MailStore {
     func unblock(_ e: BlockedEntry) async {
         var lifted = false
         // another block (a different filter, same sender) keeps them blocked, so nothing is moved back or approved
-        let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
+        let covered = BlockFlow.isCovered(e, among: blocked)
         do {
             let result = try await blockFlow.unblock(e, covered: covered)   // old Spark blocks: just the filter goes; their emails stay where they are
             lifted = true
             if let failure = result.moveBackFailure { throw failure }
             if !e.isCompany && !covered { book.approve(e.from) }
-            status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
+            status = BlockFlow.unblockedText(e, covered: covered)
             await loadBlocked()
             await refresh()
         } catch {

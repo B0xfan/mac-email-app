@@ -14,6 +14,7 @@ struct ComposeSnapshot {
     var attachments: [ComposeAttachment]
     var draftID: String?
     var threadID: String?   // a resumed draft keeps its conversation
+    var inReplyTo = "", references = ""   // ... and stays a reply
 }
 
 struct ComposeSeed: Identifiable {
@@ -48,6 +49,8 @@ struct ComposeView: View {
     @State private var askLeave = false
     @State private var draftID: String?
     @State private var threadID: String?
+    @State private var inReplyTo = ""
+    @State private var references = ""
     @State private var photos: [PhotosPickerItem] = []
     @State private var pickFile = false
     @FocusState private var focus: Bool
@@ -223,12 +226,12 @@ struct ComposeView: View {
     }
 
     private func snapshot() -> ComposeSnapshot {
-        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID)
+        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID, inReplyTo: inReplyTo, references: references)
     }
 
     /// Puts back what a snapshot holds (Undo Send, a failed send, a draft that is opened again).
     private func apply(_ r: ComposeSnapshot) {
-        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID
+        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID; inReplyTo = r.inReplyTo; references = r.references
         quote = makeQuote()
         problem = seed.notice
         focus = true
@@ -244,6 +247,8 @@ struct ComposeView: View {
         if let m = seed.source, mode != .forward {
             out.inReplyTo = m.messageIDHeader
             out.references = (m.references + " " + m.messageIDHeader).trimmingCharacters(in: .whitespaces)
+        } else if seed.source == nil {
+            out.inReplyTo = inReplyTo; out.references = references
         }
         return out
     }

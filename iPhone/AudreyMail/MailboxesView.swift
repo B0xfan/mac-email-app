@@ -13,6 +13,7 @@ struct MailboxesView: View {
 
     var body: some View {
         List {
+            Banner()
             Section {
                 NavigationLink(value: MailboxRoute.drafts) { row("doc.text", "Drafts", trailing: store.drafts.isEmpty ? "" : "\(store.drafts.count)") }
                 NavigationLink(value: MailboxRoute.blocked) {
@@ -52,6 +53,14 @@ struct MailboxesView: View {
             Spacer()
             if !trailing.isEmpty { Text(trailing).foregroundStyle(Theme.sub) }
         }.frame(minHeight: 44).contentShape(Rectangle())
+    }
+}
+
+/// The store's last problem message, at the top of a list.
+private struct Banner: View {
+    @EnvironmentObject var store: PhoneStore
+    var body: some View {
+        if let b = store.banner { BannerView(text: b).listRowBackground(Color.clear).listRowInsets(EdgeInsets()).listRowSeparator(.hidden) }
     }
 }
 
@@ -124,7 +133,7 @@ struct MoveToFolderSheet: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.folders) { f in
-                        Button { store.moveToFolder(mail, f); dismiss(); moved() } label: {
+                        Button { store.moveToFolder(mail, f); moved(); dismiss() } label: {
                             HStack(spacing: 12) { Image(systemName: "folder").foregroundStyle(Theme.acc); Text(f.name).font(.system(size: 17)); Spacer() }
                                 .frame(minHeight: 52).padding(.horizontal, 20).contentShape(Rectangle())
                         }.foregroundStyle(Theme.text)
@@ -188,6 +197,7 @@ struct DraftsView: View {
     @EnvironmentObject var store: PhoneStore
     var body: some View {
         List {
+            Banner()
             Section {
                 ForEach(store.drafts) { d in
                     Button { Task { await store.openDraft(d) } } label: { DraftRowView(mail: d.mail) }
@@ -237,6 +247,7 @@ struct BlockedListView: View {
     @EnvironmentObject var store: PhoneStore
     var body: some View {
         List {
+            Banner()
             Section {
                 ForEach(store.blocked) { e in
                     HStack(spacing: 12) {

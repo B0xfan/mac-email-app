@@ -36,11 +36,15 @@ public enum Folders {
         return f.parent.isEmpty ? t : f.parent + "/" + t
     }
 
-    /// Renames the label and keeps its sub-folders under it (Gmail may already have moved them). Returns the labels as Gmail has them afterwards, nil if that list could not be read.
-    public static func rename(_ f: FolderNode, to full: String, gmail: GmailClient) async throws -> [GLabel]? {
+    /// Renames the label and keeps its sub-folders under it (Gmail may already have moved them). Returns the labels as they are afterwards:
+    /// Gmail's own list, or `known` with the same renames applied when Gmail's list cannot be read.
+    public static func rename(_ f: FolderNode, to full: String, gmail: GmailClient, known: [GLabel]) async throws -> [GLabel] {
         try await gmail.renameLabel(id: f.id, to: full)
-        let fresh = (try? await gmail.labels()) ?? []
-        for c in fresh where c.name.hasPrefix(f.name + "/") { try? await gmail.renameLabel(id: c.id, to: full + String(c.name.dropFirst(f.name.count))) }
-        return try? await gmail.labels()
+        let fresh = (try? await gmail.labels()) ?? known
+        var names = [f.id: full]
+        for c in fresh where c.name.hasPrefix(f.name + "/") { names[c.id] = full + String(c.name.dropFirst(f.name.count)) }
+        for (id, n) in names where id != f.id { try? await gmail.renameLabel(id: id, to: n) }
+        if let now = try? await gmail.labels() { return now }
+        return known.map { l in names[l.id].map { GLabel(id: l.id, name: $0, type: l.type, labelListVisibility: l.labelListVisibility) } ?? l }
     }
 }

@@ -133,6 +133,15 @@ enum DemoSelfTest {
         await store.openFolder("Label_receipts")
         check("opening a folder lists its emails", store.folderMails.contains { $0.id == "m5" } && store.folderMails.allSatisfy { $0.labels.contains("Label_receipts") })
         let travel = store.folders.first { $0.name == "Travel" }!
+        let nb = store.folderMails.first { $0.id == "m5" }!
+        store.archive(nb); await store.settle()
+        check("archiving inside a folder takes it out of the inbox but leaves it in the folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return !l.contains("INBOX") && l.contains("Label_receipts") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == false)
+        store.toast?.undo?(); await store.settle()
+        check("Undo brings the inbox label back, in Gmail and in the folder list", box.with { b in b.msgs.first { $0.id == "m5" }!.labels.contains("INBOX") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == true)
+        store.moveToFolder(store.folderMails.first { $0.id == "m5" }!, travel); await store.settle()
+        check("moving an email from one folder to another leaves the first folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_travel") && !l.contains("Label_receipts") && !l.contains("INBOX") } && !store.folderMails.contains { $0.id == "m5" })
+        store.toast?.undo?(); await store.settle()
+        check("Undo puts it back in the first folder and the inbox", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_receipts") && l.contains("INBOX") && !l.contains("Label_travel") } && store.folderMails.contains { $0.id == "m5" })
         let m2 = row("m2")!
         store.moveToFolder(m2, travel); await store.settle()
         check("moving an email to a folder adds the label and takes it out of the inbox", box.with { b in let l = b.msgs.first { $0.id == "m2" }!.labels; return l.contains("Label_travel") && !l.contains("INBOX") } && row("m2") == nil && store.toast?.text == "Moved to Travel.")

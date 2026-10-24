@@ -25,7 +25,7 @@
 		A00000000000000000000020 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001F /* Theme.swift */; };
 		A00000000000000000000022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* Assets.xcassets */; };
 		A0000000000000000000002F /* MailCore in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000002E /* MailCore */; };
-		A1000000000000000000D0E9 /* PhoneStore+Mailboxes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000D0E8 /* PhoneStore+Mailboxes.swift */; };
+		A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */; };
 		A100000000000000001AC2DB /* MailboxesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000001AC2DA /* MailboxesView.swift */; };
 /* End PBXBuildFile section */
 
@@ -49,7 +49,7 @@
 		A00000000000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A00000000000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A00000000000000000000024 /* AudreyMail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudreyMail.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A1000000000000000000D0E8 /* PhoneStore+Mailboxes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStore+Mailboxes.swift; sourceTree = "<group>"; };
+		A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreMailboxes.swift; sourceTree = "<group>"; };
 		A100000000000000001AC2DA /* MailboxesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxesView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -92,7 +92,7 @@
 				A0000000000000000000001B /* SettingsView.swift */,
 				A0000000000000000000001D /* SignInView.swift */,
 				A0000000000000000000001F /* Theme.swift */,
-				A1000000000000000000D0E8 /* PhoneStore+Mailboxes.swift */,
+				A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */,
 				A100000000000000001AC2DA /* MailboxesView.swift */,
 				A00000000000000000000021 /* Assets.xcassets */,
 				A00000000000000000000023 /* Info.plist */,
@@ -195,7 +195,7 @@
 				A0000000000000000000001E /* SignInView.swift in Sources */,
 				A00000000000000000000020 /* Theme.swift in Sources */,
 				A100000000000000001AC2DB /* MailboxesView.swift in Sources */,
-				A1000000000000000000D0E9 /* PhoneStore+Mailboxes.swift in Sources */,
+				A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

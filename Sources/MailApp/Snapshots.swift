@@ -155,7 +155,7 @@ enum Snapshots {
 
             let toast = sampleStore(); toast.toast = ToastInfo(text: "Archived.", action: "Undo")
             shot("8-toast", MailRoot(store: toast))
-            let sending = sampleStore(); sending.toast = ToastInfo(text: MailStore.sendingText(7), action: "Undo")
+            let sending = sampleStore(); sending.toast = ToastInfo(text: UndoSend.sendingText(7), action: "Undo")
             shot("34-sending-toast", MailRoot(store: sending))
 
             let blocked = sampleStore(); blocked.mailbox = .blocked

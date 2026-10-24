@@ -159,14 +159,14 @@ extension MailStore {
         } catch { return }   // offline: try again on the next check
         await releaseServer(s.draftID)   // before touching the draft; Undo then needs nothing from the service
         let delay = settings.undoDelay
-        toast = ToastInfo(text: MailStore.sendingText(delay), action: "Undo")
+        toast = ToastInfo(text: UndoSend.sendingText(delay), action: "Undo")
         let tid = toast!.id
         pendingScheduled = (s.draftID, tid)
         scheduledTask = Task { [weak self] in
             for left in stride(from: delay - 1, to: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                if self?.toast?.id == tid { self?.toast?.text = MailStore.sendingText(left) }
+                if self?.toast?.id == tid { self?.toast?.text = UndoSend.sendingText(left) }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard let self, !Task.isCancelled, let mark = self.claim(s.draftID) else { return }   // a quit already took it

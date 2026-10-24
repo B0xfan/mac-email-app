@@ -144,7 +144,7 @@ extension MailStore {
         if let p = Folders.problem(full, existing: folders.map(\.name), ignoring: f.name) { editorMessage = p; return false }
         if full == f.name { closeEditor(); return true }
         do {
-            setLabels(try await Folders.rename(f, to: full, gmail: gmail) ?? labelList)
+            setLabels(try await Folders.rename(f, to: full, gmail: gmail, known: labelList))
             closeEditor()
             return true
         } catch { editorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not rename the folder."; return false }

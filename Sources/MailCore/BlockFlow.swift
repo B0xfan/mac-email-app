@@ -85,6 +85,15 @@ public final class BlockFlow: @unchecked Sendable {
         return mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }
     }
 
+    /// Another block (a different filter for the same sender) keeps them blocked, so nothing is moved back or approved.
+    public static func isCovered(_ e: BlockedEntry, among all: [BlockedEntry]) -> Bool { all.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() } }
+
+    /// The sentence to show after an unblock went through.
+    public static func unblockedText(_ e: BlockedEntry, covered: Bool) -> String {
+        covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked."
+            : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
+    }
+
     /// The filter is gone; `moveBackFailure` is set when their old mail could not be moved back to the inbox (the unblock itself has happened).
     public struct UnblockResult { public var moveBackFailure: Error? }
 
