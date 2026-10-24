@@ -20,7 +20,7 @@ extension PhoneStore {
         do {
             let full = try await gmail.message(id: r.mail.id, full: true)
             // saving would replace the whole draft, so one with files (made on the Mac) is not opened here: the files would be lost
-            guard full.attachments.isEmpty else { show("This draft has attachments. Open it on your Mac to keep them."); return }
+            guard full.attachments.isEmpty else { banner = "This draft has attachments. Open it on your Mac to keep them."; return }
             let body = full.text.flatMap { $0.isEmpty ? nil : $0 } ?? TextTools.htmlToPlain(full.html ?? "")
             present(ComposeSeed(restoring: ComposeSnapshot(
                 mode: .new, source: nil, to: Address.parseList(full.to).map(\.email).filter { $0.contains("@") }, cc: full.cc, bcc: full.bcc ?? "",
@@ -82,11 +82,11 @@ extension PhoneStore {
     }
 
     /// From an open email: it leaves the inbox and sits in the folder. Undo puts it back exactly.
-    /// Like the Mac: it also leaves the folder it was opened from.
-    func moveToFolder(_ m: Mail, _ f: FolderNode) {
+    /// Like the Mac: an email opened from a folder (`from`) also leaves that folder.
+    func moveToFolder(_ m: Mail, _ f: FolderNode, from: String? = nil) {
         if m.labels.contains(f.id) { show("Already in \(f.leaf)."); return }
         var remove = m.labels.contains("INBOX") ? ["INBOX"] : []
-        if let cur = folderID, folderMails.contains(where: { $0.id == m.id }) { remove.append(cur) }
+        if let from, m.labels.contains(from) { remove.append(from) }
         move(m, add: [f.id], remove: remove, text: "Moved to \(f.leaf).")
     }
 
@@ -102,7 +102,7 @@ extension PhoneStore {
         do {
             let r = try await flow.unblock(e, covered: covered)
             blocked.removeAll { $0.id == e.id }
-            if r.moveBackFailure != nil { show("\(e.title) is unblocked, but their old emails could not be moved back. They are still in the Blocked folder in Gmail."); return }
+            if r.moveBackFailure != nil { banner = "\(e.title) is unblocked, but their old emails could not be moved back. They are still in the Blocked folder in Gmail."; return }
             if !e.isCompany && !covered { book.approve(all: [e.from]) }   // not a "new sender" again
             show(BlockFlow.unblockedText(e, covered: covered))
             if !covered && !e.toTrash { await refresh() }
@@ -114,30 +114,41 @@ extension PhoneStore {
     /// Downloaded files live in the phone's cache (not backed up, removed on sign out), one folder per message and file.
     static let attachmentsDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("AudreyMailAttachments")
 
-    /// A file name that cannot point outside its folder, whatever the sender called the attachment.
+    /// Why a file did not open: the download failed, or the phone could not save it.
+    enum AttachmentProblem: Error { case download, save }
+
+    /// A file name that cannot point outside its folder, whatever the sender called the attachment. A long name is shortened but keeps its ending (.pdf).
     static func safeFileName(_ name: String) -> String {
         let n = name.components(separatedBy: CharacterSet(charactersIn: "/\\:\0")).joined(separator: "_").trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespacesAndNewlines))
-        return n.isEmpty ? "attachment" : String(n.prefix(120))
+        if n.isEmpty { return "attachment" }
+        var base = (n as NSString).deletingPathExtension; let ext = String((n as NSString).pathExtension.prefix(20))
+        while base.utf8.count > 100 { base.removeLast() }   // the file system allows 255 bytes, and a character can be several
+        return ext.isEmpty ? base : base + "." + ext
     }
 
-    /// The kept copy of an attachment, downloaded now if the phone does not have it yet. nil if it could not be downloaded or saved.
-    func attachmentFile(_ a: Attachment, of m: Mail) async -> URL? {
-        guard let i = m.attachments.firstIndex(of: a) else { return nil }
-        if let url = await saveAttachment(a, at: i, of: m) { return url }
-        // Gmail can change an attachment's id after the email was read: read the email again and try the same place in its list once more
-        if let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) { return await saveAttachment(fresh.attachments[i], at: i, of: fresh) }
-        return nil
+    /// The kept copy of an attachment, downloaded now if the phone does not have it yet. `fresh` is the re-read email when Gmail had changed the attachment's id
+    /// (the screen then uses its list). Throws why it failed.
+    func attachmentFile(_ a: Attachment, of m: Mail) async throws -> (url: URL, fresh: Mail?) {
+        guard let i = m.attachments.firstIndex(of: a) else { throw AttachmentProblem.download }
+        do { return (try await saveAttachment(a, at: i, of: m), nil) }
+        catch AttachmentProblem.save { throw AttachmentProblem.save }
+        catch GmailError.signInAgain { throw GmailError.signInAgain }
+        catch {}   // Gmail can change an attachment's id after the email was read: read the email again and try the same place in its list once more
+        guard let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) else { throw AttachmentProblem.download }
+        var kept = fresh; kept.siblings = m.siblings; kept.convo = m.convo
+        return (try await saveAttachment(fresh.attachments[i], at: i, of: fresh), kept)
     }
 
-    private func saveAttachment(_ a: Attachment, at i: Int, of m: Mail) async -> URL? {
+    private func saveAttachment(_ a: Attachment, at i: Int, of m: Mail) async throws -> URL {
         let folder = Self.attachmentsDir.appendingPathComponent(m.id.filter { $0.isLetter || $0.isNumber }).appendingPathComponent(String(i))
         let url = folder.appendingPathComponent(Self.safeFileName(a.name))
         if FileManager.default.fileExists(atPath: url.path) { return url }
-        guard let data = try? await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID), !data.isEmpty else { return nil }
+        let data = try await gmail.attachment(messageID: m.id, attachmentID: a.attachmentID)
+        guard !data.isEmpty else { throw AttachmentProblem.download }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try data.write(to: url, options: [.atomic, .completeFileProtection])
             return url
-        } catch { return nil }
+        } catch { throw AttachmentProblem.save }
     }
 }

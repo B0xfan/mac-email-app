@@ -4,6 +4,7 @@ import MailCore
 
 struct ReadView: View {
     let mail: Mail
+    var fromFolder: String? = nil   // set when the email was opened from inside a folder
     @EnvironmentObject var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
     @State private var full: Mail?
@@ -17,6 +18,7 @@ struct ReadView: View {
     @State private var previewURL: URL?   // the file shown in Apple's built-in preview (it has the share button)
     @State private var opening: Attachment?
     @State private var failedFile: Attachment?
+    @State private var failure = ""
 
     var body: some View {
         let m = full ?? mail
@@ -41,7 +43,7 @@ struct ReadView: View {
                             }
                             if let bad = failedFile {
                                 HStack {
-                                    Text("Could not download \(bad.name). Check the connection and try again.").font(.system(size: 13))
+                                    Text(failure).font(.system(size: 13))
                                     Spacer(minLength: 8)
                                     Button("Try again") { Task { await openFile(bad) } }.font(.system(size: 13, weight: .bold)).underline().frame(minHeight: 32)
                                 }
@@ -80,7 +82,7 @@ struct ReadView: View {
         .onDisappear { store.tabBarHidden = false }
         .task { await load() }
         .quickLookPreview($previewURL)
-        .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail) { movedAway = true }.presentationDetents([.medium, .large]) }
+        .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail, from: fromFolder) { movedAway = true }.presentationDetents([.medium, .large]) }
         .sheet(item: $blockTarget) { t in
             BlockSheet(mail: t) {
                 blockTarget = nil
@@ -104,7 +106,16 @@ struct ReadView: View {
     private func openFile(_ a: Attachment) async {
         opening = a; failedFile = nil
         defer { opening = nil }
-        if let url = await store.attachmentFile(a, of: full ?? mail) { previewURL = url } else { failedFile = a }
+        do {
+            let r = try await store.attachmentFile(a, of: full ?? mail)
+            if let fresh = r.fresh { full?.attachments = fresh.attachments }   // Gmail's new ids, so the next tap does not fail once first
+            previewURL = r.url
+        } catch {
+            if case GmailError.signInAgain = error { await store.fail(error, ""); return }   // the store handles an ended sign-in
+            failedFile = a
+            failure = (error as? PhoneStore.AttachmentProblem) == .save ? "Could not save \(a.name) on this iPhone. Free some space and try again." : "Could not download \(a.name). Check the connection and try again."
+            AccessibilityNotification.Announcement(failure).post()
+        }
     }
 
     private func hasRemotePictures(_ m: Mail) -> Bool { (cleaned?.remote ?? 0) > 0 }
@@ -172,5 +183,6 @@ struct AttachmentRow: View {
         .foregroundStyle(Theme.text).padding(.horizontal, 12).frame(minHeight: 56)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.side)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
         .accessibilityElement(children: .combine).accessibilityLabel("\(file.name), \(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file)). Opens a preview.")
+        .accessibilityValue(busy ? "Downloading" : "")
     }
 }

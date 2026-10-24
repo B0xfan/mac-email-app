@@ -1,6 +1,9 @@
 import SwiftUI
 import MailCore
 
+/// An email opened from inside a folder: remembers the folder, so "Move to folder" can take it out of there too.
+struct FolderOpen: Hashable { let mail: Mail; let folder: String }
+
 /// Where the inbox's Mailboxes button leads. Folder is a Gmail label id.
 enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, folder(String) }
 
@@ -123,6 +126,7 @@ struct FolderNameSheet: View {
 /// "Move to folder" from an open email: pick a folder, the email leaves the inbox, an Undo bar follows.
 struct MoveToFolderSheet: View {
     let mail: Mail
+    var from: String? = nil   // the folder it was opened from
     let moved: () -> Void
     @EnvironmentObject var store: PhoneStore
     @Environment(\.dismiss) private var dismiss
@@ -133,7 +137,7 @@ struct MoveToFolderSheet: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.folders) { f in
-                        Button { store.moveToFolder(mail, f); moved(); dismiss() } label: {
+                        Button { store.moveToFolder(mail, f, from: from); moved(); dismiss() } label: {
                             HStack(spacing: 12) { Image(systemName: "folder").foregroundStyle(Theme.acc); Text(f.name).font(.system(size: 17)); Spacer() }
                                 .frame(minHeight: 52).padding(.horizontal, 20).contentShape(Rectangle())
                         }.foregroundStyle(Theme.text)
@@ -164,7 +168,7 @@ struct FolderMailsView: View {
             if let b = store.banner { BannerView(text: b) }
             List {
                 ForEach(store.folderMails) { m in
-                    Button { path.append(m) } label: { MailRow(mail: m) }
+                    Button { path.append(FolderOpen(mail: m, folder: id)) } label: { MailRow(mail: m) }
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card).listRowSeparatorTint(Theme.line)
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))

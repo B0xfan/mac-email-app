@@ -29,6 +29,7 @@ struct InboxView: View {
             .navigationTitle("Inbox")
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
+            .navigationDestination(for: FolderOpen.self) { ReadView(mail: $0.mail, fromFolder: $0.folder) }
             .navigationDestination(for: MailboxRoute.self) { route in
                 switch route {
                 case .mailboxes: MailboxesView()

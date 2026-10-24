@@ -138,7 +138,7 @@ enum DemoSelfTest {
         check("archiving inside a folder takes it out of the inbox but leaves it in the folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return !l.contains("INBOX") && l.contains("Label_receipts") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == false)
         store.toast?.undo?(); await store.settle()
         check("Undo brings the inbox label back, in Gmail and in the folder list", box.with { b in b.msgs.first { $0.id == "m5" }!.labels.contains("INBOX") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == true)
-        store.moveToFolder(store.folderMails.first { $0.id == "m5" }!, travel); await store.settle()
+        store.moveToFolder(store.folderMails.first { $0.id == "m5" }!, travel, from: "Label_receipts"); await store.settle()
         check("moving an email from one folder to another leaves the first folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_travel") && !l.contains("Label_receipts") && !l.contains("INBOX") } && !store.folderMails.contains { $0.id == "m5" })
         store.toast?.undo?(); await store.settle()
         check("Undo puts it back in the first folder and the inbox", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_receipts") && l.contains("INBOX") && !l.contains("Label_travel") } && store.folderMails.contains { $0.id == "m5" })
@@ -160,20 +160,22 @@ enum DemoSelfTest {
         // attachments
         let inv = try! await store.fullMessage(row("m4")!)
         check("an email with files lists them with their names and sizes", inv.attachments.map(\.name) == ["Invoice-0231.pdf", "fence-finished.jpg"] && inv.attachments[0].size == 86_016)
-        let file = await store.attachmentFile(inv.attachments[0], of: inv)
-        check("opening an attachment downloads it into the phone's private cache under its own name", file != nil && file?.lastPathComponent == "Invoice-0231.pdf" && file.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == "%PDF-1.4 demo file" && file!.path.contains("/Caches/"))
+        let file = try? await store.attachmentFile(inv.attachments[0], of: inv)
+        check("opening an attachment downloads it into the phone's private cache under its own name", file != nil && file?.url.lastPathComponent == "Invoice-0231.pdf" && file.flatMap { try? String(contentsOf: $0.url, encoding: .utf8) } == "%PDF-1.4 demo file" && file!.url.path.contains("/Caches/") && file?.fresh == nil)
         let downloads = box.with { $0.attDownloads }
-        _ = await store.attachmentFile(inv.attachments[0], of: inv)
+        _ = try? await store.attachmentFile(inv.attachments[0], of: inv)
         check("opening it again uses the kept copy", box.with { $0.attDownloads } == downloads)
         box.with { $0.attFailOnce = true }
-        let second = await store.attachmentFile(inv.attachments[1], of: inv)
-        check("if Gmail refuses once (a changed attachment id) the email is read again and the download tried once more", second != nil && box.with { $0.attDownloads } == downloads + 2)
+        let second = try? await store.attachmentFile(inv.attachments[1], of: inv)
+        check("if Gmail refuses once (a changed attachment id) the email is read again, the download tried once more, and the new list handed back", second != nil && second?.fresh?.attachments.count == 2 && box.with { $0.attDownloads } == downloads + 2)
         try? FileManager.default.removeItem(at: PhoneStore.attachmentsDir)
         box.with { $0.attFail = true }
-        let none = await store.attachmentFile(inv.attachments[0], of: inv)
+        var why: PhoneStore.AttachmentProblem?
+        do { _ = try await store.attachmentFile(inv.attachments[0], of: inv) } catch { why = error as? PhoneStore.AttachmentProblem }
         box.with { $0.attFail = false }
-        check("a download that keeps failing gives nothing, so the screen can say so and offer Try again", none == nil)
-        check("a file name cannot point outside its folder", !PhoneStore.safeFileName("../../etc/x.pdf").contains("/") && PhoneStore.safeFileName("..") == "attachment" && PhoneStore.safeFileName("a:b") == "a_b")
+        check("a download that keeps failing says it was the download, so the screen can offer Try again", why == .download)
+        let long = PhoneStore.safeFileName(String(repeating: "é", count: 200) + ".pdf")
+        check("a file name cannot point outside its folder, and a long one keeps its ending", !PhoneStore.safeFileName("../../etc/x.pdf").contains("/") && PhoneStore.safeFileName("..") == "attachment" && PhoneStore.safeFileName("a:b") == "a_b" && long.hasSuffix(".pdf") && long.utf8.count <= 130)
 
         // sign out and sign-in ended
         await store.signOut()
