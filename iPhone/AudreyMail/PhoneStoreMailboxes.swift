@@ -136,7 +136,10 @@ extension PhoneStore {
         catch {}   // Gmail can change an attachment's id after the email was read: read the email again and try the same place in its list once more
         guard let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) else { throw AttachmentProblem.download }
         var kept = fresh; kept.siblings = m.siblings; kept.convo = m.convo
-        return (try await saveAttachment(fresh.attachments[i], at: i, of: fresh), kept)
+        do { return (try await saveAttachment(fresh.attachments[i], at: i, of: fresh), kept) }
+        catch AttachmentProblem.save { throw AttachmentProblem.save }
+        catch GmailError.signInAgain { throw GmailError.signInAgain }
+        catch { throw AttachmentProblem.download }
     }
 
     private func saveAttachment(_ a: Attachment, at i: Int, of m: Mail) async throws -> URL {
