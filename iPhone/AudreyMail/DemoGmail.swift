@@ -420,7 +420,7 @@ enum DemoMode {
         if s == "pinned" { box.with { b in for id in ["m3", "m5"] { if let i = b.msgs.firstIndex(where: { $0.id == id }) { b.msgs[i].labels.append("Label_pinned") } } } }
         if ["snoozed", "returned"].contains(s) {   // what the Mac wrote to the server: two snoozed emails, one email that came back from snooze
             let now = Int(Date().timeIntervalSince1970)
-            box.with { b in b.srvTVVersion = 1; b.srvTV = ["snoozes": ["z1": now + 5 * 3600, "z2": now + 2 * 86400], "surfaced": ["m6": now - 300], "back_tag": ["m6"], "no_reply": [String]()] }
+            box.with { b in b.srvTVVersion = 1; b.srvTV = ["snoozes": ["z1": now + 5 * 3600, "z2": now + 2 * 86400], "surfaced": ["m3": now - 300], "back_tag": ["m3"], "no_reply": [String]()] }
         }
         if s == "newsletter" { box.with { b in b.msgs.append(DemoMailbox.Msg(id: "mm1", thread: "Tmm1", labels: ["INBOX", "UNREAD"], from: "Market & More <news@marketandmore.example>", subject: "Enjoy 20% off Natural Brand this week", body: DemoNewsletter.html, date: Date().addingTimeInterval(-3600))) } }
         if s == "undooffline" { box.with { $0.srvDown = true } }
