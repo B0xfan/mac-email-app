@@ -26,6 +26,8 @@ enum Fetch { case ok(Data), none, error }
 
     @Published private(set) var version = 0   // bumps when a new picture arrives so visible avatars redraw
     var contacts: ContactDirectory?
+    /// The store decides who is trusted (a contact, an approved or known sender); nobody else gets a website visit.
+    var trusted: (Mail) -> Bool = { _ in false }
     var contactPhotos: [String: Data] = [:]
     var fetch: Fetcher
     var now: () -> Date = Date.init

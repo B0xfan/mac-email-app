@@ -289,6 +289,7 @@ final class GmailClient: @unchecked Sendable {
         return HistoryPage(events: ev, next: r["nextPageToken"] as? String, historyID: hid)
     }
 
+    /// Only tells none from some: asked for one email, Gmail answers 201 for any non-empty result (checked on a real mailbox 2026-10-24). Count with `listIDs`.
     func countEstimate(q: String) async throws -> Int {
         let r = json(try await send("/messages", query: [.init(name: "q", value: q), .init(name: "maxResults", value: "1")]))
         return r["resultSizeEstimate"] as? Int ?? 0

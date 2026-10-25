@@ -111,7 +111,7 @@ extension MailStore {
             let g = gmail, name = blockLabelName
             let mine = await mapLimited(fs, limit: 4) { f in
                 let from = f.criteria!.from!
-                let n = (try? await g.countEstimate(q: "label:\"\(name)\" from:\(GmailQuery.term(from))")) ?? 0
+                let n = (try? await g.listIDs(q: "label:\"\(name)\" from:\(GmailQuery.term(from))", max: GmailClient.all).count) ?? 0   // counted, not estimated: asked for one email, Gmail answers 201 for any non-empty result
                 return BlockedEntry(id: f.id, from: from, count: n)
             }
             // no per-sender count for these: one call each would be hundreds of calls
@@ -123,6 +123,21 @@ extension MailStore {
         if let id = blockedLabelID { return id }
         if let l = try await gmail.labels().first(where: { $0.name == blockLabelName }) { blockedLabelID = l.id; return l.id }
         return nil
+    }
+
+    /// Click a blocked sender: all their emails, in the same search list John already knows ("from:" is Gmail's own search word, and Gmail searches the Blocked label too).
+    func showEmails(from e: BlockedEntry) async {
+        await select(.search)
+        search = "from:" + GmailQuery.term(e.from) + " in:anywhere"   // anywhere: mail they sent that is in Trash or Spam is theirs too
+        await runSearch()
+    }
+
+    /// A company logo is a visit to the sender's website, so only for people already trusted: a contact, an approved or known sender. Never a new (screened) or blocked sender.
+    func logoOK(_ m: Mail) -> Bool {
+        let e = m.from.email.lowercased()
+        if let id = blockedLabelID, m.labels.contains(id) { return false }
+        if blocked.contains(where: { let f = $0.from.lowercased(); return f == e || (f.hasPrefix("@") && e.hasSuffix(f)) }) { return false }
+        return contacts.emails.contains(e) || !isNew(m)
     }
 
     func unblock(_ e: BlockedEntry) async {

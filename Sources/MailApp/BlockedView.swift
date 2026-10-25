@@ -15,6 +15,8 @@ struct BlockedView: View {
                 ForEach(store.blocked) { e in
                     Card {
                         HStack(spacing: 16) {
+                            Button { Task { await store.showEmails(from: e) } } label: {   // click: all their emails, in the search list
+                              HStack(spacing: 16) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(e.title).font(Theme.bodyStrong).lineLimit(2)
                                 HStack(spacing: 8) {
@@ -25,6 +27,8 @@ struct BlockedView: View {
                             }
                             Spacer()
                             if !e.toTrash { Text("\(e.count) email\(e.count == 1 ? "" : "s")").font(Theme.small).foregroundStyle(Theme.sub) }
+                              }.contentShape(Rectangle())
+                            }.buttonStyle(.plain).accessibilityLabel("Show emails from \(e.title)")
                             Button("Unblock") { Task { await store.unblock(e) } }
                                 .buttonStyle(MailButtonStyle(kind: .neutral)).accessibilityLabel("Unblock \(e.title)")
                         }

@@ -183,6 +183,7 @@ final class MailStore: ObservableObject {
         self.cacheURL = cacheURL; self.pendingDir = pendingDir; self.db = db
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.timingServer = timingServer; self.blockLabelName = blockLabelName
         SenderPictures.shared.contacts = contacts
+        SenderPictures.shared.trusted = { [weak self] in self?.logoOK($0) ?? false }
         // a selection belongs to the list it was made in; a different tab or view is a different list
         pickWatch = [settings.$smartTab.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil },
                      settings.$inboxView.removeDuplicates().dropFirst().sink { [weak self] _ in self?.picked = []; self?.pickAnchor = nil }]

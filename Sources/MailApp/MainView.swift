@@ -648,7 +648,7 @@ struct MessageRow: View {
                     Circle().fill(Theme.multiInk)
                     Image(systemName: "checkmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.multi)
                 }.frame(width: 34, height: 34).accessibilityHidden(true)
-            } else if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail)) }
+            } else if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail) && SenderPictures.shared.trusted(mail)) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
@@ -860,7 +860,7 @@ struct ReadingContent: View {
                 }
             }
             HStack(spacing: 12) {
-                Avatar(text: mail.from.initials, size: 36, email: mail.from.email, web: warns.isEmpty && !mail.labels.contains("SPAM"))
+                Avatar(text: mail.from.initials, size: 36, email: mail.from.email, web: warns.isEmpty && !mail.labels.contains("SPAM") && store.logoOK(mail))
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 8) {
                         Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)

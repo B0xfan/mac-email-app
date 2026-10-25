@@ -527,6 +527,20 @@ enum SelfTest {
             await st.loadBlocked()
             let bl = await MainActor.run { st.blocked }
             check("blocking: Spark's send-to-Trash filters are listed (a Trash filter with a subject or an attachment condition is not)", bl.contains { $0.id == "t1" && $0.toTrash } && !bl.contains { $0.id == "t2" || $0.id == "t3" } && bl.contains { $0.id == "b1" && !$0.toTrash })
+            check("blocking: the Blocked list counts the emails (Gmail answers a one-email count with a rough 201, so it is never used)", bl.first { $0.id == "b1" }?.count == 1)
+            await st.showEmails(from: bl.first { $0.id == "b1" }!)
+            let shown = await MainActor.run { (st.mailbox, st.search) }
+            check("blocking: clicking a blocked sender opens the search list for all their emails", shown.0 == .search && shown.1 == "from:\"spam@x.biz\" in:anywhere")
+            let now = Date()
+            await MainActor.run {
+                st.book.approve("friend@ok.example"); st.book.approve("a@gone.example"); st.knownCache["stranger@x.example"] = false
+                st.blocked = [BlockedEntry(id: "z", from: "@gone.example", count: 1)]
+            }
+            func logo(_ email: String, _ labels: [String] = ["INBOX"]) async -> Bool { await MainActor.run { st.logoOK(Mail(id: "l", from: Address(name: "A", email: email), subject: "", snippet: "", date: now, labels: labels)) } }
+            let blockedID = await MainActor.run { st.blockedLabelID } ?? "?"
+            let okFriend = await logo("friend@ok.example"), okStranger = await logo("stranger@x.example"), okGone = await logo("a@gone.example"), okLabel = await logo("friend@ok.example", [blockedID])
+            check("pictures: a company logo is asked for only an approved sender, never a new, blocked (even if approved earlier) or Blocked-label sender", okFriend && !okStranger && !okGone && !okLabel && blockedID == "Label_2")
+            await st.select(.blocked)   // back to the Blocked list as the checks below expect
             seen = []
             await st.unblock(bl.first { $0.id == "t1" }!)
             check("blocking: unblocking an old Trash block deletes the filter and moves no emails", seen.contains { $0.hasPrefix("DELETE") && $0.contains("/filters/t1") } && !seen.contains { $0.contains("batchModify") })
