@@ -87,6 +87,13 @@ struct SettingsView: View {
                 case .storage: StoragePage()
                 }
             }
+            // the Blocked list (opened from New senders) and a blocked sender's emails, as they open from Mailboxes
+            .navigationDestination(for: MailboxRoute.self) { route in
+                if route == .blocked { BlockedListView(path: $path) } else { FolderMailsView(route: route, path: $path) }
+            }
+            .navigationDestination(for: FolderOpen.self) { o in
+                ReadView(mail: o.mail, fromFolder: nil, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: "")) }).id(o.mail.id)
+            }
         }
         .task(id: active) {
             guard active, store.state == .signedIn else { return }

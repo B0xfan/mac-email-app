@@ -11,6 +11,49 @@ enum DemoSelfTest {
     static var failures = 0
     static func check(_ name: String, _ ok: Bool) { print("\(ok ? "PASS" : "FAIL") \(name)"); if !ok { failures += 1 } }
 
+    /// Counts what a stand-in download was asked for, from any thread.
+    final class Tally: @unchecked Sendable {
+        private let l = NSLock(); private var n = 0, urls: [String] = []
+        func add(_ u: String = "") { l.lock(); n += 1; urls.append(u); l.unlock() }
+        var count: Int { l.lock(); defer { l.unlock() }; return n }
+        var asked: [String] { l.lock(); defer { l.unlock() }; return urls }
+    }
+
+    /// Company logos only for trusted senders; a download stops at the size cap and under a time limit.
+    private static func logoAndDownloadChecks() async {
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 32, height: 32)).image { c in UIColor.red.setFill(); c.fill(CGRect(x: 0, y: 0, width: 32, height: 32)) }.pngData()!
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("logo-check-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let asked = Tally()
+        let pp = PhonePictures(dir: dir)
+        pp.enabled = true
+        pp.fetch = { url in asked.add(url.absoluteString); return png }
+        pp.trusted = { _ in false }
+        await pp.load("a@shop-one.example"); await pp.load("@shop-three.example")
+        check("a sender who is not trusted (new, screened or blocked) gets no website visit at all", asked.count == 0 && pp.image(for: "a@shop-one.example") == nil)
+        pp.trusted = { $0 == "b@shop-two.example" }
+        await pp.load("b@shop-two.example")
+        check("a trusted sender's logo is asked for from their own site and shown", asked.asked == ["https://shop-two.example/apple-touch-icon.png"] && pp.image(for: "b@shop-two.example") != nil)
+        let pc = PhonePictures(dir: dir.appendingPathComponent("c"))
+        pc.enabled = true; pc.contactLookup = { _ in (nil, true) }; pc.fetch = { url in asked.add(url.absoluteString); return png }
+        pc.trusted = { [unowned pc] in pc.isContact($0) }
+        let before = asked.count
+        await pc.load("c@shop-four.example")
+        let firstAsk = asked.count - before
+        await pc.load("c@shop-four.example")   // the row redraws because they became trusted, and asks again
+        check("a contact with no photo is recognised, then their logo is asked for once", firstAsk == 0 && asked.count - before == 1 && pc.image(for: "c@shop-four.example") != nil)
+        let pulled = Tally()
+        let endless = AsyncStream<UInt8>(unfolding: { pulled.add(); return 7 })
+        let tooBigStated = await PhonePictures.capped(endless, declared: Int64(PhonePictures.iconCap) + 1, cap: PhonePictures.iconCap)
+        check("a file the site says is too big is refused before any of it is read", tooBigStated == nil && pulled.count == 0)
+        let tooBigStream = await PhonePictures.capped(endless, declared: -1, cap: PhonePictures.iconCap)
+        check("a download that never says its size is stopped once it passes the cap", tooBigStream == nil && pulled.count > 0 && pulled.count <= PhonePictures.iconCap + 2)
+        let small = await PhonePictures.capped(AsyncStream<UInt8> { c in (0..<10).forEach { c.yield(UInt8($0)) }; c.finish() }, declared: 10, cap: PhonePictures.iconCap)
+        check("a small file comes through whole", small?.count == 10)
+        let cfg = PhonePictures.session.configuration
+        check("the logo downloads have a total time limit, no cookies and no shared cache", cfg.timeoutIntervalForResource == PhonePictures.deadline && cfg.httpCookieStorage == nil && cfg.urlCache == nil)
+    }
+
     /// Width of the page in a 390 point wide web view, before and after the same fit the Read screen applies. Scripts of the email stay off; ours runs in its own world.
     /// One web view for all layouts (each new one starts a web process, which is slow on the cloud machine).
     private static var fitHost: (view: WKWebView, window: UIWindow, loader: FitLoader)?
@@ -275,6 +318,11 @@ enum DemoSelfTest {
         await store.loadBlocked()
         let brightEntry = store.blocked.first { $0.from == "deals@brightside-offers.example" }
         check("the Blocked list shows every block with how many emails came from it", store.blocked.count == 3 && brightEntry?.count == 2)
+        // a blocked sender's emails open as a list (the same list a folder uses), and a blocked sender never gets a logo visit, even when approved earlier
+        await store.openList(.query("from:" + GmailQuery.term("deals@brightside-offers.example") + " in:anywhere"))
+        check("opening a blocked sender shows all their emails and nobody else's", store.folderMails.count == 2 && store.folderMails.allSatisfy { $0.from.email == "deals@brightside-offers.example" })
+        store.book.approve(all: ["deals@brightside-offers.example", "friend@approved.example"])
+        check("a logo is asked for only an approved sender, never a blocked or a new one", store.logoOK("friend@approved.example") && !store.logoOK("deals@brightside-offers.example") && !store.logoOK("stranger@nowhere.example"))
         await store.unblock(brightEntry!)
         check("Unblock removes the Gmail filter", box.with { b in !b.filters.contains { $0.from == "deals@brightside-offers.example" } && b.filters.count == 2 })
         check("Unblock sends their old emails back to the inbox", box.with { b in b.msgs.filter { $0.from.contains("brightside") }.allSatisfy { $0.labels.contains("INBOX") && !$0.labels.contains("Label_blocked") } })
@@ -385,6 +433,8 @@ enum DemoSelfTest {
         let signed = SignedText.apply(text: "Sounds good", signature: "Alex\nSent from my iPhone")
         check("the signature goes under what you type, in the formatted and the plain text; an empty one adds nothing", signed.plain == "Sounds good\n\nAlex\nSent from my iPhone" && signed.html.contains("Sent from my iPhone") && SignedText.apply(text: "Hi", signature: "  ").plain == "Hi" && SignedText.apply(text: "Hi", signature: nil).html == TextTools.plainToHTML("Hi"))
         check("a sender picture is only asked for from a real internet name, never an address on your own network", PhonePictures.validDomain("example.com") && PhonePictures.validDomain("mail.example.co.uk") && !PhonePictures.validDomain("192.168.1.1") && !PhonePictures.validDomain("printer.local") && !PhonePictures.validDomain("localhost") && !PhonePictures.validDomain("a..b.com"))
+
+        await logoAndDownloadChecks()
 
         // swipe choices
         let pinTarget = row("m6")!

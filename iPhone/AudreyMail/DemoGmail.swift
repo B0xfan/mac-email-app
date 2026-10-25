@@ -174,7 +174,7 @@ final class DemoMailbox: @unchecked Sendable {
             if query.hasPrefix("label:") { let a = addr("from:"); return reply(msgs.filter { $0.labels.contains("Label_blocked") && $0.from.lowercased().contains(a) }) }
             // plain words, and the Smart Folder words: from:x subject:x to:x has:attachment, {a b} = any of them
             let any = query.hasPrefix("{") && query.hasSuffix("}")
-            let words = (any ? String(query.dropFirst().dropLast()) : query).split(separator: " ").map { $0.replacingOccurrences(of: "\"", with: "") }
+            let words = (any ? String(query.dropFirst().dropLast()) : query).split(separator: " ").map { $0.replacingOccurrences(of: "\"", with: "") }.filter { $0 != "in:anywhere" }
             func hit(_ m: Msg, _ w: String) -> Bool {
                 if w == "has:attachment" { return !m.atts.isEmpty }
                 for (k, field) in [("from:", m.from), ("to:", m.to), ("subject:", m.subject)] where w.hasPrefix(k) { return field.lowercased().contains(w.dropFirst(k.count)) }

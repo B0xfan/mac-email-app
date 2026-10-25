@@ -100,6 +100,7 @@ final class PhoneStore: ObservableObject {
         undoDelay = UndoSend.choices.contains(d) ? d : UndoSend.defaultDelay
         loadOrganizer(); loadTimingView()
         pics.enabled = p.senderPictures
+        pics.trusted = { [weak self] in self?.logoOK($0) ?? false }
         bag.append(p.$senderPictures.dropFirst().sink { [pics] on in MainActor.assumeIsolated { pics.enabled = on } })
     }
     let defaults: UserDefaults
@@ -254,6 +255,7 @@ final class PhoneStore: ObservableObject {
             if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
             Task { await syncTimingView() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
             await classifySenders()
+            if !blockedLoaded, let l = try? await flow.list() { blocked = l; blockedLoaded = true; pics.recheck() }   // so a blocked sender never gets a logo visit (quietly: a failure here is not worth a banner)
         } catch { await fail(error, "Could not load mail.") }
     }
 
@@ -287,6 +289,13 @@ final class PhoneStore: ObservableObject {
         for m in inbox.sorted(by: { $0.date > $1.date }) where isNew(m) && (sendersChecked || knownCache[m.from.email] != nil) && seen.insert(m.from.email).inserted { out.append(m) }
         return out
     }
+    /// A company logo is a visit to the sender's website, so only a contact, an approved or a known sender gets one; never a blocked or a new one.
+    func logoOK(_ email: String) -> Bool {
+        let e = email.lowercased()
+        guard blockedLoaded else { return false }   // who is blocked is not known yet: no visit
+        if blocked.contains(where: { let f = $0.from.lowercased(); return f == e || (f.hasPrefix("@") && e.hasSuffix(f)) }) { return false }
+        return pics.isContact(e) || book.isApproved(e) || knownCache[email] == true
+    }
     var inboxMails: [Mail] { inbox.filter { !isNew($0) } }
     var groups: [SmartGroup] { SmartInbox.groups(unpinnedInbox, category: { MailCategory.guess($0) }) }   // pinned emails sit above the tabs, as on the Mac
     func unread(in c: MailCategory) -> Int { groups.first { $0.id == c.rawValue }?.unread ?? 0 }
@@ -307,16 +316,16 @@ final class PhoneStore: ObservableObject {
         }
         var learned: [String] = []
         for (addr, known) in results { if let known { knownCache[addr] = known; if known { learned.append(addr) } } }
-        if !learned.isEmpty { book.approve(all: learned) }
+        if !learned.isEmpty { book.approve(all: learned); pics.recheck() }
     }
 
     func approve(_ m: Mail) {
-        book.approve(all: [m.from.email]); knownCache[m.from.email] = true
+        book.approve(all: [m.from.email]); knownCache[m.from.email] = true; pics.recheck()
         show("Approved \(m.from.display). Their emails now reach your inbox.")
     }
     func approveAll() {
         let es = newSenderRows.map { $0.from.email }
-        book.approve(all: es); es.forEach { knownCache[$0] = true }
+        book.approve(all: es); es.forEach { knownCache[$0] = true }; pics.recheck()
         show("Approved everyone. Their emails now reach your inbox.")
     }
 
@@ -330,6 +339,7 @@ final class PhoneStore: ObservableObject {
         do {
             let moveFailed = try await flow.block(a, wholeCompany: false, myAddresses: myAddresses, accountEmail: accountEmail)
             inbox.removeAll { $0.from.email.lowercased() == a.email.lowercased() }
+            blocked.append(BlockedEntry(id: "new-" + a.email.lowercased(), from: a.email.lowercased(), count: 0)); pics.recheck()   // no logo visit from now on; the Blocked list reads the real filter when opened
             saveCache()
             if announce { show("Blocked \(a.display). They were not told.") }
             if moveFailed { banner = "Blocked \(a.email), but their old emails could not be moved yet. Block them again to retry." }

@@ -37,8 +37,8 @@ struct InboxView: View {
                 switch route {
                 case .mailboxes: MailboxesView()
                 case .drafts: DraftsView()
-                case .blocked: BlockedListView()
-                case .folder, .snoozed, .recent, .aside, .smart, .saved: FolderMailsView(route: route, path: $path)
+                case .blocked: BlockedListView(path: $path)
+                case .folder, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: $path)
                 }
             }
         }
@@ -56,6 +56,7 @@ struct InboxView: View {
             if s == "aside" { path.append(MailboxRoute.aside) }
             if s == "smartfolder", let f = store.organizer.smart.first { path.append(MailboxRoute.smart(f.id)) }
             if s == "blocked" { path.append(MailboxRoute.blocked) }
+            if s == "blockedsender" { path.append(MailboxRoute.blocked); path.append(MailboxRoute.sender("deals@brightside-offers.example")) }
             if s == "drafts" { path.append(MailboxRoute.drafts) }
         }
         #endif

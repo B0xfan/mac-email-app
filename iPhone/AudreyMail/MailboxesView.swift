@@ -5,7 +5,7 @@ import MailCore
 struct FolderOpen: Hashable { let mail: Mail; let folder: String }
 
 /// Where the inbox's Mailboxes button leads. Folder is a Gmail label id.
-enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, recent, aside, folder(String), smart(UUID), saved(UUID) }
+enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, recent, aside, folder(String), smart(UUID), saved(UUID), sender(String) }   // sender: every email from one blocked address or company ("@domain")
 
 // MARK: - Mailboxes: Drafts, Blocked, Snoozed, Folders, Smart Folders, saved searches
 
@@ -214,6 +214,7 @@ struct FolderMailsView: View {
         case .aside: return store.asideLabelID.map { .label($0) }
         case .smart(let id): return store.organizer.smart.first { $0.id == id }.flatMap { $0.query.isEmpty ? nil : .query($0.query) }
         case .saved(let id): return store.organizer.searches.first { $0.id == id }.map { .query(PhoneStore.gmailQuery(forSaved: $0.query)) }
+        case .sender(let from): return .query("from:" + GmailQuery.term(from) + " in:anywhere")   // anywhere: mail they sent that is in Trash or Spam is theirs too
         default: return nil
         }
     }
@@ -225,6 +226,7 @@ struct FolderMailsView: View {
         case .aside: return "Set Aside"
         case .smart(let id): return store.organizer.smart.first { $0.id == id }?.name ?? "Smart Folder"
         case .saved(let id): return store.organizer.searches.first { $0.id == id }?.name ?? "Saved search"
+        case .sender(let from): return from.hasPrefix("@") ? "Everyone at \(from.dropFirst())" : from
         default: return ""
         }
     }
@@ -236,11 +238,12 @@ struct FolderMailsView: View {
         case .snoozed: return "\(n) snoozed\(more). Hidden from your inbox until their time."
         case .recent: return "\(n) email\(n == 1 ? "" : "s") you opened in the last \(prefs.recentDays == 1 ? "day" : "2 days")."
         case .aside: return "\(n) set aside\(more). Out of your inbox until you bring them back."
+        case .sender: return "\(n) email\(n == 1 ? "" : "s")\(more) from them."
         default: return "\(n) email\(n == 1 ? "" : "s")\(more)"
         }
     }
     private var emptyText: String {
-        switch route { case .snoozed: return "Nothing snoozed"; case .recent: return "Nothing opened lately"; case .aside: return "Nothing set aside"; case .smart, .saved: return "No emails match"; default: return "Nothing in this folder" }
+        switch route { case .snoozed: return "Nothing snoozed"; case .recent: return "Nothing opened lately"; case .aside: return "Nothing set aside"; case .smart, .saved: return "No emails match"; case .sender: return "No emails from them"; default: return "Nothing in this folder" }
     }
     /// Snoozed: the soonest to come back first, as on the Mac.
     private var rows: [Mail] {
@@ -346,6 +349,7 @@ private struct DraftRowView: View {
 // MARK: - Blocked senders
 
 struct BlockedListView: View {
+    @Binding var path: NavigationPath
     @EnvironmentObject var store: PhoneStore
     var body: some View {
         List {
@@ -353,6 +357,8 @@ struct BlockedListView: View {
             Section {
                 ForEach(store.blocked) { e in
                     HStack(spacing: 12) {
+                      Button { path.append(MailboxRoute.sender(e.from)) } label: {   // their emails, as a list (the same screen a folder uses)
+                        HStack(spacing: 12) {
                         Avatar(address: Address(name: e.isCompany ? String(e.from.dropFirst()) : "", email: e.isCompany ? "@" + e.from.dropFirst() : e.from), people: false)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(e.title).font(.system(size: 16, weight: .semibold)).lineLimit(2)
@@ -364,6 +370,8 @@ struct BlockedListView: View {
                             }
                         }
                         Spacer(minLength: 4)
+                        }.contentShape(Rectangle())
+                      }.buttonStyle(.plain).accessibilityHint("Shows their emails")
                         Button("Unblock") { Task { await store.unblock(e) } }
                             .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text).padding(.horizontal, 12).frame(minHeight: 44)
                             .overlay(Capsule().stroke(Theme.line, lineWidth: 1)).buttonStyle(.borderless)

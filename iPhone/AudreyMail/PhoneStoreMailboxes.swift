@@ -105,7 +105,7 @@ extension PhoneStore {
     // MARK: - Blocked senders
 
     func loadBlocked() async {
-        do { blocked = try await flow.list(); blockedLoaded = true } catch { await fail(error, "Could not load your blocked senders.") }
+        do { blocked = try await flow.list(); blockedLoaded = true; pics.recheck() } catch { await fail(error, "Could not load your blocked senders.") }
     }
 
     /// Removes the Gmail filter and sends their old emails back to the inbox (the same steps as the Mac, in the shared BlockFlow).

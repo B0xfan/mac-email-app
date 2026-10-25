@@ -78,7 +78,7 @@ public final class BlockFlow: @unchecked Sendable {
         let g = gmail, name = labelName
         let mine = await mapLimited(fs, limit: 4) { f in
             let from = f.criteria!.from!
-            let n = (try? await g.countEstimate(q: "label:\"\(name)\" from:\(GmailQuery.term(from))")) ?? 0
+            let n = (try? await g.listIDs(q: "label:\"\(name)\" from:\(GmailQuery.term(from))", max: GmailClient.all).count) ?? 0   // counted, not estimated: asked for one email, Gmail answers 201 for any non-empty result
             return BlockedEntry(id: f.id, from: from, count: n)
         }
         // no per-sender count for the old ones: one call each would be hundreds of calls

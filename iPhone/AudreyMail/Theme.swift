@@ -52,7 +52,7 @@ struct Avatar: View {
             if let img = pics.image(for: address.email) { Image(uiImage: img).resizable().scaledToFill().frame(width: size, height: size).background(Color.white).clipShape(Circle()) }
         }
         .accessibilityHidden(true)
-        .task(id: "\(address.email)|\(pics.enabled)") { await pics.load(address.email) }   // asks again when the switch is turned on
+        .task(id: "\(address.email)|\(pics.enabled)|\(pics.trusted(address.email))") { await pics.load(address.email) }   // asks again when the switch is turned on, or when the sender becomes trusted
     }
 }
 

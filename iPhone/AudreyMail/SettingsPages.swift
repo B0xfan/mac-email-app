@@ -187,7 +187,7 @@ struct NewSendersPage: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("People you blocked never reach your inbox. They are not told.").font(.system(size: 15)).foregroundStyle(Theme.sub)
-                    NavigationLink { BlockedListView() } label: { Text("Open the Blocked list").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.acc).frame(minHeight: 36, alignment: .leading) }
+                    NavigationLink(value: MailboxRoute.blocked) { Text("Open the Blocked list").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.acc).frame(minHeight: 36, alignment: .leading) }
                 }.padding(.vertical, 4)
             } header: { Text("Blocked senders").foregroundStyle(Theme.sub) }
               footer: { Text("Blocks are Gmail rules, so they also hold on your Mac and in Gmail. Approvals you make here are kept on this phone.").foregroundStyle(Theme.sub) }.setCard()
