@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject var store: PhoneStore
@@ -31,7 +32,7 @@ struct RootView: View {
             let seconds = Double(prefs.checkMinutes) * 60
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                if phase == .active, store.state == .signedIn { await store.refreshIfStale(after: seconds - 1) }
+                if UIApplication.shared.applicationState == .active, store.state == .signedIn { await store.refreshIfStale(after: seconds - 1) }
             }
         }
         .onChange(of: phase) { _, p in
