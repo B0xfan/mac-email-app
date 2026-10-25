@@ -30,7 +30,7 @@ final class PhonePictures: ObservableObject {
         let c = URLSessionConfiguration.ephemeral
         c.httpCookieStorage = nil; c.httpShouldSetCookies = false; c.urlCache = nil; c.requestCachePolicy = .reloadIgnoringLocalCacheData
         c.timeoutIntervalForRequest = deadline; c.timeoutIntervalForResource = deadline
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: SameSiteRedirects(), delegateQueue: nil)
     }()
 
     init(dir: URL = Support.url("SenderPictures")) {
@@ -104,6 +104,18 @@ final class PhonePictures: ObservableObject {
         var out = Data()
         do { for try await b in bytes { if out.count >= cap { return nil }; out.append(b) } } catch { return nil }
         return out
+    }
+
+    /// A redirect is followed only to the same site (the name itself or a subdomain of it, over https) and only to a real internet name, never an address or a local name.
+    nonisolated static func redirectOK(from: URL?, to: URL?) -> Bool {
+        guard let from = from?.host?.lowercased(), let to, to.scheme == "https", let h = to.host?.lowercased(), validDomain(h) else { return false }
+        return h == from || h.hasSuffix("." + from)
+    }
+
+    final class SameSiteRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ s: URLSession, task: URLSessionTask, willPerformHTTPRedirection r: HTTPURLResponse, newRequest: URLRequest) async -> URLRequest? {
+            PhonePictures.redirectOK(from: task.originalRequest?.url, to: newRequest.url) ? newRequest : nil
+        }
     }
 
     func clear() { mem = [:]; misses = [:]; contacts = []; try? FileManager.default.removeItem(at: dir); try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true); version += 1 }

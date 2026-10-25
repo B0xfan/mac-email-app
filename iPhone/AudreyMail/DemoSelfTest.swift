@@ -52,6 +52,12 @@ enum DemoSelfTest {
         check("a small file comes through whole", small?.count == 10)
         let cfg = PhonePictures.session.configuration
         check("the logo downloads have a total time limit, no cookies and no shared cache", cfg.timeoutIntervalForResource == PhonePictures.deadline && cfg.httpCookieStorage == nil && cfg.urlCache == nil)
+        let from = URL(string: "https://example.com/favicon.ico")
+        func ok(_ to: String) -> Bool { PhonePictures.redirectOK(from: from, to: URL(string: to)) }
+        check("a logo redirect stays on the same site, and nowhere else (other site, address, local name, plain http)",
+              ok("https://www.example.com/icon.png") && ok("https://example.com/x.png")
+              && !ok("https://evil.net/x.png") && !ok("https://example.com.evil.net/x.png") && !ok("https://10.0.0.5/x.png") && !ok("https://[::1]/x.png")
+              && !ok("https://printer.local/x.png") && !ok("http://www.example.com/x.png"))
     }
 
     /// Width of the page in a 390 point wide web view, before and after the same fit the Read screen applies. Scripts of the email stay off; ours runs in its own world.
