@@ -3,29 +3,6 @@ import AppKit
 import Contacts
 import MailCore
 
-// MARK: - After archiving: which email opens next
-
-enum AfterArchive: String, CaseIterable { case below, unread }
-
-enum ArchiveNext {
-    /// `after` is the list once the archived row is gone; `archivedAt` is where that row used to be.
-    /// below: the email now in its place, else the one above, else none.
-    /// unread: the nearest unread email below, else the nearest unread one above, else none.
-    static func index(mode: AfterArchive, unread: [Bool], archivedAt: Int) -> Int? {
-        let n = unread.count
-        if n == 0 { return nil }
-        switch mode {
-        case .below: return archivedAt < n ? archivedAt : n - 1
-        case .unread:
-            var i = min(archivedAt, n)
-            while i < n { if unread[i] { return i }; i += 1 }
-            i = min(archivedAt, n) - 1
-            while i >= 0 { if unread[i] { return i }; i -= 1 }
-            return nil
-        }
-    }
-}
-
 // MARK: - Recently Seen: emails opened in this app, kept on this Mac
 
 struct SeenEntry: Codable, Equatable { var id: String; var at: Date }

@@ -36,16 +36,23 @@ enum Theme {
 }
 
 /// Round initials, colored by who the sender is: people teal or purple (steady per address), notifications and newsletters soft teal.
+/// With "Sender pictures" on (Settings, Layout), a contact's photo or the company's logo replaces the initials when there is one.
 struct Avatar: View {
     let address: Address
     var size: CGFloat = 44
     var people = true
+    @EnvironmentObject var pics: PhonePictures
     var body: some View {
         let purple = people && address.email.lowercased().unicodeScalars.reduce(0) { $0 + Int($1.value) } % 3 == 0   // not hashValue: that changes every launch
         let bg: Color = !people ? Theme.selStrong : purple ? Theme.blk : Theme.acc
         let fg: Color = !people ? Theme.text : purple ? Theme.blkText : Theme.accText
-        Text(address.initials).font(.system(size: size > 40 ? 15 : 12, weight: .bold)).foregroundStyle(fg)
-            .frame(width: size, height: size).background(Circle().fill(bg)).accessibilityHidden(true)
+        ZStack {
+            Text(address.initials).font(.system(size: size > 40 ? 15 : 12, weight: .bold)).foregroundStyle(fg)
+                .frame(width: size, height: size).background(Circle().fill(bg))
+            if let img = pics.image(for: address.email) { Image(uiImage: img).resizable().scaledToFill().frame(width: size, height: size).background(Color.white).clipShape(Circle()) }
+        }
+        .accessibilityHidden(true)
+        .task(id: address.email) { await pics.load(address.email) }
     }
 }
 

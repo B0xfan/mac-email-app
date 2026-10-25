@@ -349,23 +349,6 @@ struct PrintAskView: View {
 
 // MARK: - 7. To-do (store side)
 
-enum RemindersSender {
-    /// First use shows the Mac's own permission box. Adds to the Reminders list named like the project, else the default list.
-    static func add(_ t: TodoTask) async throws -> URL? {
-        let store = EKEventStore()
-        guard (try? await store.requestFullAccessToReminders()) == true else { throw TodoSendError.noPermission }
-        let r = EKReminder(eventStore: store)
-        r.title = t.title; r.notes = t.detail; r.url = t.link
-        r.calendar = (t.project.flatMap { p in store.calendars(for: .reminder).first { $0.title.lowercased() == p.lowercased() && $0.allowsContentModifications } }) ?? store.defaultCalendarForNewReminders()
-        if let p = t.priority { r.priority = p == .high ? 1 : (p == .normal ? 5 : 9) }
-        if let d = t.due {
-            r.dueDateComponents = Calendar.current.dateComponents(d.hasTime ? [.year, .month, .day, .hour, .minute] : [.year, .month, .day], from: d.date)
-        }
-        try store.save(r, commit: true)
-        return URL(string: "x-apple-reminderkit://")
-    }
-}
-
 extension MailStore {
     func closeReader() { openMail = nil; selectedID = nil }
 

@@ -11,7 +11,8 @@ final class DemoMailbox: @unchecked Sendable {
     private let lock = NSLock()
     var msgs: [Msg] = []
     var labels: [(id: String, name: String)] = []
-    var filters: [(id: String, from: String, label: String)] = []
+    var filters: [(id: String, from: String, label: String, json: [String: Any])] = []   // json: the filter exactly as Gmail was given it (rules have more in them than a block)
+    var vacation: [String: Any] = ["enableAutoReply": false]
     var sent: [String] = []
     var writes: [String] = []
     var expired = false
@@ -20,6 +21,8 @@ final class DemoMailbox: @unchecked Sendable {
     var attFail = false        // every attachment download is refused
     var attFailOnce = false    // the next attachment download is refused, then it works (a changed attachment id)
     var attDownloads = 0
+    var msgFetches = 0         // how many times a whole email was downloaded
+    var filterSerial = 0       // numbers a new filter so a deleted id is never used again
     var draftRaw: [String: String] = [:]   // draft id -> the raw email as saved, so a draft that is sent shows what was in it
     // the pretend Mail server (audreypka.com): registrations, held emails, and the shared Smart Folders
     var srvDown = false                    // every server call fails, as with no network
@@ -43,7 +46,7 @@ final class DemoMailbox: @unchecked Sendable {
         func add(_ id: String, _ labels: [String], _ from: String, _ subject: String, _ body: String, _ date: Date, unsub: Bool = false) {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
-        msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0
+        msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; vacation = ["enableAutoReply": false]; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0; msgFetches = 0; filterSerial = 0; msgFetches = 0; filterSerial = 0
         draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
@@ -133,11 +136,17 @@ final class DemoMailbox: @unchecked Sendable {
             labels.append((id: "Label_" + name.lowercased(), name: name)); writes.append("label \(name)")
             return (200, "{\"id\":\"Label_\(name.lowercased())\",\"name\":\"\(name)\",\"type\":\"user\"}")
         case ("GET", "/settings/filters"):
-            return (200, "{\"filter\":[\(filters.map { "{\"id\":\"\($0.id)\",\"criteria\":{\"from\":\"\($0.from)\"},\"action\":{\"addLabelIds\":[\"\($0.label)\"],\"removeLabelIds\":[\"INBOX\"]}}" }.joined(separator: ","))]}")
+            let all = filters.map { f -> [String: Any] in var j = f.json; j["id"] = f.id; return j }
+            return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: ["filter": all])) ?? Data("{}".utf8), as: UTF8.self))
         case ("POST", "/settings/filters"):
             let from = (body["criteria"] as? [String: Any])?["from"] as? String ?? "", label = ((body["action"] as? [String: Any])?["addLabelIds"] as? [String])?.first ?? ""
-            filters.append((id: "F\(filters.count + 1)", from: from, label: label)); writes.append("filter \(from) -> \(label)")
-            return (200, "{\"id\":\"F\(filters.count)\",\"criteria\":{\"from\":\"\(from)\"},\"action\":{\"addLabelIds\":[\"\(label)\"]}}")
+            filterSerial += 1
+            let id = "F\(filterSerial)"
+            filters.append((id: id, from: from, label: label, json: body)); writes.append("filter \(from) -> \(label)")
+            var made = body; made["id"] = id
+            return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: made)) ?? Data("{}".utf8), as: UTF8.self))
+        case ("GET", "/settings/vacation"): return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
+        case ("PUT", "/settings/vacation"): vacation = body; writes.append("vacation \(body["enableAutoReply"] as? Bool == true ? "on" : "off")"); return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
         case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true}]}"#)
         case ("POST", "/messages/batchModify"):
             let ids = body["ids"] as? [String] ?? [], add = body["addLabelIds"] as? [String] ?? [], rem = body["removeLabelIds"] as? [String] ?? []
@@ -207,6 +216,7 @@ final class DemoMailbox: @unchecked Sendable {
         if method == "GET", rel.hasPrefix("/messages/") {
             let id = String(rel.dropFirst("/messages/".count))
             guard let m = msgs.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
+            if q("format") == "full" { msgFetches += 1 }
             return (200, json(m, full: q("format") == "full"))
         }
         return (200, "{}")
@@ -387,6 +397,39 @@ enum DemoMode {
     static var screen: String? { args.firstIndex(of: "-demo").flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
     static var selfTest: Bool { args.contains("-selftest") }
 
+    /// Which Settings page a `-demo set-...` screen opens.
+    static var settingsPage: SettingsPage? {
+        switch screen ?? "" {
+        case "set-accounts": return .accounts
+        case "set-signatures": return .signatures
+        case "set-quick": return .quickReplies
+        case "set-away": return .away
+        case "set-rules": return .rules
+        case "set-rule": return .rule("")
+        case "set-sending": return .sending
+        case "set-inbox": return .inbox
+        case "set-layout": return .layout
+        case "set-swipe": return .swipe
+        case "set-todo": return .todo
+        case "set-appearance": return .appearance
+        case "set-recent": return .recent
+        case "set-senders": return .senders
+        case "set-privacy": return .privacy
+        case "set-storage": return .storage
+        default: return nil
+        }
+    }
+
+    /// Filters the Settings screens show: a block, and three rules of the kind the Mac makes.
+    static func demoRules(_ b: DemoMailbox) {
+        func add(_ json: [String: Any]) { b.filterSerial += 1; b.filters.append((id: "F\(b.filterSerial)", from: (json["criteria"] as? [String: Any])?["from"] as? String ?? "", label: "", json: json)) }
+        add(["criteria": ["from": "news@airline.com"], "action": ["removeLabelIds": ["INBOX", "UNREAD"]]])
+        add(["criteria": ["subject": "invoice"], "action": ["addLabelIds": ["Label_receipts"], "removeLabelIds": ["INBOX"]]])
+        add(["criteria": ["from": "spam-shop.com"], "action": ["addLabelIds": ["Label_blocked"], "removeLabelIds": ["INBOX"]]])
+        add(["criteria": ["to": "alex.jordan+orders@gmail.example"], "action": ["addLabelIds": ["STARRED"]]])
+        if !b.labels.contains(where: { $0.id == "Label_blocked" }) { b.labels.append((id: "Label_blocked", name: "Blocked")) }
+    }
+
     /// A Smart Folder the screens and checks use.
     static var demoSmart: SmartFolder { SmartFolder(id: UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!, name: "Invoices from Tom", rules: [SmartRule(field: .from, value: "tom"), SmartRule(field: .subject, value: "invoice")]) }
 
@@ -406,7 +449,8 @@ enum DemoMode {
         let server = withServer ? PhoneServer(refreshToken: { await auth.refreshTokenForServer() }, keys: MemoryServerKey(), session: session, clientID: "demo.apps.googleusercontent.com") : nil
         return PhoneStore(sign: auth, gmail: gmail, book: SenderBook(url: dir.appendingPathComponent("senders.json"), start: Date().addingTimeInterval(-10 * 86400)),
                           cacheURL: dir.appendingPathComponent("inbox.json"), defaults: UserDefaults(suiteName: "demo-\(UUID().uuidString)")!,
-                          server: server, organizerURL: dir.appendingPathComponent("organizer.json"), timingURL: dir.appendingPathComponent("timing-view.json"))
+                          server: server, organizerURL: dir.appendingPathComponent("organizer.json"), timingURL: dir.appendingPathComponent("timing-view.json"),
+                          seen: SeenBook(url: dir.appendingPathComponent("seen.json")), openedURL: dir.appendingPathComponent("opened.json"))
     }
 
     @MainActor static func make() -> (store: PhoneStore, tab: Int)? {
@@ -424,6 +468,26 @@ enum DemoMode {
         }
         if s == "newsletter" { box.with { b in b.msgs.append(DemoMailbox.Msg(id: "mm1", thread: "Tmm1", labels: ["INBOX", "UNREAD"], from: "Market & More <news@marketandmore.example>", subject: "Enjoy 20% off Natural Brand this week", body: DemoNewsletter.html, date: Date().addingTimeInterval(-3600))) } }
         if s == "undooffline" { box.with { $0.srvDown = true } }
+        if s.hasPrefix("set-") || s.hasPrefix("settings") {
+            box.with { b in demoRules(b); b.vacation = ["enableAutoReply": true, "responseSubject": "Away this week", "responseBodyPlainText": "Hi, I am away until November 9 with little signal. I will reply when I am back.", "restrictToContacts": false,
+                                                         "startTime": String(Int64(Date().addingTimeInterval(-86400).timeIntervalSince1970 * 1000)), "endTime": String(Int64(Date().addingTimeInterval(6 * 86400).timeIntervalSince1970 * 1000))] }
+            if s == "set-signatures" { store.prefs.signature = "Alex Jordan\nSent from my iPhone" }
+        }
+        if s == "recent" { for id in ["m3", "m1", "m2"] { store.seen.record(id) } }
+        if s == "aside" { box.with { b in
+            b.labels.append((id: "Label_aside", name: "Set Aside"))
+            for id in ["m6", "m7"] { if let i = b.msgs.firstIndex(where: { $0.id == id }) { b.msgs[i].labels.removeAll { $0 == "INBOX" }; b.msgs[i].labels.append("Label_aside") } } } }
+        if s == "grouped" {   // a conversation of three: two older messages (one sent by me) under the one in the inbox
+            store.prefs.groupConversations = true
+            box.with { b in
+                let now = Date()
+                b.msgs.append(DemoMailbox.Msg(id: "m1a", thread: "Tm1", labels: ["Label_old"], from: "Maya Ortiz <maya.ortiz@example.com>", subject: "Weekend plans", body: "Are you free on Saturday?", date: now.addingTimeInterval(-3 * 86400)))
+                b.msgs.append(DemoMailbox.Msg(id: "m1b", thread: "Tm1", labels: ["SENT"], from: "Alex Jordan <alex.jordan@gmail.example>", subject: "Re: Weekend plans", body: "Maybe, what do you have in mind?", date: now.addingTimeInterval(-2 * 86400)))
+            }
+        }
+        if s == "classicview" { store.prefs.inboxMode = .classic }
+        if s == "unreadview" { store.prefs.inboxMode = .unreadFirst }
+        if s == "lines2" { store.prefs.previewLines = 2 }
         if s == "wentout" { Task { @MainActor in   // opening the app after the server sent an email that was held
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             store.remember(HeldSend(draftID: "DGONE", subject: "Re: Saturday at the beach?", deadline: Date().addingTimeInterval(-60)))
@@ -436,7 +500,7 @@ enum DemoMode {
             let snap = ComposeSnapshot(mode: .new, source: nil, to: ["maya.ortiz@example.com"], cc: "", bcc: "", subject: "Saturday", text: "See you at 8", attachments: [], draftID: nil, threadID: nil)
             store.queueSend(snap, out: MIME.Outgoing(from: store.defaultFrom, to: "maya.ortiz@example.com", subject: "Saturday", html: "<p>See you at 8</p>", text: "See you at 8"), threadID: nil)
         } }
-        return (store, ["new": 1, "block": 1, "search": 2, "savesearch": 2, "namesearch": 2, "settings": 3][s] ?? 0)
+        return (store, s.hasPrefix("set-") ? 3 : ["new": 1, "block": 1, "search": 2, "savesearch": 2, "namesearch": 2, "settings": 3, "settings-end": 3][s] ?? 0)
     }
 }
 #endif

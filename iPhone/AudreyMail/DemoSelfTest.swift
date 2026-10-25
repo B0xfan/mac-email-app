@@ -46,7 +46,7 @@ enum DemoSelfTest {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return (nil, nil) }
         let w = UIWindow(windowScene: scene)
         w.frame = CGRect(x: 0, y: 0, width: 390, height: 844); w.overrideUserInterfaceStyle = .light
-        w.rootViewController = UIHostingController(rootView: InboxView().environmentObject(store))
+        w.rootViewController = UIHostingController(rootView: InboxView().phoneEnvironment(store))
         w.isHidden = false
         defer { w.isHidden = true }
         try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -375,6 +375,164 @@ enum DemoSelfTest {
             check("the email fits the screen width and wraps, without shrinking it: \(f.name) (\(Int(w.before)) wide before, \(Int(w.after)) after)", w.after > 0 && w.after <= 391 && w.zoom.isEmpty)
         }
         check("the check really sees a wide email (the Market and More newsletter is wider than the screen before the fit)", widest > 450)
+
+        // Settings: the phone starts as it always was, and each page does what it says
+        let prefs = store.prefs
+        check("the Settings start as the phone has always behaved: Archive right, Trash left, one preview line, pictures hidden, no sender pictures, screening on, no check timer, back to the list after archiving",
+              prefs.swipeRight == .archive && prefs.swipeLeft == .trash && prefs.previewLines == 1 && !prefs.loadImages && prefs.blockTrackers && !prefs.senderPictures && prefs.screenNewSenders
+              && prefs.checkMinutes == 0 && prefs.afterArchive == .list && !prefs.groupConversations && prefs.inboxMode == .smart && prefs.theme == .system && prefs.signature.isEmpty && prefs.recentDays == 2)
+        check("the Quick Replies start as the Mac's four answers", prefs.quickReplies == ["Sounds good, see you then.", "Thanks!", "Got it, I will reply properly soon.", "Can we do another time?"])
+        let signed = SignedText.apply(text: "Sounds good", signature: "Alex\nSent from my iPhone")
+        check("the signature goes under what you type, in the formatted and the plain text; an empty one adds nothing", signed.plain == "Sounds good\n\nAlex\nSent from my iPhone" && signed.html.contains("Sent from my iPhone") && SignedText.apply(text: "Hi", signature: "  ").plain == "Hi" && SignedText.apply(text: "Hi", signature: nil).html == TextTools.plainToHTML("Hi"))
+        check("a sender picture is only asked for from a real internet name, never an address on your own network", PhonePictures.validDomain("example.com") && PhonePictures.validDomain("mail.example.co.uk") && !PhonePictures.validDomain("192.168.1.1") && !PhonePictures.validDomain("printer.local") && !PhonePictures.validDomain("localhost") && !PhonePictures.validDomain("a..b.com"))
+
+        // swipe choices
+        let pinTarget = row("m6")!
+        await store.swipe(.pin, pinTarget)?.value; await store.settle()
+        check("the Pin swipe puts the Pinned label on in Gmail and the email joins the Pinned group", box.with { b in b.msgs.first { $0.id == "m6" }!.labels.contains("Label_pinned") } && store.pinnedMails.contains { $0.id == "m6" })
+        store.toast?.undo?(); await store.settle()
+        check("Undo takes the pin off again, in Gmail and on the screen", box.with { b in !b.msgs.first { $0.id == "m6" }!.labels.contains("Label_pinned") } && !store.pinnedMails.contains { $0.id == "m6" })
+        await store.swipe(.pin, row("m6")!)?.value; await store.settle()
+        await store.swipe(.pin, row("m6")!)?.value; await store.settle()
+        check("swiping Pin on a pinned email unpins it", box.with { b in !b.msgs.first { $0.id == "m6" }!.labels.contains("Label_pinned") } && !store.pinnedMails.contains { $0.id == "m6" })
+        await store.swipe(.aside, row("m8")!)?.value; await store.settle()
+        check("the Set Aside swipe makes the Set Aside label, puts the email under it and takes it out of the inbox", box.with { b in b.labels.contains { $0.name == "Set Aside" } && b.msgs.first { $0.id == "m8" }!.labels.contains("Label_set aside") && !b.msgs.first { $0.id == "m8" }!.labels.contains("INBOX") } && row("m8") == nil)
+        await store.openList(.label(store.asideLabelID ?? ""))
+        check("Set Aside in Mailboxes lists it", store.asideLabelID == "Label_set aside" && store.folderMails.map(\.id) == ["m8"])
+        store.toast?.undo?(); await store.settle()
+        check("Undo brings it back to the inbox", box.with { b in b.msgs.first { $0.id == "m8" }!.labels.contains("INBOX") } && row("m8") != nil)
+        let unreadBefore = row("m2")!.unread
+        store.swipe(.toggleRead, row("m2")!); await store.settle()
+        check("the read or unread swipe flips it", unreadBefore && !row("m2")!.unread && box.with { b in !b.msgs.first { $0.id == "m2" }!.labels.contains("UNREAD") })
+        store.swipe(.toggleRead, row("m2")!); await store.settle()
+        check("and flips it back", row("m2")!.unread && box.with { b in b.msgs.first { $0.id == "m2" }!.labels.contains("UNREAD") })
+        let writes = box.with { $0.writes.count }
+        check("Do nothing changes nothing", store.swipe(.none, row("m3")!) == nil && box.with { $0.writes.count } == writes)
+
+        // the inbox views, grouping, and what opens after archiving
+        prefs.inboxMode = .classic
+        let classic = store.openOrder
+        check("Classic is one list of the whole inbox, newest first", classic.count == store.unpinnedInbox.count + store.pinnedMails.count && zip(classic.dropFirst(store.pinnedMails.count), classic.dropFirst(store.pinnedMails.count + 1)).allSatisfy { $0.date >= $1.date })
+        prefs.inboxMode = .unreadFirst
+        let uf = store.openOrder
+        check("Unread first lists the unread emails before the rest", uf.count == classic.count && Array(uf.dropFirst(store.pinnedMails.count)).prefix { $0.unread }.count == store.unpinnedInbox.filter(\.unread).count)
+        prefs.inboxMode = .classic
+        let list = store.openOrder
+        prefs.afterArchive = .list
+        check("by default nothing opens after archiving (the phone goes back to the list)", store.nextAfterArchive(list[2], in: list) == nil)
+        prefs.afterArchive = .below
+        check("after archiving, the email below opens; the last one opens the one above", store.nextAfterArchive(list[2], in: list)?.id == list[3].id && store.nextAfterArchive(list.last!, in: list)?.id == list[list.count - 2].id)
+        prefs.afterArchive = .unread
+        let wantUnread = list.enumerated().first { $0.offset > 2 && $0.element.unread }?.element.id ?? list.enumerated().last { $0.offset < 2 && $0.element.unread }?.element.id
+        check("or the next unread one", store.nextAfterArchive(list[2], in: list)?.id == wantUnread)
+        prefs.afterArchive = .list; prefs.inboxMode = .smart
+        prefs.screenNewSenders = false
+        check("switching off Screen new senders lets everyone in", store.newSenderRows.isEmpty && store.inboxMails.count == store.inbox.count)
+        prefs.screenNewSenders = true
+        box.with { b in
+            let now = Date()
+            b.msgs.append(DemoMailbox.Msg(id: "m1a", thread: "Tm1", labels: ["Label_old"], from: "Maya Ortiz <maya.ortiz@example.com>", subject: "Weekend plans", body: "Are you free on Saturday?", date: now.addingTimeInterval(-3 * 86400)))
+            b.msgs.append(DemoMailbox.Msg(id: "m1b", thread: "Tm1", labels: ["SENT"], from: "Alex Jordan <alex.jordan@gmail.example>", subject: "Re: Weekend plans", body: "Maybe, what do you have in mind?", date: now.addingTimeInterval(-2 * 86400)))
+            if let i = b.msgs.firstIndex(where: { $0.id == "m1" }) { b.msgs[i].hid += 3 }
+        }
+        await store.refresh()
+        let conv = row("m1")!
+        check("with Group emails into conversations off, a row is just its newest email (no count)", prefs.count(conv) == nil && prefs.face(conv).id == conv.id)
+        prefs.groupConversations = true
+        check("with it on, the row says how many messages the conversation holds", conv.convoCount == 3 && prefs.count(conv) == 3 && prefs.face(conv).subject == conv.convo?.last?.subject)
+        box.with { b in b.msgs.removeAll { ["m1a", "m1b"].contains($0.id) }; if let i = b.msgs.firstIndex(where: { $0.id == "m1" }) { b.msgs[i].hid += 3 } }
+        prefs.groupConversations = false
+        await store.refresh()
+
+        // the away message (Gmail's own setting, shared with the Mac)
+        await store.loadAway()
+        check("the away message is read from Gmail (off to begin with)", store.away?.on == false && store.awayError == nil)
+        var away = store.away!
+        away.on = true; away.subject = "Away this week"; away.body = "Back on Monday"; away.last = Calendar.current.date(byAdding: .day, value: 3, to: away.first)
+        let awayErr = await store.saveAway(away)
+        check("saving it writes it to Gmail: on, with its subject, its words and an end day", awayErr == nil && box.with { b in b.vacation["enableAutoReply"] as? Bool == true && b.vacation["responseSubject"] as? String == "Away this week" && b.vacation["responseBodyPlainText"] as? String == "Back on Monday" && b.vacation["endTime"] != nil })
+        var empty = away; empty.subject = ""; empty.body = ""
+        let emptyErr = await store.saveAway(empty)
+        check("an away message with nothing to say is refused with a sentence and Gmail is not told", emptyErr != nil && box.with { b in b.vacation["responseSubject"] as? String == "Away this week" })
+        var off = away; off.on = false; off.subject = ""; off.body = ""
+        check("turning it off is never refused", await store.saveAway(off) == nil && box.with { b in b.vacation["enableAutoReply"] as? Bool == false })
+
+        // rules (Gmail filters, shared with the Mac)
+        let before = box.with { $0.filters.count }
+        box.with { DemoMode.demoRules($0) }
+        await store.loadRules()
+        check("the rules are read from Gmail, with the block labelled and each in plain words", store.rules.count == before + 4 && store.rules.contains { $0.fromBlock && $0.rule?.from == "spam-shop.com" } && store.rules.contains { $0.rule?.from == "news@airline.com" && !$0.fromBlock }
+              && store.rules.contains { $0.text.hasPrefix("Emails from news@airline.com") && $0.text.lowercased().contains("skip the inbox, mark as read") } && store.rules.contains { $0.text.contains("with \"invoice\" in the subject") && $0.text.lowercased().contains("move to folder") })
+        var rule = MailRule(); rule.from = "deals@shop.example"; rule.skip = true; rule.read = true
+        let made = await store.saveRule(rule)
+        let madeJSON = box.with { b in b.filters.last?.json }
+        check("a new rule makes one Gmail filter with the choices as Gmail words", made.error == nil && box.with { $0.filters.count } == before + 5 && (madeJSON?["criteria"] as? [String: Any])?["from"] as? String == "deals@shop.example"
+              && Set(((madeJSON?["action"] as? [String: Any])?["removeLabelIds"] as? [String]) ?? []) == ["INBOX", "UNREAD"])
+        check("the same rule twice is refused", await store.saveRule(rule).error == "You already have this rule.")
+        check("a rule with nothing to look for, or nothing to do, is refused and nothing is made", await store.saveRule(MailRule()).error != nil && await store.saveRule(MailRule(from: "a@b.example")).error != nil && box.with { $0.filters.count } == before + 5)
+        var edit = store.rules.first { $0.rule?.from == "deals@shop.example" }!.rule!
+        let oldID = edit.id
+        edit.star = true
+        let edited = await store.saveRule(edit)
+        check("editing makes the new filter first, then removes the old one: the count stays, the old id is gone, the star is in", edited.error == nil && box.with { $0.filters.count } == before + 5 && box.with { b in !b.filters.contains { $0.id == oldID } }
+              && box.with { b in (((b.filters.last?.json["action"] as? [String: Any])?["addLabelIds"] as? [String]) ?? []).contains("STARRED") })
+        await store.deleteRule(store.rules.first { $0.rule?.from == "deals@shop.example" }!)
+        check("deleting a rule removes the Gmail filter", box.with { $0.filters.count } == before + 4 && !store.rules.contains { $0.rule?.from == "deals@shop.example" })
+        let blockRow = store.rules.first { $0.fromBlock && $0.rule?.from == "spam-shop.com" }!
+        await store.deleteRule(blockRow)
+        check("deleting a rule that was made by blocking a sender unblocks them (their filter goes)", box.with { b in !b.filters.contains { $0.id == blockRow.id } })
+
+        // to-do: Obsidian on the phone, through the A4 folder picked in the Files app (here a folder of the same shape in the app's own space)
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent("vault-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: vault.appendingPathComponent(ObsidianTask.tasksFolder), withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: vault.appendingPathComponent(ObsidianTask.projectsFolder), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: vault.appendingPathComponent(ObsidianTask.projectsFolder + "/Pipa Fria.md").path, contents: Data())
+        let emptyDir = FileManager.default.temporaryDirectory.appendingPathComponent("novault-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+        let picked = VaultFolder.pick(vault)
+        check("picking the A4 folder keeps a permission slip and the folder's name; a folder without the task notes folder is refused with a sentence", picked.problem == nil && !picked.bookmark.isEmpty && picked.name == vault.lastPathComponent && VaultFolder.pick(emptyDir).problem != nil)
+        prefs.todoList = .obsidian
+        let none = await store.addTodo(line: "Call Maya", mail: row("m1")!)
+        check("with no A4 folder chosen the To-do button says so, and nothing is written", none?.hasPrefix("Choose your A4 folder") == true && !prefs.isInTodo(row("m1")!))
+        prefs.vaultBookmark = picked.bookmark; prefs.vaultName = "A4"
+        check("the project notes of the A4 folder are found", store.todoProjects() == ["Pipa Fria"])
+        let todoErr = await store.addTodo(line: "Call Maya for Pipa Fria tomorrow !high", mail: row("m1")!)
+        let tasks = vault.appendingPathComponent(ObsidianTask.tasksFolder)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []
+        let note = names.first.flatMap { try? String(contentsOf: tasks.appendingPathComponent($0), encoding: .utf8) } ?? ""
+        check("the To-do button writes a task note into the A4 folder the way the Mac does: the typed line read into a title, the project, the priority and the day, with the email's details", todoErr == nil && names == ["Call Maya.md"]
+              && note.hasPrefix("---\nstatus: open\npriority: high\ndue: ") && note.contains("[[04 Inner World/My Life/Projects/Pipa Fria]]") && note.contains("Subject: Saturday at the beach?") && note.contains("From: Maya Ortiz <maya.ortiz@example.com>"))
+        check("the email then carries the added-to-to-do mark, and the bar offers Open", prefs.isInTodo(row("m1")!) && store.toast?.text == "Added to to-do." && store.toast?.open?.absoluteString == "obsidian://open?vault=A4&file=02%20Planner/TaskNotes/Tasks/Call%20Maya")
+        let again = await store.addTodo(line: "Call Maya", mail: row("m1")!)
+        check("a second task with the same name gets its own note (-2), like the A4 task engine", again == nil && ((try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []).sorted() == ["Call Maya-2.md", "Call Maya.md"])
+        prefs.todoList = .todoist
+        let noKey = await store.addTodo(line: "Pay the fence", mail: row("m4")!)
+        check("Todoist without its key says to add it, and nothing is marked", noKey?.contains("Todoist") == true && !prefs.isInTodo(row("m4")!))
+        prefs.todoList = .obsidian
+        try? FileManager.default.removeItem(at: vault); try? FileManager.default.removeItem(at: emptyDir)
+
+        // Recently Seen
+        store.seen.clear()
+        store.seen.record("m3", at: Date().addingTimeInterval(-3 * 86400)); store.seen.record("m1", at: Date().addingTimeInterval(-60)); store.seen.record("m2", at: Date().addingTimeInterval(-30))
+        check("Recently Seen keeps what was opened, newest first, only inside the chosen days", store.seen.ids(withinDays: 2) == ["m2", "m1"] && store.seen.ids(withinDays: 7) == ["m2", "m1", "m3"])
+        await store.openList(store.recentSource())
+        check("opening Recently Seen lists those emails in that order", store.folderMails.map(\.id) == ["m2", "m1"])
+        store.seen.record("gone-from-gmail")
+        await store.openList(store.recentSource())
+        check("an email that is no longer in Gmail is just left out", store.folderMails.map(\.id) == ["m2", "m1"])
+
+        // Storage: opened emails keep their text for the chosen days
+        let fetched = box.with { $0.msgFetches }
+        store.opened.clear()
+        _ = try? await store.fullMessage(row("m3")!)
+        let firstOpen = box.with { $0.msgFetches }
+        _ = try? await store.fullMessage(row("m3")!)
+        check("an email opened before opens again from this phone without a download", firstOpen == fetched + 1 && box.with { $0.msgFetches } == firstOpen && store.opened.count == 1 && store.storedBytes() > 0 && store.storedCount >= 1)
+        store.opened.prune(keepDays: 30, now: Date().addingTimeInterval(31 * 86400))
+        check("past the chosen days its text is dropped, and it is read from Gmail again", store.opened.count == 0)
+        _ = try? await store.fullMessage(row("m3")!)
+        await store.clearStoredMail()
+        check("Clear stored mail empties what the phone kept and reads the inbox again from Gmail", store.opened.count == 0 && !store.inbox.isEmpty && store.state == .signedIn)
 
         // sign out and sign-in ended
         await store.signOut()

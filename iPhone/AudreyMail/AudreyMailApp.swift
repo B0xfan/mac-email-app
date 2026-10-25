@@ -23,6 +23,11 @@ struct AudreyMailApp: App {
     }
 
     var body: some Scene {
-        WindowGroup { RootView(initialTab: initialTab).environmentObject(store) }
+        WindowGroup { RootView(initialTab: initialTab).phoneEnvironment(store) }
     }
+}
+
+extension View {
+    /// Everything the screens read: the store, the Settings choices and the sender pictures.
+    func phoneEnvironment(_ store: PhoneStore) -> some View { environmentObject(store).environmentObject(store.prefs).environmentObject(store.pics) }
 }

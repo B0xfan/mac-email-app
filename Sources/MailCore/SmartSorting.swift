@@ -54,3 +54,27 @@ extension SmartInbox {
         unreadFirst(mails, holding: holding).flatMap { g in [UnreadFirstItem.header(g)] + g.mails.map { UnreadFirstItem.row($0) } }
     }
 }
+
+// After archiving: which email opens next (shared by the Mac and the iPhone)
+
+public enum AfterArchive: String, CaseIterable { case below, unread }
+
+public enum ArchiveNext {
+    /// `after` is the list once the archived row is gone; `archivedAt` is where that row used to be.
+    /// below: the email now in its place, else the one above, else none.
+    /// unread: the nearest unread email below, else the nearest unread one above, else none.
+    public static func index(mode: AfterArchive, unread: [Bool], archivedAt: Int) -> Int? {
+        let n = unread.count
+        if n == 0 { return nil }
+        switch mode {
+        case .below: return archivedAt < n ? archivedAt : n - 1
+        case .unread:
+            var i = min(archivedAt, n)
+            while i < n { if unread[i] { return i }; i += 1 }
+            i = min(archivedAt, n) - 1
+            while i >= 0 { if unread[i] { return i }; i -= 1 }
+            return nil
+        }
+    }
+}
+

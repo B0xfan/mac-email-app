@@ -25,7 +25,7 @@ extension PhoneStore {
             present(ComposeSeed(restoring: ComposeSnapshot(
                 mode: .new, source: nil, to: Address.parseList(full.to).map(\.email).filter { $0.contains("@") }, cc: full.cc, bcc: full.bcc ?? "",
                 subject: full.subject == "(no subject)" ? "" : full.subject, text: body, attachments: [], draftID: r.id, threadID: full.threadID,
-                inReplyTo: full.references.split(separator: " ").last.map(String.init) ?? "", references: full.references)))   // a reply draft stays a reply
+                inReplyTo: full.references.split(separator: " ").last.map(String.init) ?? "", references: full.references, signed: false)))   // a reply draft stays a reply; its text already holds any signature
         } catch { await fail(error, "This draft could not be opened.") }
     }
 
@@ -77,6 +77,11 @@ extension PhoneStore {
             switch source {
             case .label(let id): page = try await gmail.listPage(labels: [id], max: 50, pageToken: token)
             case .query(let q): page = try await gmail.listPage(q: q, max: 50, pageToken: token)
+            case .ids(let ids):   // Recently Seen: every email is asked for by its id; one that is gone from Gmail is simply left out
+                let byID = Dictionary((await gmail.messagesChecked(ids: ids)).mails.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                guard folderGen == gen, state == .signedIn else { return }
+                folderMails = ids.compactMap { byID[$0] }; folderNext = nil
+                return
             }
             let got = await gmail.messagesChecked(ids: page.ids)
             guard folderGen == gen, state == .signedIn else { return }   // the folder was opened again meanwhile: only the newest answer counts

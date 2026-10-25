@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import Combine
 import MailCore
 
 /// Where the phone keeps its small files (the saved inbox, the new-sender list). Never a token: those live in the Keychain only.
@@ -32,7 +33,7 @@ final class SenderBook {
 /// A saved Gmail draft, as a row in the Drafts list (`id` is the draft's id, `mail` its message).
 struct DraftRow: Identifiable { let id: String; var mail: Mail }
 
-struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@MainActor () -> Void)? }
+struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@MainActor () -> Void)?; var open: URL? = nil }   // open: where the "Open" button leads (a new to-do)
 
 @MainActor
 final class PhoneStore: ObservableObject {
@@ -64,6 +65,13 @@ final class PhoneStore: ObservableObject {
     @Published var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
     @Published var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back
     @Published var undoDelay: Int { didSet { defaults.set(undoDelay, forKey: "undoDelay") } }
+    // Gmail settings the Settings pages read and write: the away message and the rules (both live in Gmail, so the Mac and Gmail show the same)
+    @Published var away: AwaySettings?
+    @Published var awayError: String?
+    @Published var rules: [RuleRow] = []
+    @Published var ruleNames: [String: String] = [:]
+    @Published var rulesError: String?
+    @Published var rulesLoaded = false
 
     let sign: PhoneSignIn
     private(set) var gmail: GmailClient
@@ -79,16 +87,27 @@ final class PhoneStore: ObservableObject {
     static let blockLabelName = "Blocked"
 
     init(sign: PhoneSignIn, gmail: GmailClient, book: SenderBook = SenderBook(), cacheURL: URL = Support.url("inbox.json"), defaults: UserDefaults = .standard,
-         server: PhoneServer? = nil, organizerURL: URL = Support.url("organizer.json"), timingURL: URL = Support.url("timing-view.json")) {
+         server: PhoneServer? = nil, organizerURL: URL = Support.url("organizer.json"), timingURL: URL = Support.url("timing-view.json"),
+         seen: SeenBook? = nil, openedURL: URL = Support.url("opened.json")) {
         self.sign = sign; self.gmail = gmail; self.book = book; self.cacheURL = cacheURL
+        let p = PhoneSettings(defaults: defaults)
+        prefs = p; self.seen = seen ?? SeenBook(); opened = OpenedBook(url: openedURL, keepDays: p.keepTextDays); self.openedURL = openedURL
         self.defaults = defaults; self.server = server; self.organizerURL = organizerURL; self.timingURL = timingURL
         self.flow = BlockFlow(gmail: gmail, labelName: Self.blockLabelName) { ids, add, remove in try await gmail.modify(ids: ids, add: add, remove: remove) }
         tab = MailCategory(rawValue: defaults.string(forKey: "smartTab") ?? "") ?? .people
         let d = defaults.integer(forKey: "undoDelay")
         undoDelay = UndoSend.choices.contains(d) ? d : UndoSend.defaultDelay
         loadOrganizer(); loadTimingView()
+        pics.enabled = p.senderPictures
+        bag.append(p.$senderPictures.dropFirst().sink { [pics] on in MainActor.assumeIsolated { pics.enabled = on } })
     }
     let defaults: UserDefaults
+    let prefs: PhoneSettings      // the Settings choices (PhoneSettings.swift)
+    let seen: SeenBook            // Recently Seen
+    let opened: OpenedBook        // full text of emails opened here, kept for "Keep full email text for" days
+    let openedURL: URL
+    let pics = PhonePictures()    // sender pictures (Settings, Layout)
+    private var bag: [AnyCancellable] = []
     // shared with the Mac through the Mail server (PhoneStoreShared.swift)
     let server: PhoneServer?
     @Published var organizer = Organizer()   // Smart Folders and saved searches
@@ -151,8 +170,29 @@ final class PhoneStore: ObservableObject {
         organizer = Organizer(); organizerBase = Organizer(); smartCounts = [:]; sharing = nil; heldTask?.cancel(); heldTask = nil; defaults.removeObject(forKey: HeldSend.key)
         Task { await server?.forgetKey() }   // the next account registers fresh
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
+        opened.clear(); seen.clear(); pics.clear(); away = nil; awayError = nil; rules = []; ruleNames = [:]; rulesError = nil; rulesLoaded = false
         try? FileManager.default.removeItem(at: cacheURL)
         try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil
+    }
+
+    // MARK: - Storage (Settings, Storage)
+
+    /// What Audrey Mail keeps of your mail on this phone: the saved inbox, emails opened here, and downloaded files.
+    func storedBytes() -> Int {
+        func size(_ u: URL) -> Int { (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+        var files = 0
+        if let it = FileManager.default.enumerator(at: Self.attachmentsDir, includingPropertiesForKeys: [.fileSizeKey]) { for case let u as URL in it { files += size(u) } }
+        return size(cacheURL) + opened.bytes + files
+    }
+    var storedCount: Int { Set(inbox.map(\.id) + opened.ids).count }
+
+    /// Empties the saved copy. The mail itself stays in Gmail and comes back as the inbox is read again.
+    func clearStoredMail() async {
+        opened.clear()
+        try? FileManager.default.removeItem(at: Self.attachmentsDir)
+        try? FileManager.default.removeItem(at: cacheURL)
+        inbox = []; next = nil
+        await refresh()
     }
 
     private enum Fresh { case ok, ended, offline }
@@ -188,7 +228,7 @@ final class PhoneStore: ObservableObject {
     func setTab(_ c: MailCategory) { tab = c; defaults.set(c.rawValue, forKey: "smartTab") }
 
     /// Pull to refresh, and when the app comes back to the front (at most once a minute).
-    func refreshIfStale() async { if Date().timeIntervalSince(lastRefresh) > 60 { await refresh(); await syncOrganizer() } }
+    func refreshIfStale(after seconds: Double = 60) async { if Date().timeIntervalSince(lastRefresh) > seconds { await refresh(); await syncOrganizer() } }
 
     func refresh() async {
         guard state == .signedIn, !refreshing else { return }
@@ -236,6 +276,7 @@ final class PhoneStore: ObservableObject {
     // MARK: - New senders
 
     func isNew(_ m: Mail) -> Bool {
+        if !prefs.screenNewSenders { return false }
         if m.labels.contains("SENT") || book.isApproved(m.from.email) { return false }
         return knownCache[m.from.email] == false || (knownCache[m.from.email] == nil && m.date > book.screeningStart)
     }
@@ -315,7 +356,7 @@ final class PhoneStore: ObservableObject {
     /// Waits until every change made on screen has reached Gmail (the built-in checks use it).
     func settle() async { await writeChain?.value }
 
-    private func enqueue(_ op: @escaping @MainActor () async -> Void) {
+    func enqueue(_ op: @escaping @MainActor () async -> Void) {
         let prev = writeChain
         writeChain = Task { await prev?.value; await op() }
     }
@@ -380,8 +421,11 @@ final class PhoneStore: ObservableObject {
 
     /// The whole message, with the pictures that sit inside it filled in from its own parts.
     func fullMessage(_ m: Mail) async throws -> Mail {
+        opened.prune(keepDays: prefs.keepTextDays)
+        if var kept = opened.get(m.id) { kept.siblings = m.siblings; kept.convo = m.convo; kept.labels = m.labels; return kept }   // opened before: no download
         var full = try await gmail.message(id: m.id, full: true)
         full.siblings = m.siblings; full.convo = m.convo
+        defer { opened.put(full) }
         guard var h = full.html, let parts = full.cidParts, h.localizedCaseInsensitiveContains("cid:") else { return full }
         for (cid, p) in parts.prefix(12) where h.localizedCaseInsensitiveContains("cid:" + cid) {
             var data = p.data
@@ -648,8 +692,8 @@ final class PhoneStore: ObservableObject {
 
     // MARK: - Small messages
 
-    func show(_ text: String, undo: (@MainActor () -> Void)? = nil, seconds: UInt64 = 5) {
-        let t = Toast(text: text, undo: undo)
+    func show(_ text: String, undo: (@MainActor () -> Void)? = nil, seconds: UInt64 = 5, open: URL? = nil) {
+        let t = Toast(text: text, undo: undo, open: open)
         toast = t
         Task { try? await Task.sleep(nanoseconds: seconds * 1_000_000_000); if self.toast?.id == t.id { self.toast = nil } }
     }

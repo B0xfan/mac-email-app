@@ -15,6 +15,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Audrey Mail adds the task you ask for to Reminders.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Audrey Mail shows the photo of a sender who is in your Contacts, when you turn on Sender pictures.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchScreen</key>

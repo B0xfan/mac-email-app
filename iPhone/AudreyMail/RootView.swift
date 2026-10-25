@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var store: PhoneStore
+    @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.scenePhase) private var phase
     @State private var sel = 0
     var initialTab = 0
@@ -23,7 +24,16 @@ struct RootView: View {
         .animation(.default, value: store.sendToast?.id)
         .fullScreenCover(item: $store.composeSeed, onDismiss: { DispatchQueue.main.async { store.showNextCompose() } }) { ComposeView(seed: $0) }
         .tint(Theme.acc)
+        .preferredColorScheme(prefs.theme.scheme)
         .task { sel = initialTab; await store.start() }
+        .task(id: prefs.checkMinutes) {   // Settings, Inbox: look for new email every so often while the app is open
+            guard prefs.checkMinutes > 0 else { return }
+            let seconds = Double(prefs.checkMinutes) * 60
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                if phase == .active, store.state == .signedIn { await store.refreshIfStale(after: seconds - 1) }
+            }
+        }
         .onChange(of: phase) { _, p in
             if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() }; store.resumeHeld() }
             if p == .background { store.sendPendingNow() }   // leaving the app or locking the phone: an email the server holds stays with it, any other goes out at once
@@ -36,7 +46,7 @@ struct RootView: View {
                 InboxView().opacity(sel == 0 ? 1 : 0).allowsHitTesting(sel == 0)
                 NewSendersView().opacity(sel == 1 ? 1 : 0).allowsHitTesting(sel == 1)
                 SearchView().opacity(sel == 2 ? 1 : 0).allowsHitTesting(sel == 2)
-                SettingsView().opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3)
+                SettingsView(active: sel == 3).opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3)
             }
             if !store.tabBarHidden { tabBar }
         }

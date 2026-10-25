@@ -2,7 +2,7 @@ import Foundation
 import MailCore
 
 /// What a list of emails (a folder, Snoozed, a Smart Folder, a saved search) is read from.
-enum MailListSource: Hashable { case label(String), query(String) }
+enum MailListSource: Hashable { case label(String), query(String), ids([String]) }   // ids: Recently Seen, in the order they were opened
 
 /// What the Mac keeps in Gmail labels shows here the same way: Pinned, Snoozed. And what the Mac and the phone share through the Mail server: Smart Folders and saved searches.
 extension PhoneStore {

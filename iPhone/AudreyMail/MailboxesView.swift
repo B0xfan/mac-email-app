@@ -5,7 +5,7 @@ import MailCore
 struct FolderOpen: Hashable { let mail: Mail; let folder: String }
 
 /// Where the inbox's Mailboxes button leads. Folder is a Gmail label id.
-enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, folder(String), smart(UUID), saved(UUID) }
+enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, recent, aside, folder(String), smart(UUID), saved(UUID) }
 
 // MARK: - Mailboxes: Drafts, Blocked, Snoozed, Folders, Smart Folders, saved searches
 
@@ -27,6 +27,8 @@ struct MailboxesView: View {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
                 NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed") }
+                NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
+                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside") }
             }.modifier(CardRows())
             Section {
                 ForEach(store.folders) { f in
@@ -200,6 +202,7 @@ struct FolderMailsView: View {
     let route: MailboxRoute
     @Binding var path: NavigationPath
     @EnvironmentObject var store: PhoneStore
+    @EnvironmentObject var prefs: PhoneSettings
     @State private var editing: SmartFolder?
 
     /// What this list reads from Gmail; nil = nothing to read (no Snoozed label yet, or a Smart Folder with no rule).
@@ -207,6 +210,8 @@ struct FolderMailsView: View {
         switch route {
         case .folder(let id): return .label(id)
         case .snoozed: return store.snoozeLabelID.map { .label($0) }
+        case .recent: return store.recentSource()
+        case .aside: return store.asideLabelID.map { .label($0) }
         case .smart(let id): return store.organizer.smart.first { $0.id == id }.flatMap { $0.query.isEmpty ? nil : .query($0.query) }
         case .saved(let id): return store.organizer.searches.first { $0.id == id }.map { .query(PhoneStore.gmailQuery(forSaved: $0.query)) }
         default: return nil
@@ -216,6 +221,8 @@ struct FolderMailsView: View {
         switch route {
         case .folder(let id): return store.folders.first { $0.id == id }?.leaf ?? "Folder"
         case .snoozed: return "Snoozed"
+        case .recent: return "Recently Seen"
+        case .aside: return "Set Aside"
         case .smart(let id): return store.organizer.smart.first { $0.id == id }?.name ?? "Smart Folder"
         case .saved(let id): return store.organizer.searches.first { $0.id == id }?.name ?? "Saved search"
         default: return ""
@@ -227,11 +234,13 @@ struct FolderMailsView: View {
         case .smart(let id): return "\(n) email\(n == 1 ? "" : "s")\(more) match: " + (store.organizer.smart.first { $0.id == id }?.rulesText ?? "")
         case .saved(let id): return "\(n) email\(n == 1 ? "" : "s")\(more) match: " + (store.organizer.searches.first { $0.id == id }?.query ?? "")
         case .snoozed: return "\(n) snoozed\(more). Hidden from your inbox until their time."
+        case .recent: return "\(n) email\(n == 1 ? "" : "s") you opened in the last \(prefs.recentDays == 1 ? "day" : "2 days")."
+        case .aside: return "\(n) set aside\(more). Out of your inbox until you bring them back."
         default: return "\(n) email\(n == 1 ? "" : "s")\(more)"
         }
     }
     private var emptyText: String {
-        switch route { case .snoozed: return "Nothing snoozed"; case .smart, .saved: return "No emails match"; default: return "Nothing in this folder" }
+        switch route { case .snoozed: return "Nothing snoozed"; case .recent: return "Nothing opened lately"; case .aside: return "Nothing set aside"; case .smart, .saved: return "No emails match"; default: return "Nothing in this folder" }
     }
     /// Snoozed: the soonest to come back first, as on the Mac.
     private var rows: [Mail] {
@@ -251,10 +260,8 @@ struct FolderMailsView: View {
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card).listRowSeparatorTint(Theme.line)
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if m.labels.contains("INBOX") { Button { store.archive(m) } label: { Label("Archive", systemImage: "archivebox") }.tint(Theme.acc) }
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) { Button { store.trash(m) } label: { Label("Trash", systemImage: "trash") }.tint(Theme.danger) }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m, needsInbox: true) }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m, needsInbox: true) }
                 }
                 if store.folderNext != nil {
                     Button { Task { await store.loadMoreFolder() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }

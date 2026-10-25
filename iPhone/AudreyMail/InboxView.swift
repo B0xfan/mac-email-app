@@ -3,6 +3,7 @@ import MailCore
 
 struct InboxView: View {
     @EnvironmentObject var store: PhoneStore
+    @EnvironmentObject var prefs: PhoneSettings
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -26,14 +27,18 @@ struct InboxView: View {
             .background(Theme.bg)
             .navigationTitle("Inbox")
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
-            .navigationDestination(for: FolderOpen.self) { ReadView(mail: $0.mail, fromFolder: $0.folder.isEmpty ? nil : $0.folder) }
+            .navigationDestination(for: Mail.self) { m in
+                ReadView(mail: m, advance: { next in path.removeLast(); path.append(next) })   // "open the next email" replaces this one on the screen
+            }
+            .navigationDestination(for: FolderOpen.self) { o in
+                ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) })
+            }
             .navigationDestination(for: MailboxRoute.self) { route in
                 switch route {
                 case .mailboxes: MailboxesView()
                 case .drafts: DraftsView()
                 case .blocked: BlockedListView()
-                case .folder, .snoozed, .smart, .saved: FolderMailsView(route: route, path: $path)
+                case .folder, .snoozed, .recent, .aside, .smart, .saved: FolderMailsView(route: route, path: $path)
                 }
             }
         }
@@ -41,12 +46,14 @@ struct InboxView: View {
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""
-            if ["read", "write", "leave"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
+            if ["read", "write", "leave", "todo", "grouped"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
             if s == "newsletter", let m = store.inbox.first(where: { $0.id == "mm1" }) { path.append(m) }
             if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
             if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
             if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
             if s == "snoozed" { path.append(MailboxRoute.snoozed) }
+            if s == "recent" { path.append(MailboxRoute.recent) }
+            if s == "aside" { path.append(MailboxRoute.aside) }
             if s == "smartfolder", let f = store.organizer.smart.first { path.append(MailboxRoute.smart(f.id)) }
             if s == "blocked" { path.append(MailboxRoute.blocked) }
             if s == "drafts" { path.append(MailboxRoute.drafts) }
@@ -55,7 +62,7 @@ struct InboxView: View {
     }
 
     private var list: some View {
-        let rows = store.shown, pins = store.pinnedMails
+        let pins = store.pinnedMails
         return List {
             if !pins.isEmpty {   // pinned emails sit above the tab buttons, as on the Mac: they belong to no tab
                 HStack(spacing: 6) {
@@ -68,36 +75,74 @@ struct InboxView: View {
                 .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
                 ForEach(pins) { m in row(m, pinned: true) }
             }
-            Section {
-                if let b = store.banner { BannerView(text: b).padding(.top, 8).listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden) }
-                ForEach(rows) { m in row(m, pinned: false) }
-                if store.hasMore {   // a tab can hold few rows of each batch, so older mail is asked for here, not from the last row
-                    Button { Task { await store.loadMore() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
-                        .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
-                        .onAppear { Task { await store.loadMore() } }
+            switch prefs.inboxMode {
+            case .smart:
+                Section {
+                    sectionTop
+                    ForEach(store.shown) { m in row(m, pinned: false) }
+                    sectionBottom(empty: store.shown.isEmpty)
+                } header: {   // stays at the top while the emails scroll, as on the Mac
+                    SmartTabs().textCase(nil).frame(maxWidth: .infinity).background(Theme.bg)
+                        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+                        .listRowInsets(EdgeInsets())
                 }
-                if rows.isEmpty && !store.hasMore {   // as on the Mac: an empty tab says so even when there are pinned emails
-                    Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)
-                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+            case .classic:
+                Section {
+                    sectionTop
+                    ForEach(store.unpinnedInbox.sorted { $0.date > $1.date }) { m in row(m, pinned: false) }
+                    sectionBottom(empty: store.unpinnedInbox.isEmpty)
                 }
-            } header: {   // stays at the top while the emails scroll, as on the Mac
-                SmartTabs().textCase(nil).frame(maxWidth: .infinity).background(Theme.bg)
-                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
-                    .listRowInsets(EdgeInsets())
+            case .unreadFirst:
+                Section {
+                    sectionTop
+                    ForEach(SmartInbox.unreadFirstItems(store.unpinnedInbox)) { item in
+                        switch item {
+                        case .header(let g):
+                            HStack {
+                                Text(g.title.uppercased()).font(.system(size: 12, weight: .bold)).tracking(0.7)
+                                Spacer()
+                                if g.id == "unread" { Text(g.countText).font(.system(size: 13)) }
+                            }
+                            .foregroundStyle(Theme.sub).listRowBackground(Color.clear).listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 4, trailing: 16))
+                            .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                        case .row(let m): row(m, pinned: false)
+                        }
+                    }
+                    sectionBottom(empty: store.unpinnedInbox.isEmpty)
+                }
             }
         }
         .listStyle(.plain).scrollContentBackground(.hidden)
         .refreshable { await store.refresh() }
     }
 
+    @ViewBuilder private var sectionTop: some View {
+        if let b = store.banner { BannerView(text: b).padding(.top, 8).listRowInsets(EdgeInsets()).listRowBackground(Color.clear).listRowSeparator(.hidden) }
+    }
+
+    @ViewBuilder private func sectionBottom(empty: Bool) -> some View {
+        if store.hasMore {   // a tab can hold few rows of each batch, so older mail is asked for here, not from the last row
+            Button { Task { await store.loadMore() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
+                .foregroundStyle(Theme.acc).listRowBackground(Theme.card)
+                .onAppear { Task { await store.loadMore() } }
+        }
+        if empty && !store.hasMore {   // as on the Mac: an empty tab says so even when there are pinned emails
+            Text(store.refreshing || store.state == .loading ? "Loading…" : "Nothing here").foregroundStyle(Theme.sub).frame(maxWidth: .infinity).padding(.top, 24)
+                .listRowBackground(Color.clear).listRowSeparator(.hidden)
+        }
+    }
+
     private func row(_ m: Mail, pinned: Bool) -> some View {
         let noReply = store.isNoReply(m)
-        return Button { path.append(m) } label: { MailRow(mail: m, pinned: pinned, tag: noReply ? "No reply yet" : nil, below: store.backLine(m), fromText: noReply ? "You, to \(Address.parse(m.to).display)" : nil) }
+        return Button { path.append(m) } label: {
+            MailRow(mail: prefs.face(m), pinned: pinned, tag: noReply ? "No reply yet" : nil, below: store.backLine(m),
+                    fromText: noReply ? "You, to \(Address.parse(m.to).display)" : prefs.fromText(m), count: prefs.count(m))
+        }
             .buttonStyle(.plain)
             .listRowBackground(pinned ? Theme.pinBg : Theme.card).listRowSeparatorTint(Theme.line)
             .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
-            .swipeActions(edge: .leading, allowsFullSwipe: true) { Button { store.archive(m) } label: { Label("Archive", systemImage: "archivebox") }.tint(Theme.acc) }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) { Button { store.trash(m) } label: { Label("Trash", systemImage: "trash") }.tint(Theme.danger) }
+            .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m) }
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m) }
     }
 }
 

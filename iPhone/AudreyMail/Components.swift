@@ -9,6 +9,8 @@ struct MailRow: View {
     var tag: String? = nil        // "Back Tue 3:00 PM" on a Snoozed row, "No reply yet"
     var below: String? = nil      // the line under the subject: "Back from snooze"
     var fromText: String? = nil   // "You, to Maya" on a "No reply yet" row
+    var count: Int? = nil         // the number of messages when emails are grouped into conversations
+    @EnvironmentObject var prefs: PhoneSettings
     var body: some View {
         let people = MailCategory.guess(mail) == .people
         HStack(alignment: .top, spacing: 12) {
@@ -19,19 +21,21 @@ struct MailRow: View {
                     Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
                     if let tag { RowTag(text: tag) }
                     Spacer(minLength: 4)
+                    if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk).padding(.horizontal, 7).background(Capsule().fill(Theme.accSoft)).accessibilityHidden(true) }
+                    if prefs.isInTodo(mail) { Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.acc).accessibilityHidden(true) }
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
                     Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
                 }
                 Text(mail.subject).font(.system(size: 14.5, weight: mail.unread ? .bold : .regular)).lineLimit(1)
                 if let below { RowTag(text: below) }
-                Text(mail.snippet).font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
+                if prefs.previewLines > 0 { Text(mail.snippet).font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(prefs.previewLines) }
             }
         }
         .foregroundStyle(Theme.text)
         .frame(minHeight: 54, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(fromText ?? mail.from.display). \(tag.map { $0 + ". " } ?? "")\(mail.subject). \(Fmt.short(mail.date))\(below.map { ". " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")")
+        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(fromText ?? mail.from.display). \(tag.map { $0 + ". " } ?? "")\(mail.subject). \(Fmt.short(mail.date))\(below.map { ". " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")\(count.map { ". \($0) messages" } ?? "")\(prefs.isInTodo(mail) ? ". Added to to-do" : "")")
     }
 }
 
@@ -73,6 +77,7 @@ struct ToastView: View {
         HStack {
             Text(toast.text).font(.system(size: 15)).lineLimit(2)
             Spacer(minLength: 8)
+            if let url = toast.open { Button("Open") { UIApplication.shared.open(url) }.font(.system(size: 15, weight: .bold)).underline().frame(minHeight: 32) }
             if let undo = toast.undo { Button("Undo") { undo() }.font(.system(size: 15, weight: .bold)).underline().frame(minHeight: 32) }
         }
         .foregroundStyle(Theme.bg).padding(.horizontal, 16).padding(.vertical, 12)
@@ -193,5 +198,32 @@ struct MailWebView: UIViewRepresentable {
             if action.targetFrame?.isMainFrame == true, let s = action.request.url?.scheme, s != "about" { decisionHandler(.cancel); return }
             decisionHandler(.allow)
         }
+    }
+}
+
+/// One swipe choice as a button on an email row (Settings, Swipe). "Do nothing" shows nothing, so that side does not swipe.
+struct SwipeButton: View {
+    let choice: SwipeChoice
+    let mail: Mail
+    var needsInbox = false   // in a folder list, Archive only makes sense for an email that is still in the inbox
+    @EnvironmentObject var store: PhoneStore
+    var body: some View {
+        if choice != .none && !(choice == .archive && needsInbox && !mail.labels.contains("INBOX")) {
+            Button { store.swipe(choice, mail) } label: { Label(title, systemImage: symbol) }.tint(tint)
+        }
+    }
+    private var title: String {
+        switch choice {
+        case .toggleRead: return mail.unread ? "Mark read" : "Mark unread"
+        case .pin: return store.isPinned(mail) ? "Unpin" : "Pin"
+        case .trash: return "Trash"
+        default: return choice.title
+        }
+    }
+    private var symbol: String {
+        switch choice { case .pin: return store.isPinned(mail) ? "pin.slash" : "pin"; case .toggleRead: return mail.unread ? "envelope.open" : "envelope.badge"; default: return choice.symbol }
+    }
+    private var tint: Color {
+        switch choice { case .archive: return Theme.acc; case .trash: return Theme.danger; case .pin: return Theme.dot; case .aside: return Theme.blk; default: return Theme.sub }
     }
 }

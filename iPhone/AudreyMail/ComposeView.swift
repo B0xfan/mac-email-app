@@ -15,6 +15,7 @@ struct ComposeSnapshot {
     var draftID: String?
     var threadID: String?   // a resumed draft keeps its conversation
     var inReplyTo = "", references = ""   // ... and stays a reply
+    var signed = true   // the signature from Settings is added when sent; a draft opened from Gmail already holds whatever it had
 }
 
 struct ComposeSeed: Identifiable {
@@ -24,15 +25,18 @@ struct ComposeSeed: Identifiable {
     var source: Mail?
     var restore: ComposeSnapshot?
     var notice: String?   // shown at the top, e.g. why a send did not go out
+    var prefill = ""      // a Quick Reply, typed in for you; nothing is sent until you press Send
 
-    init(mode: Mode, source: Mail?) { self.mode = mode; self.source = source }
+    init(mode: Mode, source: Mail?, prefill: String = "") { self.mode = mode; self.source = source; self.prefill = prefill }
     init(restoring r: ComposeSnapshot, notice: String? = nil) { mode = r.mode; source = r.source; restore = r; self.notice = notice }
 }
 
 struct ComposeView: View {
     let seed: ComposeSeed
     @EnvironmentObject var store: PhoneStore
+    @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
+    @State private var useSignature = true
     @State private var mode: ComposeSeed.Mode
     @State private var chips: [String] = []
     @State private var toInput = ""
@@ -102,6 +106,10 @@ struct ComposeView: View {
                     field("Subject") { TextField("", text: $subject) }
                     VStack(alignment: .leading, spacing: 16) {
                         TextField("", text: $text, axis: .vertical).focused($focus).frame(minHeight: 100, alignment: .top).accessibilityLabel("Message")
+                        if let sig = signature {
+                            Text(sig).font(.system(size: 16)).foregroundStyle(Theme.sub).frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityLabel("Signature: \(sig)")
+                        }
                         if let q = quote {
                             Text(q.header + "\n" + q.plain).font(.system(size: 14.5)).foregroundStyle(Theme.sub).lineLimit(12)
                                 .padding(.leading, 12).overlay(alignment: .leading) { Rectangle().fill(Theme.line).frame(width: 3) }
@@ -128,7 +136,7 @@ struct ComposeView: View {
         .tint(Theme.acc)
         .foregroundStyle(Theme.text)
         .onAppear {
-            if let r = seed.restore { apply(r) } else { fill(first: true) }
+            if let r = seed.restore { apply(r) } else { fill(first: true); if !seed.prefill.isEmpty { text = seed.prefill } }
             #if DEBUG
             if DemoMode.screen == "leave" { text = "Sounds great! I will drive. Pick you up at 8?"; askLeave = true }
             #endif
@@ -226,19 +234,25 @@ struct ComposeView: View {
     }
 
     private func snapshot() -> ComposeSnapshot {
-        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID, inReplyTo: inReplyTo, references: references)
+        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID, inReplyTo: inReplyTo, references: references, signed: useSignature)
     }
 
     /// Puts back what a snapshot holds (Undo Send, a failed send, a draft that is opened again).
     private func apply(_ r: ComposeSnapshot) {
-        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID; inReplyTo = r.inReplyTo; references = r.references
+        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID; inReplyTo = r.inReplyTo; references = r.references; useSignature = r.signed
         quote = makeQuote()
         problem = seed.notice
         focus = true
     }
 
+    /// The signature from Settings, shown under what you type and added when the email is sent (nil = none, or this is a draft that already has its own).
+    private var signature: String? {
+        let s = prefs.signature.trimmingCharacters(in: .whitespacesAndNewlines)
+        return useSignature && !s.isEmpty ? s : nil
+    }
+
     private func outgoing() -> MIME.Outgoing {
-        var html = TextTools.plainToHTML(text), plain = text
+        var (html, plain) = SignedText.apply(text: text, signature: signature)
         if let q = quote {
             html += "<br><br><div>" + TextTools.plainToHTML(q.header) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(q.html)</blockquote>"
             plain += "\n\n" + q.header + "\n" + q.plain.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
@@ -279,5 +293,13 @@ struct ComposeView: View {
     private func discard() async {
         if let d = draftID { await store.discardDraft(d) }
         dismiss()
+    }
+}
+
+/// What goes out: the typed text, then a blank line and the signature from Settings, if there is one. A reply's quoted text comes after both.
+enum SignedText {
+    static func apply(text: String, signature: String?) -> (html: String, plain: String) {
+        guard let sig = signature?.trimmingCharacters(in: .whitespacesAndNewlines), !sig.isEmpty else { return (TextTools.plainToHTML(text), text) }
+        return (TextTools.plainToHTML(text) + "<br><br>" + TextTools.plainToHTML(sig), text + "\n\n" + sig)
     }
 }
