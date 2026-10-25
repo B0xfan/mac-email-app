@@ -26,7 +26,7 @@ struct TodoSettingsPage: View {
                     }.frame(minHeight: 56)
                     if !note.isEmpty { Text(note).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.danger) }
                 } header: { Text("Vault folder").foregroundStyle(Theme.sub) }
-                  footer: { Text("Choose your A4 folder once. Tasks are written into the vault's task notes folder, the same way A4 writes them. Todoist and ClickUp ask for your own key, kept privately on this phone.").foregroundStyle(Theme.sub) }.setCard()
+                  footer: { Text("Choose your A4 folder once. Tasks are written into the vault's task notes folder, the same way A4 writes them.").foregroundStyle(Theme.sub) }.setCard()
             case .reminders:
                 SetNote(text: "The first time, the iPhone asks if Audrey Mail may use Reminders. Choose Allow.")
             case .todoist: TodoKeyCard(name: "Todoist", showList: false)
@@ -115,7 +115,7 @@ struct TodoSheet: View {
                     Text("Nothing picked out yet").font(.system(size: 14)).foregroundStyle(Theme.sub)
                 } else {
                     Text("Audrey Mail found").font(.system(size: 14)).foregroundStyle(Theme.sub)
-                    if let pr = p.project { chip(pr + (p.projectKnown || prefs.todoList != .obsidian ? "" : " (not found)"), due: false) }
+                    if let pr = p.project { chip(pr + (p.projectKnown || prefs.todoList != .obsidian || projects == nil ? "" : " (not found)"), due: false) }
                     if let pri = p.priority { chip(pri.title, due: false) }
                     if let d = p.due { chip("Due " + Self.dueLabel(d), due: true) }
                 }

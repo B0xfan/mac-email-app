@@ -11,6 +11,7 @@ struct ReadView: View {
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var full: Mail?
+    @State private var prepared: (html: String, remote: Int)?   // the open email cleaned for showing, worked out with `full` so it never shows the plain version first
     @State private var failed: String?
     @State private var blockTarget: Mail?
     @State private var moving = false
@@ -36,7 +37,7 @@ struct ReadView: View {
                         VStack(spacing: 10) {
                             ForEach(s) { c in
                                 if open.contains(c.id) {
-                                    if c.id == mail.id { MessageBlock(mail: mail, preloaded: full, failed: failed, onHeaderTap: { fold(c.id) }) }
+                                    if c.id == mail.id { MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed, onHeaderTap: { fold(c.id) }) }
                                     else { MessageBlock(mail: Mail(id: c.id, from: c.from, subject: c.subject, snippet: c.snippet, date: c.date), selfLoading: true, onHeaderTap: { fold(c.id) }) }
                                 } else {
                                     FoldedLine(c: c) { unfold(c.id) }
@@ -44,7 +45,7 @@ struct ReadView: View {
                             }
                         }
                     } else {
-                        MessageBlock(mail: mail, preloaded: full, failed: failed)
+                        MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed)
                     }
                     if !prefs.quickReplies.isEmpty {
                         FlowLayout(spacing: 6) {
@@ -105,6 +106,7 @@ struct ReadView: View {
 
     /// The email this screen is about has been read in full.
     private func loaded(_ f: Mail) {
+        if let h = f.html { let p = HTMLSafety.process(h, blockTrackers: prefs.blockTrackers); prepared = (p.html ?? h, p.report.remoteImages) } else { prepared = nil }
         full = f; store.markRead(mail); store.seen.record(mail.id)
         #if DEBUG
         if ["write", "leave"].contains(DemoMode.screen ?? "") { store.composeSeed = ComposeSeed(mode: .reply, source: full) }
@@ -171,6 +173,7 @@ struct FoldedLine: View {
 struct MessageBlock: View {
     let mail: Mail
     var preloaded: Mail? = nil   // the open email: its screen reads it (and answers for it), so it is handed in here
+    var prepared: (html: String, remote: Int)? = nil   // ... cleaned for showing, handed in with it
     var selfLoading = false      // another message of a conversation: the block reads its own email
     var failed: String? = nil
     var onHeaderTap: (() -> Void)? = nil   // set inside a grouped conversation: tapping the sender folds the message
@@ -178,7 +181,7 @@ struct MessageBlock: View {
     @EnvironmentObject var prefs: PhoneSettings
     @State private var loadedFull: Mail?
     @State private var ownFailure: String?
-    @State private var cleaned: (html: String, remote: Int)?   // worked out once when the email loads, not on every redraw
+    @State private var ownCleaned: (html: String, remote: Int)?   // worked out once when the email loads, not on every redraw
     @State private var showImages = false
     @State private var webHeight: CGFloat = 120
     @State private var previewURL: URL?   // the file shown in Apple's built-in preview (it has the share button)
@@ -186,6 +189,7 @@ struct MessageBlock: View {
     @State private var failedFile: Attachment?
     @State private var failure = ""
 
+    private var cleaned: (html: String, remote: Int)? { ownCleaned ?? prepared }
     private var full: Mail? { get { loadedFull ?? preloaded } nonmutating set { loadedFull = newValue } }   // files fetched again (Gmail changed their ids) are kept in loadedFull
 
     var body: some View {
@@ -269,12 +273,11 @@ struct MessageBlock: View {
     }
 
     private func prepare(_ f: Mail) {
-        if let h = f.html { let p = HTMLSafety.process(h, blockTrackers: prefs.blockTrackers); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
+        if let h = f.html { let p = HTMLSafety.process(h, blockTrackers: prefs.blockTrackers); ownCleaned = (p.html ?? h, p.report.remoteImages) } else { ownCleaned = nil }
     }
 
     private func load() async {
-        if let p = preloaded { prepare(p); return }
-        guard selfLoading else { return }
+        guard selfLoading, preloaded == nil else { return }
         do { let f = try await store.fullMessage(mail); prepare(f); loadedFull = f }
         catch {
             if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }
@@ -314,7 +317,7 @@ struct FlowLayout: Layout {
         let w = proposal.width ?? 360
         var x: CGFloat = 0, y: CGFloat = 0, line: CGFloat = 0
         for s in subviews {
-            let z = s.sizeThatFits(.unspecified)
+            let z = s.sizeThatFits(ProposedViewSize(width: w, height: nil))   // never wider than the screen: a long reply is shortened
             if x > 0, x + z.width > w { x = 0; y += line + spacing; line = 0 }
             x += z.width + spacing; line = max(line, z.height)
         }
@@ -323,9 +326,9 @@ struct FlowLayout: Layout {
     func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = b.minX, y = b.minY, line: CGFloat = 0
         for s in subviews {
-            let z = s.sizeThatFits(.unspecified)
+            let z = s.sizeThatFits(ProposedViewSize(width: b.width, height: nil))
             if x > b.minX, x + z.width > b.maxX { x = b.minX; y += line + spacing; line = 0 }
-            s.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: z.width, height: nil))
             x += z.width + spacing; line = max(line, z.height)
         }
     }

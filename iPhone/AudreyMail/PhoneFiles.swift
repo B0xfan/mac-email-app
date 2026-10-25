@@ -33,10 +33,10 @@ final class SeenBook {
 }
 
 /// Emails opened on this phone keep their full text for "Keep full email text for" days, so they open again without a download.
-/// Older ones are dropped and read from Gmail again. Never holds more than 80 emails or any one over 1.5 MB.
+/// Older ones are dropped and read from Gmail again. Never holds more than 40 emails or any one over 600 KB.
 final class OpenedBook {
     struct Entry: Codable { var mail: Mail; var at: Date }
-    static let maxEntries = 80, maxMailBytes = 1_500_000
+    static let maxEntries = 40, maxMailBytes = 600_000
     private var entries: [String: Entry]
     private let url: URL
 
@@ -47,7 +47,7 @@ final class OpenedBook {
     }
     var count: Int { entries.count }
     var ids: [String] { Array(entries.keys) }
-    var bytes: Int { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+    var bytes: Int { writeQueue.sync { (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 } }   // after the saves and removals already waiting
 
     func get(_ id: String) -> Mail? { entries[id]?.mail }
     func put(_ m: Mail, now: Date = Date()) {

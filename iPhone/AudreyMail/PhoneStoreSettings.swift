@@ -192,8 +192,14 @@ extension PhoneStore {
             var open: URL?
             switch prefs.todoList {
             case .obsidian:
-                let name = prefs.vaultName
-                open = try VaultFolder.access(prefs.vaultBookmark, renewed: { self.prefs.vaultBookmark = $0 }) { vault in VaultFolder.openURL(vault: name, file: try ObsidianTask.write(task, vault: vault)) }
+                let name = prefs.vaultName, bookmark = prefs.vaultBookmark
+                let done = try await Task.detached { () -> (url: URL?, renewed: Data?) in   // off the main thread: the folder can be in iCloud
+                    var renewed: Data?
+                    let u = try VaultFolder.access(bookmark, renewed: { renewed = $0 }) { vault in VaultFolder.openURL(vault: name, file: try ObsidianTask.write(task, vault: vault)) }
+                    return (u, renewed)
+                }.value
+                if let n = done.renewed { prefs.vaultBookmark = n }
+                open = done.url
             case .reminders: open = try await RemindersSender.add(task)
             case .todoist: open = try await TodoSender().todoist(task, token: TodoKeyFile.load().todoist)
             case .clickup: let t = TodoKeyFile.load(); open = try await TodoSender().clickup(task, token: t.clickup, list: t.clickupList)
