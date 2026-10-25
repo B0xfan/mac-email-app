@@ -423,7 +423,7 @@ enum DemoSelfTest {
         prefs.afterArchive = .below
         check("after archiving, the email below opens; the last one opens the one above", store.nextAfterArchive(list[2], in: list)?.id == list[3].id && store.nextAfterArchive(list.last!, in: list)?.id == list[list.count - 2].id)
         prefs.afterArchive = .unread
-        let wantUnread = list.enumerated().first { $0.offset > 2 && $0.element.unread }?.element.id ?? list.enumerated().last { $0.offset < 2 && $0.element.unread }?.element.id
+        let wantUnread = list.enumerated().first { $0.offset > 2 && $0.element.unread }?.element.id ?? list.enumerated().reversed().first { $0.offset < 2 && $0.element.unread }?.element.id
         check("or the next unread one", store.nextAfterArchive(list[2], in: list)?.id == wantUnread)
         prefs.afterArchive = .list; prefs.inboxMode = .smart
         prefs.screenNewSenders = false
@@ -464,17 +464,19 @@ enum DemoSelfTest {
         check("the rules are read from Gmail, with the block labelled and each in plain words", store.rules.count == before + 4 && store.rules.contains { $0.fromBlock && $0.rule?.from == "spam-shop.com" } && store.rules.contains { $0.rule?.from == "news@airline.com" && !$0.fromBlock }
               && store.rules.contains { $0.text.hasPrefix("Emails from news@airline.com") && $0.text.lowercased().contains("skip the inbox, mark as read") } && store.rules.contains { $0.text.contains("with \"invoice\" in the subject") && $0.text.lowercased().contains("move to folder") })
         var rule = MailRule(); rule.from = "deals@shop.example"; rule.skip = true; rule.read = true
-        let made = await store.saveRule(rule)
+        let madeRule = await store.saveRule(rule)
         let madeJSON = box.with { b in b.filters.last?.json }
-        check("a new rule makes one Gmail filter with the choices as Gmail words", made.error == nil && box.with { $0.filters.count } == before + 5 && (madeJSON?["criteria"] as? [String: Any])?["from"] as? String == "deals@shop.example"
+        check("a new rule makes one Gmail filter with the choices as Gmail words", madeRule.error == nil && box.with { $0.filters.count } == before + 5 && (madeJSON?["criteria"] as? [String: Any])?["from"] as? String == "deals@shop.example"
               && Set(((madeJSON?["action"] as? [String: Any])?["removeLabelIds"] as? [String]) ?? []) == ["INBOX", "UNREAD"])
-        check("the same rule twice is refused", await store.saveRule(rule).error == "You already have this rule.")
-        check("a rule with nothing to look for, or nothing to do, is refused and nothing is made", await store.saveRule(MailRule()).error != nil && await store.saveRule(MailRule(from: "a@b.example")).error != nil && box.with { $0.filters.count } == before + 5)
+        let twice = await store.saveRule(rule).error
+        check("the same rule twice is refused", twice == "You already have this rule.")
+        let nothingToLookFor = await store.saveRule(MailRule()).error, nothingToDo = await store.saveRule(MailRule(from: "a@b.example")).error
+        check("a rule with nothing to look for, or nothing to do, is refused and nothing is made", nothingToLookFor != nil && nothingToDo != nil && box.with { $0.filters.count } == before + 5)
         var edit = store.rules.first { $0.rule?.from == "deals@shop.example" }!.rule!
         let oldID = edit.id
         edit.star = true
-        let edited = await store.saveRule(edit)
-        check("editing makes the new filter first, then removes the old one: the count stays, the old id is gone, the star is in", edited.error == nil && box.with { $0.filters.count } == before + 5 && box.with { b in !b.filters.contains { $0.id == oldID } }
+        let editedRule = await store.saveRule(edit)
+        check("editing makes the new filter first, then removes the old one: the count stays, the old id is gone, the star is in", editedRule.error == nil && box.with { $0.filters.count } == before + 5 && box.with { b in !b.filters.contains { $0.id == oldID } }
               && box.with { b in (((b.filters.last?.json["action"] as? [String: Any])?["addLabelIds"] as? [String]) ?? []).contains("STARRED") })
         await store.deleteRule(store.rules.first { $0.rule?.from == "deals@shop.example" }!)
         check("deleting a rule removes the Gmail filter", box.with { $0.filters.count } == before + 4 && !store.rules.contains { $0.rule?.from == "deals@shop.example" })
@@ -503,8 +505,8 @@ enum DemoSelfTest {
         check("the To-do button writes a task note into the A4 folder the way the Mac does: the typed line read into a title, the project, the priority and the day, with the email's details", todoErr == nil && names == ["Call Maya.md"]
               && note.hasPrefix("---\nstatus: open\npriority: high\ndue: ") && note.contains("[[04 Inner World/My Life/Projects/Pipa Fria]]") && note.contains("Subject: Saturday at the beach?") && note.contains("From: Maya Ortiz <maya.ortiz@example.com>"))
         check("the email then carries the added-to-to-do mark, and the bar offers Open", prefs.isInTodo(row("m1")!) && store.toast?.text == "Added to to-do." && store.toast?.open?.absoluteString == "obsidian://open?vault=A4&file=02%20Planner/TaskNotes/Tasks/Call%20Maya")
-        let again = await store.addTodo(line: "Call Maya", mail: row("m1")!)
-        check("a second task with the same name gets its own note (-2), like the A4 task engine", again == nil && ((try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []).sorted() == ["Call Maya-2.md", "Call Maya.md"])
+        let againTodo = await store.addTodo(line: "Call Maya", mail: row("m1")!)
+        check("a second task with the same name gets its own note (-2), like the A4 task engine", againTodo == nil && ((try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []).sorted() == ["Call Maya-2.md", "Call Maya.md"])
         prefs.todoList = .todoist
         let noKey = await store.addTodo(line: "Pay the fence", mail: row("m4")!)
         check("Todoist without its key says to add it, and nothing is marked", noKey?.contains("Todoist") == true && !prefs.isInTodo(row("m4")!))
