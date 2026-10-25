@@ -17,7 +17,11 @@ public enum TodoSendError: Error, LocalizedError, Equatable {
         switch self {
         case .needsToken(let n): return "Add your \(n) token in Settings, To-do, first."
         case .refused(let n, let c): return c == 401 || c == 403 ? "\(n) did not accept the token. Check it in Settings, To-do." : "\(n) could not add the task (error \(c))."
-        case .noPermission: return "Audrey Mail needs permission for Reminders. Allow it under Privacy & Security, Reminders in the Settings app (System Settings on a Mac), then try again."
+        #if os(macOS)
+        case .noPermission: return "Audrey Mail needs permission for Reminders. Allow it in System Settings, Privacy & Security, Reminders, then try again."
+        #else
+        case .noPermission: return "Audrey Mail needs permission for Reminders. Allow it in the Settings app, under Audrey Mail, then try again."
+        #endif
         case .network: return "Audrey Mail could not reach the to-do list. Check the internet and try again."
         }
     }
@@ -114,7 +118,7 @@ public struct TodoSender {
 }
 
 public enum RemindersSender {
-    /// First use shows the Mac's own permission box. Adds to the Reminders list named like the project, else the default list.
+    /// First use shows the system's own permission box. Adds to the Reminders list named like the project, else the default list.
     public static func add(_ t: TodoTask) async throws -> URL? {
         let store = EKEventStore()
         guard (try? await store.requestFullAccessToReminders()) == true else { throw TodoSendError.noPermission }

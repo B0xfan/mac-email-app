@@ -11,12 +11,19 @@ extension PhoneStore {
     /// The Gmail label with this name; made the first time it is needed.
     func ensureLabel(_ name: String) async -> String? {
         if let l = labelList.first(where: { $0.name == name }) { return l.id }
-        do {
-            if let l = try await gmail.labelsStrict().first(where: { $0.name == name }) { labelList.append(l); return l.id }
-            let made = try await gmail.createLabel(name: name)
-            labelList.append(made)
-            return made.id
-        } catch { await fail(error, "Could not make the \(name) label."); return nil }
+        if let running = labelMaking[name] { return await running.value }
+        let task = Task { () -> String? in
+            do {
+                if let l = try await self.gmail.labelsStrict().first(where: { $0.name == name }) { self.labelList.append(l); return l.id }
+                let made = try await self.gmail.createLabel(name: name)
+                self.labelList.append(made)
+                return made.id
+            } catch { await self.fail(error, "Could not make the \(name) label."); return nil }
+        }
+        labelMaking[name] = task
+        let id = await task.value
+        labelMaking[name] = nil
+        return id
     }
 
     /// Changes labels on the screen at once (the inbox, the open list and the conversations inside them).
@@ -49,7 +56,8 @@ extension PhoneStore {
             let found: String?
             if unpin { found = pinLabelID } else { found = await ensureLabel(Self.pinLabelName) }
             guard let label = found else { return }
-            var ids = [m.id] + (m.siblings ?? []) + (unpin ? (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : [])
+            // pinning puts the label on this email and the others of its row; unpinning takes it off exactly the emails that carry it (so Undo never adds it where it was not)
+            var ids = unpin ? (m.labels.contains(label) ? [m.id] : []) + (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : [m.id] + (m.siblings ?? [])
             var seen = Set<String>(); ids = ids.filter { seen.insert($0).inserted }
             let add = unpin ? [] : [label], remove = unpin ? [label] : []
             relabel(ids, add: add, remove: remove, failure: "Could not change the pin.")
@@ -160,14 +168,23 @@ extension PhoneStore {
     // MARK: - To-do
 
     /// The known projects for the typed line: A4's project notes for Obsidian; empty for the others (the typed name is used as is).
-    func todoProjects() -> [String] {
-        guard prefs.todoList == .obsidian else { return [] }
-        return (try? VaultFolder.access(prefs.vaultBookmark) { ObsidianTask.projects(vault: $0) }) ?? []
+    /// Read off the main thread: the folder can be in iCloud.
+    func loadTodoProjects() async -> [String] {
+        guard prefs.todoList == .obsidian, let bookmark = prefs.vaultBookmark else { return [] }
+        let r = await Task.detached { () -> (projects: [String], renewed: Data?) in
+            var renewed: Data?
+            let list = (try? VaultFolder.access(bookmark, renewed: { renewed = $0 }) { ObsidianTask.projects(vault: $0) }) ?? []
+            return (list, renewed)
+        }.value
+        if let n = r.renewed { prefs.vaultBookmark = n }
+        return r.projects
     }
 
-    /// nil = added; otherwise the sentence to show.
-    func addTodo(line: String, mail m: Mail) async -> String? {
-        let p = TodoParser.parse(line, projects: todoProjects())
+    /// nil = added; otherwise the sentence to show. `projects`: the list the sheet already read (read again if not given).
+    func addTodo(line: String, mail m: Mail, projects: [String]? = nil) async -> String? {
+        let known: [String]
+        if let projects { known = projects } else { known = await loadTodoProjects() }
+        let p = TodoParser.parse(line, projects: known)
         let task = TodoTask(title: p.title.isEmpty ? m.subject : p.title, project: p.project, priority: p.priority, due: p.due,
                             senderName: m.from.name, senderEmail: m.from.email, subject: m.subject,
                             link: GmailLink.url(thread: m.threadID, account: accountEmail), projectKnown: p.projectKnown || prefs.todoList != .obsidian)
@@ -176,7 +193,7 @@ extension PhoneStore {
             switch prefs.todoList {
             case .obsidian:
                 let name = prefs.vaultName
-                open = try VaultFolder.access(prefs.vaultBookmark) { vault in VaultFolder.openURL(vault: name, file: try ObsidianTask.write(task, vault: vault)) }
+                open = try VaultFolder.access(prefs.vaultBookmark, renewed: { self.prefs.vaultBookmark = $0 }) { vault in VaultFolder.openURL(vault: name, file: try ObsidianTask.write(task, vault: vault)) }
             case .reminders: open = try await RemindersSender.add(task)
             case .todoist: open = try await TodoSender().todoist(task, token: TodoKeyFile.load().todoist)
             case .clickup: let t = TodoKeyFile.load(); open = try await TodoSender().clickup(task, token: t.clickup, list: t.clickupList)

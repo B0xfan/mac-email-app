@@ -78,9 +78,9 @@ extension PhoneStore {
             case .label(let id): page = try await gmail.listPage(labels: [id], max: 50, pageToken: token)
             case .query(let q): page = try await gmail.listPage(q: q, max: 50, pageToken: token)
             case .ids(let ids):   // Recently Seen: every email is asked for by its id; one that is gone from Gmail is simply left out
-                let byID = Dictionary((await gmail.messagesChecked(ids: ids)).mails.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                let byID = Dictionary((await gmail.messagesChecked(ids: Array(ids.prefix(100)))).mails.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 guard folderGen == gen, state == .signedIn else { return }
-                folderMails = ids.compactMap { byID[$0] }; folderNext = nil
+                folderMails = ids.prefix(100).compactMap { byID[$0] }; folderNext = nil
                 return
             }
             let got = await gmail.messagesChecked(ids: page.ids)

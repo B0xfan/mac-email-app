@@ -4,7 +4,7 @@ import UIKit
 import Combine
 import MailCore
 
-/// Where the phone keeps its small files (the saved inbox, the new-sender list). Never a token: those live in the Keychain only.
+/// Where the phone keeps its small files (the saved inbox, the new-sender list, the to-do keys). The Google sign-in is never here: that lives in the Keychain only.
 enum Support {
     static var dir: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AudreyMail")
@@ -72,6 +72,7 @@ final class PhoneStore: ObservableObject {
     @Published var ruleNames: [String: String] = [:]
     @Published var rulesError: String?
     @Published var rulesLoaded = false
+    var labelMaking: [String: Task<String?, Never>] = [:]   // a label being made right now, so two quick swipes make it once
 
     let sign: PhoneSignIn
     private(set) var gmail: GmailClient
@@ -425,7 +426,7 @@ final class PhoneStore: ObservableObject {
         if var kept = opened.get(m.id) { kept.siblings = m.siblings; kept.convo = m.convo; kept.labels = m.labels; return kept }   // opened before: no download
         var full = try await gmail.message(id: m.id, full: true)
         full.siblings = m.siblings; full.convo = m.convo
-        defer { opened.put(full) }
+        defer { if state == .signedIn { opened.put(full) } }   // an email still downloading when you sign out is not kept
         guard var h = full.html, let parts = full.cidParts, h.localizedCaseInsensitiveContains("cid:") else { return full }
         for (cid, p) in parts.prefix(12) where h.localizedCaseInsensitiveContains("cid:" + cid) {
             var data = p.data

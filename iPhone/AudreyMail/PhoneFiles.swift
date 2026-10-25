@@ -29,7 +29,7 @@ final class SeenBook {
         let cutoff = now.addingTimeInterval(-Double(days) * 86400)
         return entries.filter { $0.at >= cutoff }.sorted { $0.at > $1.at }.map(\.id)
     }
-    func clear() { entries = []; try? FileManager.default.removeItem(at: url) }
+    func clear() { entries = []; writeQueue.async { [url] in try? FileManager.default.removeItem(at: url) } }   // on the same queue as the saves, so a save already waiting cannot bring it back
 }
 
 /// Emails opened on this phone keep their full text for "Keep full email text for" days, so they open again without a download.
@@ -62,7 +62,7 @@ final class OpenedBook {
         entries = entries.filter { $0.value.at >= cutoff }
         if entries.count != before { writeLater(entries, to: url) }
     }
-    func clear() { entries = [:]; try? FileManager.default.removeItem(at: url) }
+    func clear() { entries = [:]; writeQueue.async { [url] in try? FileManager.default.removeItem(at: url) } }
 }
 
 /// The Todoist and ClickUp keys: a file inside this app's own private folder (not the Keychain, not backed up). Same idea as the Mac's private file.
@@ -88,13 +88,14 @@ enum VaultFolder {
         }
     }
 
-    /// Opens the folder for the length of `body`, then lets go of it.
-    static func access<T>(_ bookmark: Data?, _ body: (URL) throws -> T) throws -> T {
+    /// Opens the folder for the length of `body`, then lets go of it. A permission slip iOS calls out of date still opens the folder: a fresh one is handed to `renewed`.
+    static func access<T>(_ bookmark: Data?, renewed: (Data) -> Void = { _ in }, _ body: (URL) throws -> T) throws -> T {
         guard let bookmark else { throw Problem.none }
         var stale = false
-        guard let url = try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale), !stale else { throw Problem.unreachable }
+        guard let url = try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else { throw Problem.unreachable }
         let scoped = url.startAccessingSecurityScopedResource()   // false for a folder inside this app itself, which needs no permission
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if stale, let fresh = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) { renewed(fresh) }
         return try body(url)
     }
 

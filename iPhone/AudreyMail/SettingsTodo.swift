@@ -77,6 +77,7 @@ struct TodoKeyCard: View {
             key = name == "Todoist" ? t.todoist : t.clickup; list = t.clickupList
             note = key.isEmpty ? "Not set yet." : "Saved."
         }
+        .onChange(of: key) { _, _ in save() }   // a pasted key is kept at once, like the signature
     }
     private func findLists() async {
         save(); note = "Looking..."
@@ -97,13 +98,13 @@ struct TodoSheet: View {
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var line = ""
-    @State private var projects: [String] = []
+    @State private var projects: [String]?   // nil until the A4 folder has been read; Add then reads it itself
     @State private var problem: String?
     @State private var busy = false
     @FocusState private var focus: Bool
 
     var body: some View {
-        let p = TodoParser.parse(line, projects: projects)
+        let p = TodoParser.parse(line, projects: projects ?? [])
         VStack(alignment: .leading, spacing: 12) {
             Text("Add to to-do list").font(.system(size: 22, weight: .bold)).accessibilityAddTraits(.isHeader)
             TextField("Task", text: $line, axis: .vertical).lineLimit(3, reservesSpace: true).focused($focus).submitLabel(.done)
@@ -125,7 +126,8 @@ struct TodoSheet: View {
             Button("Cancel") { dismiss() }.frame(maxWidth: .infinity, minHeight: 44).foregroundStyle(Theme.acc)
         }
         .padding(20).frame(maxHeight: .infinity, alignment: .top).background(Theme.card).foregroundStyle(Theme.text).tint(Theme.acc)
-        .onAppear { line = mail.subject; projects = store.todoProjects(); focus = true }
+        .onAppear { line = mail.subject; focus = true }
+        .task { projects = await store.loadTodoProjects() }
     }
 
     private func chip(_ t: String, due: Bool) -> some View {
@@ -135,7 +137,7 @@ struct TodoSheet: View {
     private func add() {
         busy = true; problem = nil
         Task {
-            if let e = await store.addTodo(line: line, mail: mail) { problem = e } else { dismiss() }
+            if let e = await store.addTodo(line: line, mail: mail, projects: projects) { problem = e } else { dismiss() }
             busy = false
         }
     }

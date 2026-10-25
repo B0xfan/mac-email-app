@@ -105,7 +105,7 @@ struct InboxSettingsPage: View {
                 ChoiceRow(title: "Open the next unread email", on: prefs.afterArchive == .unread) { prefs.afterArchive = .unread }
             } header: { Text("After archiving an email").foregroundStyle(Theme.sub) }.setCard()
             Section {
-                MenuRow(title: "Inbox view", detail: "Smart: People, Notifications and Newsletters tabs. Classic: one list. Unread first: unread emails on top.", selection: $prefs.inboxMode,
+                MenuRow(title: "Inbox view", detail: prefs.inboxMode.detail, selection: $prefs.inboxMode,
                         options: InboxMode.allCases.map { (value: $0, label: $0.title + ($0 == .smart ? " (default)" : "")) })
             }.setCard()
             Section {
@@ -212,12 +212,13 @@ struct StoragePage: View {
     @EnvironmentObject var prefs: PhoneSettings
     @State private var info = ""
     @State private var busy = false
+    @State private var askClear = false
     var body: some View {
         SettingsPageList(title: "Storage", intro: "How much mail Audrey Mail keeps on this phone.") {
             Section {
-                MenuRow(title: "Keep full email text for", detail: "Emails you open keep their text this long, so they open again without a download. Older mail keeps sender, subject and a preview. Searching Gmail still finds it.", selection: $prefs.keepTextDays,
+                MenuRow(title: "Keep full email text for", selection: $prefs.keepTextDays,
                         options: PhoneSettings.textChoices.map { (value: $0, label: PhoneSettings.textLabel($0) + ($0 == SyncEngine.textDefault ? " (default)" : "")) })
-            }.setCard()
+            } footer: { Text("Emails you open keep their full text this long, so they open again without a download. Older mail keeps sender, subject and a preview. Searching Gmail still finds it.").foregroundStyle(Theme.sub) }.setCard()
             Section {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -225,14 +226,19 @@ struct StoragePage: View {
                         Text(info.isEmpty ? " " : info).font(.system(size: 14)).foregroundStyle(Theme.sub)
                     }
                     Spacer()
-                    Button { busy = true; Task { await store.clearStoredMail(); refresh(); busy = false } } label: {
+                    Button { askClear = true } label: {
                         Text(busy ? "Clearing\u{2026}" : "Clear stored mail").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.danger).padding(.horizontal, 12).frame(minHeight: 44)
                             .overlay(Capsule().stroke(Theme.danger, lineWidth: 1))
                     }.buttonStyle(.borderless).disabled(busy)
                 }.frame(minHeight: 56)
             } footer: { Text("Clearing frees the space. Your mail stays safe in Gmail and comes back as you use Audrey Mail. Signing out also deletes the mail stored on this phone.").foregroundStyle(Theme.sub) }.setCard()
         }
+        .confirmationDialog("Clear the mail stored on this phone?", isPresented: $askClear, titleVisibility: .visible) {
+            Button("Clear stored mail", role: .destructive) { busy = true; Task { await store.clearStoredMail(); refresh(); busy = false } }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Your mail stays safe in Gmail and comes back as you use Audrey Mail.") }
         .onAppear { refresh() }
+        .onChange(of: store.inbox.count) { _, _ in refresh() }
         .onChange(of: prefs.keepTextDays) { _, d in store.opened.prune(keepDays: d); refresh() }
     }
     private func refresh() { info = "\(SettingsView.bytesText(store.storedBytes())), \(store.storedCount) emails" }

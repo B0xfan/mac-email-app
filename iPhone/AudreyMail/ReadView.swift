@@ -11,6 +11,7 @@ struct ReadView: View {
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var full: Mail?
+    @State private var failed: String?
     @State private var blockTarget: Mail?
     @State private var moving = false
     @State private var movedAway = false   // the sheet closes first, then this screen
@@ -35,15 +36,15 @@ struct ReadView: View {
                         VStack(spacing: 10) {
                             ForEach(s) { c in
                                 if open.contains(c.id) {
-                                    MessageBlock(mail: c.id == mail.id ? mail : Mail(id: c.id, from: c.from, subject: c.subject, snippet: c.snippet, date: c.date),
-                                                 onLoaded: c.id == mail.id ? { loaded($0) } : nil, onHeaderTap: { fold(c.id) })
+                                    if c.id == mail.id { MessageBlock(mail: mail, preloaded: full, failed: failed, onHeaderTap: { fold(c.id) }) }
+                                    else { MessageBlock(mail: Mail(id: c.id, from: c.from, subject: c.subject, snippet: c.snippet, date: c.date), selfLoading: true, onHeaderTap: { fold(c.id) }) }
                                 } else {
                                     FoldedLine(c: c) { unfold(c.id) }
                                 }
                             }
                         }
                     } else {
-                        MessageBlock(mail: mail, onLoaded: { loaded($0) })
+                        MessageBlock(mail: mail, preloaded: full, failed: failed)
                     }
                     if !prefs.quickReplies.isEmpty {
                         FlowLayout(spacing: 6) {
@@ -80,6 +81,7 @@ struct ReadView: View {
         }
         .tint(Theme.acc)
         .onAppear { store.tabBarHidden = true; if !started { started = true; open = [mail.id] } }
+        .task(id: mail.id) { await load() }   // this screen reads its own email, so folding it away in a conversation never cancels the read
         .onDisappear { store.tabBarHidden = false }
         .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail, from: fromFolder) { movedAway = true }.presentationDetents([.medium, .large]) }
         .sheet(isPresented: $todoOpen) { TodoSheet(mail: full ?? mail).presentationDetents([.height(420), .large]) }
@@ -89,6 +91,15 @@ struct ReadView: View {
                 Task { if await store.block(t) { dismiss() } }
             } cancel: { blockTarget = nil }
             .presentationDetents([.height(380), .large])
+        }
+    }
+
+    private func load() async {
+        do { loaded(try await store.fullMessage(mail)) }
+        catch {
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }   // went back before it finished
+            if case GmailError.signInAgain = error {} else { failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened." }   // a sign-in problem is shown once, by the store
+            await store.fail(error, "This email could not be opened.")
         }
     }
 
@@ -159,19 +170,23 @@ struct FoldedLine: View {
 /// One email as read on screen: who wrote it, the body, its files, and the notice about hidden pictures. Loads its own full text.
 struct MessageBlock: View {
     let mail: Mail
-    var onLoaded: ((Mail) -> Void)? = nil
+    var preloaded: Mail? = nil   // the open email: its screen reads it (and answers for it), so it is handed in here
+    var selfLoading = false      // another message of a conversation: the block reads its own email
+    var failed: String? = nil
     var onHeaderTap: (() -> Void)? = nil   // set inside a grouped conversation: tapping the sender folds the message
     @EnvironmentObject var store: PhoneStore
     @EnvironmentObject var prefs: PhoneSettings
-    @State private var full: Mail?
+    @State private var loadedFull: Mail?
+    @State private var ownFailure: String?
     @State private var cleaned: (html: String, remote: Int)?   // worked out once when the email loads, not on every redraw
-    @State private var failed: String?
     @State private var showImages = false
     @State private var webHeight: CGFloat = 120
     @State private var previewURL: URL?   // the file shown in Apple's built-in preview (it has the share button)
     @State private var opening: Attachment?
     @State private var failedFile: Attachment?
     @State private var failure = ""
+
+    private var full: Mail? { get { loadedFull ?? preloaded } nonmutating set { loadedFull = newValue } }   // files fetched again (Gmail changed their ids) are kept in loadedFull
 
     var body: some View {
         let m = full ?? mail
@@ -215,12 +230,12 @@ struct MessageBlock: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Theme.accSoft)).padding(.top, 12)
             }
         }
-        .task { await load() }
+        .task(id: (preloaded?.id ?? "") + mail.id) { await load() }
         .quickLookPreview($previewURL)
     }
 
     @ViewBuilder private func bodyView(_ m: Mail) -> some View {
-        if let failed {
+        if let failed = failed ?? ownFailure {
             Text(failed).foregroundStyle(Theme.sub)
         } else if full == nil {
             Text(m.snippet).font(.system(size: 16.5)).foregroundStyle(Theme.sub)
@@ -253,16 +268,17 @@ struct MessageBlock: View {
         return "to " + (first?.display ?? "me")
     }
 
+    private func prepare(_ f: Mail) {
+        if let h = f.html { let p = HTMLSafety.process(h, blockTrackers: prefs.blockTrackers); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
+    }
+
     private func load() async {
-        do {
-            let f = try await store.fullMessage(mail)
-            if let h = f.html { let p = HTMLSafety.process(h, blockTrackers: prefs.blockTrackers); cleaned = (p.html ?? h, p.report.remoteImages) } else { cleaned = nil }
-            full = f
-            onLoaded?(f)
-        }
+        if let p = preloaded { prepare(p); return }
+        guard selfLoading else { return }
+        do { let f = try await store.fullMessage(mail); prepare(f); loadedFull = f }
         catch {
-            if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }   // went back before it finished
-            if case GmailError.signInAgain = error {} else { failed = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened." }   // a sign-in problem is shown once, by the store
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled { return }
+            if case GmailError.signInAgain = error {} else { ownFailure = (error as? LocalizedError)?.errorDescription ?? "This email could not be opened." }
             await store.fail(error, "This email could not be opened.")
         }
     }

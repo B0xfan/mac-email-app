@@ -86,7 +86,7 @@ struct RulesPage: View {
                 NavigationLink(value: SettingsPage.rule("")) { Label("New rule", systemImage: "plus").font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.acc).frame(minHeight: 44) }
             } footer: { Text("Rules live in Gmail itself, so they are the same on your Mac and in Gmail. Swipe a rule left to delete it.").foregroundStyle(Theme.sub) }.setCard()
         }
-        .task { await store.loadRules() }
+        .task { if !store.rulesLoaded { await store.loadRules() } }   // the Settings list has just read them; pulling down reads again
         .refreshable { await store.loadRules() }
         .confirmationDialog("Delete this rule?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible, presenting: deleting) { row in
             Button("Delete", role: .destructive) { Task { await store.deleteRule(row) } }

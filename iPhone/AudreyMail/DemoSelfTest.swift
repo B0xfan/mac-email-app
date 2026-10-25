@@ -497,7 +497,8 @@ enum DemoSelfTest {
         let none = await store.addTodo(line: "Call Maya", mail: row("m1")!)
         check("with no A4 folder chosen the To-do button says so, and nothing is written", none?.hasPrefix("Choose your A4 folder") == true && !prefs.isInTodo(row("m1")!))
         prefs.vaultBookmark = picked.bookmark; prefs.vaultName = "A4"
-        check("the project notes of the A4 folder are found", store.todoProjects() == ["Pipa Fria"])
+        let found = await store.loadTodoProjects()
+        check("the project notes of the A4 folder are found", found == ["Pipa Fria"])
         let todoErr = await store.addTodo(line: "Call Maya for Pipa Fria tomorrow !high", mail: row("m1")!)
         let tasks = vault.appendingPathComponent(ObsidianTask.tasksFolder)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []
@@ -507,6 +508,7 @@ enum DemoSelfTest {
         check("the email then carries the added-to-to-do mark, and the bar offers Open", prefs.isInTodo(row("m1")!) && store.toast?.text == "Added to to-do." && store.toast?.open?.absoluteString == "obsidian://open?vault=A4&file=02%20Planner/TaskNotes/Tasks/Call%20Maya")
         let againTodo = await store.addTodo(line: "Call Maya", mail: row("m1")!)
         check("a second task with the same name gets its own note (-2), like the A4 task engine", againTodo == nil && ((try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []).sorted() == ["Call Maya-2.md", "Call Maya.md"])
+        TodoKeyFile.url = FileManager.default.temporaryDirectory.appendingPathComponent("keys-\(UUID().uuidString).json")   // never the real key file
         prefs.todoList = .todoist
         let noKey = await store.addTodo(line: "Pay the fence", mail: row("m4")!)
         check("Todoist without its key says to add it, and nothing is marked", noKey?.contains("Todoist") == true && !prefs.isInTodo(row("m4")!))

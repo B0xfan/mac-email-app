@@ -28,10 +28,10 @@ struct InboxView: View {
             .navigationTitle("Inbox")
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Mail.self) { m in
-                ReadView(mail: m, advance: { next in path.removeLast(); path.append(next) })   // "open the next email" replaces this one on the screen
+                ReadView(mail: m, advance: { next in path.removeLast(); path.append(next) }).id(m.id)   // "open the next email" replaces this one on the screen (a new screen, not the old one with new words)
             }
             .navigationDestination(for: FolderOpen.self) { o in
-                ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) })
+                ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) }).id(o.mail.id)
             }
             .navigationDestination(for: MailboxRoute.self) { route in
                 switch route {
