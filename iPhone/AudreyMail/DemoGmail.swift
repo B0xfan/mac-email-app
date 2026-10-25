@@ -165,7 +165,7 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, "{\"id\":\"sent\(sent.count)\",\"threadId\":\"\(body["threadId"] as? String ?? "TS")\"}")
         case ("GET", "/messages"):
             let query = (q("q") ?? "").lowercased()
-            func reply(_ ms: [Msg]) -> (Int, String) { (200, "{\"messages\":[\(ms.map { "{\"id\":\"\($0.id)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(ms.count)}") }
+            func reply(_ ms: [Msg]) -> (Int, String) { (200, "{\"messages\":[\(ms.map { "{\"id\":\"\($0.id)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(q("maxResults") == "1" && !ms.isEmpty ? 201 : ms.count)}") }   // as the real Gmail (checked 2026-10-24): asked for one email, it answers 201 for any non-empty result
             if let lid = q("labelIds") { return reply(msgs.filter { $0.labels.contains(lid) }.sorted { $0.date > $1.date }) }
             func addr(_ marker: String) -> String { query.components(separatedBy: marker).dropFirst().first?.components(separatedBy: "\"").dropFirst().first ?? "" }
             if query.contains("before:") { let a = addr("from:"); return reply(known.contains(a) ? [msgs[0]] : []) }
