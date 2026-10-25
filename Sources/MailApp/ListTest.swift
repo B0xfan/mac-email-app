@@ -111,6 +111,21 @@ enum ListTest {
         await store.open(store.inbox.first { $0.id == "vo2" }!)    // reopening it afterwards must not pull it back up
         check("held: reopening a released read email holds nothing", store.heldOpenID == nil && ids().firstIndex(of: "mail-vo2")! > ids().firstIndex(of: "header-rest")!)
 
+        // "Showing unread emails only": an opened email stays (the filter feeds every view) after selecting another, until it leaves the Inbox
+        let savedInbox = store.inbox
+        let ko1 = mail("ko1", "Keep One", hoursAgo: 0.2, unread: true), ko2 = mail("ko2", "Keep Two", hoursAgo: 0.1, unread: true)
+        store.inbox = savedInbox + [ko1, ko2]; store.unreadOnly = true
+        await store.open(ko1); await store.open(ko2)
+        func shown() -> Set<String> { Set(store.inboxMails.map(\.id)) }
+        check("unread only: both opened emails stay, other read emails stay hidden", shown() == ["ko1", "ko2"])
+        store.inbox = store.inbox.map { [ko1, ko2].map(\.id).contains($0.id) ? mail($0.id, "Fresh", hoursAgo: 0.1, unread: false) : $0 }   // a refresh hands back fresh, read copies
+        check("unread only: a refresh keeps them", shown() == ["ko1", "ko2"])
+        store.inbox.removeAll { $0.id == "ko1" }   // archived
+        check("unread only: an archived one is gone, the other stays", shown() == ["ko2"])
+        store.unreadOnly = false; store.unreadOnly = true
+        check("unread only: switching the filter off and on starts clean", shown().isEmpty)
+        store.unreadOnly = false; store.closeReader(); store.inbox = savedInbox
+
         // select several: the chosen rows get the grey-blue fill, never the teal; the one open email is still the only teal row (light and dark)
         let lightMulti = (217, 220, 234), darkMulti = (43, 47, 77), darkTeal = (44, 111, 117)
         store.closeReader()

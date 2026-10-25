@@ -91,7 +91,9 @@ final class MailStore: ObservableObject {
     @Published var accountEmail = ""
     @Published var homeShown = false
     var homeNowOverride: Date?   // drawn-screen tests only
-    @Published var unreadOnly = false
+    /// "Unread only" filter on: emails opened while it was on stay in the list (they turn read on opening) until they leave the Inbox. Cleared when the filter goes off.
+    @Published var unreadOnly = false { didSet { if !unreadOnly { keptOpen = [] } } }
+    var keptOpen: Set<String> = []
     /// Gmail id of the "Pinned" label; nil until it exists. Pins are a Gmail label so they also show on the phone.
     @Published var pinLabelID: String?
     /// Set Aside is also a Gmail label (so it shows on the phone). `aside` holds the emails that carry it.
@@ -209,7 +211,7 @@ final class MailStore: ObservableObject {
     }
     var inboxMails: [Mail] {
         let base = settings.screenNewSenders ? inbox.filter { !isNew($0) } : inbox
-        return unreadOnly ? base.filter { $0.unread } : base
+        return unreadOnly ? base.filter { $0.unread || keptOpen.contains($0.id) } : base
     }
     func isNew(_ m: Mail) -> Bool {
         if m.labels.contains("SENT") { return false }

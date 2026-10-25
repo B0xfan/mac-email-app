@@ -19,6 +19,7 @@ extension MailStore {
             return
         }
         if m.id != heldOpenID { heldUnreadID = m.unread ? m.id : nil }   // clicking the held email again keeps it held
+        if unreadOnly && m.unread { keptOpen.insert(m.id) }   // opening marks it read; the "unread only" list keeps it
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
         picked = []; pickAnchor = m.id   // a plain click leaves the multi-selection
         openMail = m
