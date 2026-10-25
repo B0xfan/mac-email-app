@@ -497,8 +497,8 @@ enum DemoSelfTest {
         let none = await store.addTodo(line: "Call Maya", mail: row("m1")!)
         check("with no A4 folder chosen the To-do button says so, and nothing is written", none?.hasPrefix("Choose your A4 folder") == true && !prefs.isInTodo(row("m1")!))
         prefs.vaultBookmark = picked.bookmark; prefs.vaultName = "A4"
-        let found = await store.loadTodoProjects()
-        check("the project notes of the A4 folder are found", found == ["Pipa Fria"])
+        let projectList = await store.loadTodoProjects()
+        check("the project notes of the A4 folder are found", projectList == ["Pipa Fria"])
         let todoErr = await store.addTodo(line: "Call Maya for Pipa Fria tomorrow !high", mail: row("m1")!)
         let tasks = vault.appendingPathComponent(ObsidianTask.tasksFolder)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: tasks.path)) ?? []
