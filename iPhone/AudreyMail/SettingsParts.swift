@@ -78,7 +78,7 @@ struct MenuRow<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [(value: Value, label: String)]
     var body: some View {
-        let current = options.first { $0.value == selection }?.label ?? ""
+        let current = (options.first { $0.value == selection }?.label ?? "").replacingOccurrences(of: " (default)", with: "")   // the menu says which is the default; the row just says what is chosen
         Menu {
             Picker(title, selection: $selection) { ForEach(options.indices, id: \.self) { Text(options[$0].label).tag(options[$0].value) } }
         } label: {
