@@ -192,8 +192,20 @@ enum Fetch { case ok(Data), none, error }
         let c = URLSessionConfiguration.ephemeral
         c.httpCookieStorage = nil; c.httpShouldSetCookies = false; c.urlCache = nil; c.requestCachePolicy = .reloadIgnoringLocalCacheData
         c.timeoutIntervalForRequest = deadline; c.timeoutIntervalForResource = deadline
-        return URLSession(configuration: c)
+        return URLSession(configuration: c, delegate: SameSiteRedirects(), delegateQueue: nil)
     }()
+
+    /// A redirect is followed only to the same site (the name itself or a subdomain of it, over https) and only to a real internet name, never an address or a local name.
+    nonisolated static func redirectOK(from: URL?, to: URL?) -> Bool {
+        guard let from = from?.host?.lowercased(), let to, to.scheme == "https", let h = to.host?.lowercased(), validDomain(h) else { return false }
+        return h == from || h.hasSuffix("." + from)
+    }
+
+    final class SameSiteRedirects: NSObject, URLSessionTaskDelegate, Sendable {
+        func urlSession(_ s: URLSession, task: URLSessionTask, willPerformHTTPRedirection r: HTTPURLResponse, newRequest: URLRequest) async -> URLRequest? {
+            SenderPictures.redirectOK(from: task.originalRequest?.url, to: newRequest.url) ? newRequest : nil
+        }
+    }
 
     nonisolated static func web(_ url: URL, _ kind: Kind) async -> Fetch {
         await withDeadline(deadline, fallback: .error) {

@@ -1260,6 +1260,12 @@ enum SelfTest {
         check("misses: a network error / timeout / 429 / 5xx is not remembered (asked again)", first > 0 && !asked.isEmpty && sp.picture(for: "z@trouble.example") == nil)
         check("misses: 404 is a clean miss, 429 / 5xx / timeout are not",
               { if case .none = SenderPictures.status(404) { return true }; return false }() && [429, 500, 503, 408, 302].allSatisfy { if case .error = SenderPictures.status($0) { return true }; return false })
+        let rFrom = URL(string: "https://example.com/favicon.ico")
+        func rOK(_ to: String) -> Bool { SenderPictures.redirectOK(from: rFrom, to: URL(string: to)) }
+        check("logo redirects stay on the same site, and nowhere else (other site, address, local name, plain http)",
+              rOK("https://www.example.com/icon.png") && rOK("https://example.com/x.png")
+              && !rOK("https://evil.net/x.png") && !rOK("https://example.com.evil.net/x.png") && !rOK("https://10.0.0.5/x.png") && !rOK("https://[::1]/x.png")
+              && !rOK("https://printer.local/x.png") && !rOK("http://www.example.com/x.png"))
         clock = clock.addingTimeInterval(40 * 86400); asked = []
         let stale = SenderPictures(dir: dir, fetch: fetch); stale.now = { clock }
         await stale.load("a@shop.example")
