@@ -5,7 +5,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # ---- pretend Google ----
 drafts, sent_log, mode = {"d1", "d2", "d3", "d4", "d5", "d6", "d7", "e1", "e2", "e3", "e4", "e5", "e6", "e7"}, [], {"send": 200, "token": 200, "raw": None, "terr": None}
-threads, modify_log = {}, []
+threads, modify_log, forms, bad_rt = {}, [], [], set()
+bad_cid = set()
 mode["modify"] = 200
 def thread(mid, *others): return [{"id": mid, "labelIds": ["SENT"], "internalDate": "1000000"}] + [{"id": o[0], "labelIds": o[1], "internalDate": str(o[2])} for o in others]
 class G(BaseHTTPRequestHandler):
@@ -18,6 +19,9 @@ class G(BaseHTTPRequestHandler):
             if mode["modify"] != 200: return self.reply(mode["modify"], {})
             modify_log.append((self.path[10:-7], json.loads(raw)["addLabelIds"])); return self.reply(200, {})
         if self.path == "/token":
+            form = dict(x.split("=") for x in raw.decode().split("&")); forms.append(form)
+            if form["refresh_token"] in bad_rt: return self.reply(400, {"error": "invalid_grant"})
+            if form["client_id"] in bad_cid: return self.reply(400, {"error": "invalid_client"})
             if mode["terr"]: return self.reply(400, {"error": mode["terr"]})
             return self.reply(200, {"access_token": "AT", "expires_in": 3000}) if mode["token"] == 200 else self.reply(400, {"error": "invalid_grant"})
         if self.path == "/drafts/send":
@@ -107,7 +111,7 @@ mode["token"] = 200; K2 = req("POST", "/register", {"refresh_token": "r" * 20})[
 check("signing in again: old key stops, the job gets another go", req("GET", "/jobs", key=K)[0] == 401 and jobs(K2)["d7"]["status"] == "pending")
 server.tick(now + 200); check("and is then sent once", sent_log.count("d7") == 1)
 
-c.execute("INSERT INTO users(email,key_hash,refresh_token,created) VALUES('b@example.com','h','r',1)")
+c.execute("INSERT INTO devices(email,device,key_hash,refresh_token,created) VALUES('b@example.com','mac','h','r',1)")
 c.execute("INSERT INTO jobs(email,draft_id,send_at,status,updated) VALUES('b@example.com','x1',5,'pending',1)"); c.commit()
 check("one person never sees another's jobs", "x1" not in jobs(K2))
 
@@ -146,7 +150,7 @@ check("finished jobs purged after 14 days, not before", row("old1") is None and 
 server.MAX_PENDING = 2; c.execute("DELETE FROM jobs WHERE status='pending'"); c.commit()
 codes = [req("PUT", f"/jobs/m{i}", {"send_at": now + 9000}, K2)[0] for i in range(3)]
 check("too many scheduled: 429 (an edit of an existing one still fine)", codes == [200, 200, 429] and req("PUT", "/jobs/m0", {"send_at": now + 9100}, K2)[0] == 200); server.MAX_PENDING = 200
-c.execute("UPDATE users SET key_hash=? WHERE email='b@example.com'", (__import__("hashlib").sha256(b"bkey").hexdigest(),)); c.commit()
+c.execute("UPDATE devices SET key_hash=? WHERE email='b@example.com'", (__import__("hashlib").sha256(b"bkey").hexdigest(),)); c.commit()
 mine = lambda: c.execute("SELECT send_at FROM jobs WHERE email='me@example.com' AND draft_id='m0'").fetchone()
 check("another user's PUT/DELETE on my draft id touches only their own row", req("PUT", "/jobs/m0", {"send_at": now + 1}, "bkey")[0] == 200 and mine()["send_at"] == now + 9100
       and req("DELETE", "/jobs/m0", key="bkey") == (200, {"status": "pending"}) and mine() is not None)
@@ -233,7 +237,7 @@ check("reminder: recovering a stuck 'firing' counts an attempt (and the last one
 # two people: reminders never cross
 c.execute("INSERT INTO reminders(email,message_id,thread_id,remind_at,status,updated) VALUES('b@example.com','bx','t1',9,'pending',1)"); c.commit()
 check("reminder: one person never sees another's", "bx" not in rems() and req("DELETE", "/reminders/bx", key=K2) == (200, {"status": "none"}) and rrow("bx") is not None)
-c.execute("UPDATE users SET key_hash=? WHERE email='b@example.com'", (__import__("hashlib").sha256(b"bkey2").hexdigest(),)); c.commit()
+c.execute("UPDATE devices SET key_hash=? WHERE email='b@example.com'", (__import__("hashlib").sha256(b"bkey2").hexdigest(),)); c.commit()
 check("reminder: another user's PUT/DELETE on my message id touches only their own row",
       req("PUT", "/reminders/q0", {"thread_id": "t1", "remind_at": now + 5}, "bkey2")[0] == 200 and rems()["q0"]["remind_at"] == now + 9100
       and req("DELETE", "/reminders/q0", key="bkey2") == (200, {"status": "pending"}) and "q0" in rems())
@@ -244,4 +248,138 @@ try: server.tick(now + 300)
 except Exception: pass
 check("job + reminder saved together: if the reminder cannot be saved, the job is not marked sent", row("sl3")["status"] in ("sending", "pending") and rrow("m-sl3") is None)
 c.execute("DROP TRIGGER boom"); c.commit()
+
+# ---- version 3: more than one device, Smart Folders, phone head start ----
+import sqlite3, hashlib
+os.environ["EXTRA_CLIENT_IDS"] = "ios-client, other-ios"
+legacy = tempfile.mkdtemp() + "/old.db"; o = sqlite3.connect(legacy)
+o.executescript("CREATE TABLE users(email TEXT PRIMARY KEY, key_hash TEXT NOT NULL, refresh_token TEXT NOT NULL, signin_ok INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL);"
+                "CREATE TABLE jobs(email TEXT NOT NULL, draft_id TEXT NOT NULL, send_at INTEGER NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER, sent_id TEXT, thread_id TEXT, note TEXT, updated INTEGER NOT NULL, PRIMARY KEY(email, draft_id));")
+o.execute("INSERT INTO users VALUES('me@example.com',?,'rt',1,5)", (hashlib.sha256(b"oldkey").hexdigest(),))
+o.execute("INSERT INTO jobs(email,draft_id,send_at,status,updated) VALUES('me@example.com','old1',9,'pending',1)"); o.commit(); o.close()
+real = os.environ["DB_PATH"]; os.environ["DB_PATH"] = legacy; lc = server.db(); d0 = lc.execute("SELECT * FROM devices").fetchall(); lc.close(); lc = server.db()
+check("an older database: the one saved sign-in becomes the Mac, its key still works, its jobs are kept",
+      len(d0) == 1 and d0[0]["device"] == "mac" and d0[0]["client_id"] is None and d0[0]["key_hash"] == hashlib.sha256(b"oldkey").hexdigest()
+      and lc.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1 and lc.execute("SELECT COUNT(*) FROM devices").fetchone()[0] == 1 and lc.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1)
+lc.close(); os.environ["DB_PATH"] = real
+
+forms.clear()
+check("phone: a Google key the server does not know is refused", req("POST", "/register", {"refresh_token": "p" * 20, "device": "iphone", "client_id": "evil"})[0] == 403)
+check("bad device name refused", all(req("POST", "/register", {"refresh_token": "p" * 20, "device": v})[0] == 400 for v in ("", "Mac", "a b", 5, "x" * 21)))
+check("bad client_id type refused", req("POST", "/register", {"refresh_token": "p" * 20, "client_id": 5})[0] == 400)
+s, b = req("POST", "/register", {"refresh_token": "p" * 20, "device": "iphone", "client_id": "ios-client"}); KP = b.get("api_key")
+check("phone registers next to the Mac", s == 200 and bool(KP) and b["device"] == "iphone" and b["email"] == "me@example.com")
+check("phone sign-in was checked with the phone's own Google key and no secret", forms and forms[-1]["client_id"] == "ios-client" and "client_secret" not in forms[-1] and forms[-1]["refresh_token"] == "p" * 20)
+check("the Mac's key still works after the phone registered", req("GET", "/jobs", key=K2)[0] == 200 and req("GET", "/jobs", key=KP)[0] == 200)
+forms.clear(); server._tokens.clear(); s, b = req("POST", "/register", {"refresh_token": "r" * 20}); K3 = b.get("api_key")
+check("an app that sends no device name (today's Mac) is 'mac', uses the Mac's key and secret, replaces only the Mac",
+      s == 200 and b["device"] == "mac" and forms[-1]["client_id"] == "x" and forms[-1]["client_secret"] == "y"
+      and req("GET", "/jobs", key=K2)[0] == 401 and req("GET", "/jobs", key=K3)[0] == 200 and req("GET", "/jobs", key=KP)[0] == 200)
+K2 = K3
+check("sending the Mac's own key as client_id also counts as the Mac", req("POST", "/register", {"refresh_token": "r" * 20, "client_id": "x"})[1].get("device") == "mac")
+K2 = req("POST", "/register", {"refresh_token": "r" * 20})[1]["api_key"]
+for n in ("a", "b", "c"): req("POST", "/register", {"refresh_token": "p" * 20, "device": "ipad-" + n, "client_id": "other-ios"})
+check("at most 5 devices per person; an existing one can still sign in again",
+      req("POST", "/register", {"refresh_token": "p" * 20, "device": "ipad-z", "client_id": "other-ios"})[0] == 429
+      and req("POST", "/register", {"refresh_token": "p" * 20, "device": "ipad-a", "client_id": "other-ios"})[0] == 200)
+
+# the phone hands over an email: short head start, sent through whichever sign-in works, cancel works
+drafts.update({"g1", "g2", "g3", "g4"}); T = now + 50000
+check("grace_seconds outside 0 to 120 or wrong type refused", all(req("PUT", "/jobs/g1", {"send_at": T, "grace_seconds": v}, KP)[0] == 400 for v in (-1, 121, "5", 1.5, True)))
+req("PUT", "/jobs/g1", {"send_at": T, "grace_seconds": 5}, KP); req("PUT", "/jobs/g2", {"send_at": T}, KP)
+server.tick(T + 4); check("phone email: not sent before its short head start (the app goes first)", "g1" not in sent_log)
+server.tick(T + 6); check("phone email: sent right after it; an email with no head start asked for still waits the full 2 minutes", "g1" in sent_log and "g2" not in sent_log)
+server.tick(T + 125); check("...and goes after 2 minutes", "g2" in sent_log)
+check("jobs are shared by the person's devices", jobs(K2)["g1"]["status"] == "sent" and jobs(KP)["g1"]["status"] == "sent")
+req("DELETE", "/jobs/g1", key=KP); req("DELETE", "/jobs/g2", key=KP)
+req("PUT", "/jobs/g3", {"send_at": T + 100, "grace_seconds": 0}, KP); check("cancel (Undo) before the time: never sent", req("DELETE", "/jobs/g3", key=KP) == (200, {"status": "pending"}))
+server.tick(T + 500); check("cancelled phone email stays unsent", "g3" not in sent_log)
+req("PUT", "/jobs/g3", {"send_at": T, "grace_seconds": 0}, KP); req("PUT", "/jobs/g3", {"send_at": T + 9000}, KP)
+server.tick(T + 200); check("an edit without grace_seconds goes back to the full head start (whole state each time)", "g3" not in sent_log)
+req("DELETE", "/jobs/g3", key=KP)
+
+c.execute("DELETE FROM devices WHERE device LIKE 'ipad-%'"); c.commit()
+bad_rt.add("p" * 20); server._tokens.clear(); req("PUT", "/jobs/g4", {"send_at": T, "grace_seconds": 0}, K2); server.tick(T + 30)
+check("the phone's sign-in revoked, the Mac's fine: the email is still sent, the phone is flagged, the Mac is not",
+      "g4" in sent_log and req("GET", "/jobs", key=KP)[1]["signin_ok"] is False and req("GET", "/jobs", key=K2)[1]["signin_ok"] is True)
+bad_rt.clear(); KP = req("POST", "/register", {"refresh_token": "p" * 20, "device": "iphone", "client_id": "ios-client"})[1]["api_key"]
+check("phone signs in again: flagged off, works", req("GET", "/jobs", key=KP)[1]["signin_ok"] is True); req("DELETE", "/jobs/g4", key=KP)
+
+# Smart Folders and saved searches
+sf = {"id": "A1", "name": "Invoices from Tomas", "matchAll": True, "rules": [{"id": "R1", "field": "from", "value": "tomas"}]}; ss = {"id": "S1", "name": "invoice", "query": "invoice"}
+check("organizer: nothing refused without a key", req("GET", "/organizer")[0] == 401 and req("PUT", "/organizer", {"base_version": 0, "smart": [], "searches": []})[0] == 401)
+check("organizer: starts empty at version 0", req("GET", "/organizer", key=K2) == (200, {"version": 0, "smart": [], "searches": []}))
+check("organizer: Mac saves its list (first start)", req("PUT", "/organizer", {"base_version": 0, "smart": [sf], "searches": [ss], "folded": ["x"]}, K2) == (200, {"version": 1}))
+check("organizer: the phone sees the same list, the Mac-only 'folded' is not kept", req("GET", "/organizer", key=KP) == (200, {"version": 1, "smart": [sf], "searches": [ss]}))
+s, b = req("PUT", "/organizer", {"base_version": 0, "smart": [], "searches": []}, KP)
+check("organizer: a save from an out-of-date copy is refused with the current list, nothing lost", s == 409 and b == {"version": 1, "smart": [sf], "searches": [ss]})
+ss2 = {"id": "S2", "name": "Lucia dinner", "query": "Lucia dinner"}
+check("organizer: phone saves on top of the current version", req("PUT", "/organizer", {"base_version": 1, "smart": [sf], "searches": [ss, ss2]}, KP) == (200, {"version": 2}) and req("GET", "/organizer", key=K2)[1]["searches"] == [ss, ss2])
+check("organizer: an empty list is a valid save (deleting everything)", req("PUT", "/organizer", {"base_version": 2, "smart": [], "searches": []}, K2) == (200, {"version": 3}))
+bad = [{"smart": [], "searches": []}, {"base_version": "1", "smart": [], "searches": []}, {"base_version": 3, "searches": []}, {"base_version": 3, "smart": []}, {"base_version": 3, "smart": {}, "searches": []},
+       {"base_version": 3, "smart": [{"name": "x"}], "searches": []}, {"base_version": 3, "smart": [], "searches": [{"id": "a", "name": 5}]}, {"base_version": 3, "smart": [], "searches": ["x"]},
+       {"base_version": 3, "smart": [{"id": "i%d" % i, "name": "n"} for i in range(101)], "searches": []}, {"base_version": 3, "smart": [{"id": "x" * 65, "name": "n"}], "searches": []}]
+check("organizer: malformed saves refused and change nothing", all(req("PUT", "/organizer", b_, K2)[0] == 400 for b_ in bad) and req("GET", "/organizer", key=K2)[1]["version"] == 3)
+big = {"base_version": 3, "smart": [{"id": "i%d" % i, "name": "n", "rules": "y" * 700} for i in range(60)], "searches": []}
+check("organizer: a 40 KB list is accepted; over 64 KB is refused", req("PUT", "/organizer", big, K2)[0] == 200 and req("PUT", "/organizer", {"base_version": 4, "smart": [{"id": "i", "name": "n", "rules": "y" * 70000}], "searches": []}, K2)[0] == 400)
+check("organizer: one person never sees another's list", req("GET", "/organizer", key="bkey2") == (200, {"version": 0, "smart": [], "searches": []}))
+check("organizer: other jobs endpoints still refuse an oversized body", req("PUT", "/jobs/zz", {"send_at": now, "pad": "y" * 9000}, K2)[0] == 400)
+# ---- fix round 1 ----
+import socket, sqlite3
+def secs(d, key): return (row(d)[key] or 0) - int(time.time())
+# 1. phone clock skew: "in N seconds" is turned into a time by the server's own clock
+check("relative: send_in_seconds becomes server time + N", req("PUT", "/jobs/rl1", {"send_in_seconds": 60}, K2)[0] == 200 and 58 <= secs("rl1", "send_at") <= 61)
+check("relative: remind_in_seconds counts from now; must still be after the send", req("PUT", "/jobs/rl2", {"send_in_seconds": 60, "remind_in_seconds": 3600}, K2)[0] == 200 and 3598 <= secs("rl2", "remind_at") <= 3601
+      and req("PUT", "/jobs/rl3", {"send_in_seconds": 60, "remind_in_seconds": 30}, K2)[0] == 400 and row("rl3") is None)
+check("relative: both forms together, negative, text, true or absurd refused", all(req("PUT", "/jobs/rl4", b_, K2)[0] == 400 for b_ in
+      ({"send_at": now + 60, "send_in_seconds": 60}, {"send_in_seconds": -1}, {"send_in_seconds": "5"}, {"send_in_seconds": True}, {"send_in_seconds": 400 * 86400}, {"send_in_seconds": 60, "remind_at": now + 9000, "remind_in_seconds": 9000})) and row("rl4") is None)
+drafts.add("rl5"); req("PUT", "/jobs/rl5", {"send_in_seconds": 0, "grace_seconds": 0}, K2); server.tick(int(time.time()) + 11)
+check("relative: 0 seconds + grace 0 goes at the next check, once", sent_log.count("rl5") == 1)
+check("relative: the absolute form (the Mac) still works", req("PUT", "/jobs/rl6", {"send_at": now + 5000}, K2)[0] == 200 and row("rl6")["send_at"] == now + 5000)
+# 2. nested brackets: 400, not a crash
+deep = b"[" * 5000 + b"]" * 5000
+check("nested-bracket body: 400 on organizer, jobs and register", req("PUT", "/organizer", raw=deep, headers={"Authorization": "Bearer " + K2})[0] == 400
+      and req("PUT", "/jobs/rl7", raw=deep, headers={"Authorization": "Bearer " + K2})[0] == 400 and req("POST", "/register", raw=deep, headers={})[0] == 400)
+# 3. an anonymous caller is refused before any body is read
+def raw_put(key):
+    sk = socket.create_connection(("127.0.0.1", ms.server_port), timeout=3)   # promises 60000 bytes, sends none: a server that reads first would sit waiting
+    sk.sendall(("PUT %s/organizer HTTP/1.0\r\nContent-Length: 60000\r\n%s\r\n" % (server.PREFIX, "Authorization: Bearer %s\r\n" % key if key else "")).encode())
+    try: return sk.recv(64).split(b" ")[1]
+    except socket.timeout: return b"waited"
+    finally: sk.close()
+check("organizer: no key / wrong key answered 401 without reading the body", raw_put(None) == b"401" and raw_put("nope") == b"401")
+check("organizer: a good key still gets its 64 KB allowance", raw_put(K2) == b"waited")
+# 4. a trailing newline is not a valid name
+check("device name 'iphone\\n' refused, 'iphone' accepted", req("POST", "/register", {"refresh_token": "r" * 20, "device": "iphone\n"})[0] == 400
+      and req("POST", "/register", {"refresh_token": "r" * 20, "device": "iphone"})[0] == 200
+      and not server.DRAFT_RE.match("d1\n") and not server.DEVICE_RE.match("mac\n") and server.DRAFT_RE.match("d1"))
+c.execute("DELETE FROM devices WHERE email='me@example.com' AND device='iphone'"); c.commit()
+# 5. one device with a broken key setup does not block the account's other devices
+c.execute("INSERT INTO devices(email,device,key_hash,refresh_token,client_id,signin_ok,created) VALUES('me@example.com','phone2','h2','rtok','badcl',1,?)", (int(time.time()) + 100,)); c.commit()
+bad_cid.add("badcl"); server._tokens.clear(); drafts.add("fa1"); late("fa1"); server.tick(now + 2000)
+check("setup error on the newest device: falls through to the next device, sends once", sent_log.count("fa1") == 1 and row("fa1")["status"] == "sent"
+      and c.execute("SELECT COUNT(*) FROM devices WHERE email='me@example.com' AND signin_ok=0").fetchone()[0] == 0)
+c.execute("UPDATE devices SET signin_ok=0 WHERE email='me@example.com' AND device<>'phone2'"); c.commit(); drafts.add("fa2"); late("fa2"); server.tick(now + 2000)
+check("setup error and every other device refused: job waits to retry, nothing flagged failed", row("fa2")["status"] == "pending" and "fa2" not in sent_log
+      and c.execute("SELECT signin_ok FROM devices WHERE device='phone2'").fetchone()[0] == 1)
+c.execute("DELETE FROM devices WHERE device='phone2'"); c.execute("UPDATE devices SET signin_ok=1 WHERE email='me@example.com'"); c.execute("DELETE FROM jobs WHERE draft_id='fa2'"); c.commit(); bad_cid.clear()
+# 6. create + copy is one transaction
+def fresh_db(users_sql, path):
+    os.environ["DB_PATH"] = path; k = sqlite3.connect(path); k.execute(users_sql); k.commit(); k.close()
+good = tempfile.mkdtemp() + "/old.db"; broken = tempfile.mkdtemp() + "/old.db"; real = os.environ["DB_PATH"]
+fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT, refresh_token TEXT, signin_ok INTEGER, created INTEGER)", good)
+k = sqlite3.connect(good); k.execute("INSERT INTO users VALUES('a@x.example','kh','rt',1,5)"); k.commit(); k.close()
+errs = []
+def starter():
+    try: server.db().close()
+    except Exception as e: errs.append(e)
+ts = [threading.Thread(target=starter) for _ in range(6)]; [t.start() for t in ts]; [t.join() for t in ts]
+k = sqlite3.connect(good); mig = k.execute("SELECT email,device,key_hash,client_id FROM devices").fetchall(); keep = k.execute("SELECT COUNT(*) FROM users").fetchone()[0]; k.close()
+check("first start of an old database: six simultaneous starters, no error, the old sign-in copied exactly once, old table untouched", not errs and mig == [("a@x.example", "mac", "kh", None)] and keep == 1)
+fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT)", broken)   # cannot be copied (columns missing)
+try: server.db(); failed = False
+except sqlite3.Error: failed = True
+k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders')").fetchone()[0]; k.close()
+check("a copy that fails leaves no half-made tables behind (the next start tries again)", failed and left == 0)
+os.environ["DB_PATH"] = real
 print("FAILURES:", fails); sys.exit(1 if fails else 0)
