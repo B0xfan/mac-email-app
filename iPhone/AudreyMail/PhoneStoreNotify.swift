@@ -8,11 +8,16 @@ extension PhoneStore {
     /// Emails the person has seen on screen or been told about; the key is missing until the first look, which only records (so turning this on never floods).
     private var seenMail: [String]? { defaults.stringArray(forKey: Self.seenMailKey) }
 
+    static let seenKeep = 1000
+
     /// Called when the app comes forward or goes away: whatever is in the inbox now has been seen, so a later background check does not announce it.
-    /// The list is rebuilt from the inbox as it is now plus the emails just announced, so it never grows and an email that left the inbox and comes back counts as new.
+    /// The list is the inbox as it is now, then the emails just announced, then what was seen before (newest first), cut to a fixed length so it never grows.
     func markSeen(announced: [Mail] = []) {
         guard state == .signedIn, !inbox.isEmpty else { return }   // not before the first inbox has loaded
-        defaults.set(Array(Set(inbox.map(\.id) + announced.map(\.id))).sorted(), forKey: Self.seenMailKey)
+        let now = inbox.map(\.id) + announced.map(\.id)
+        var have = Set<String>(), out: [String] = []
+        for id in now + (seenMail ?? []) where have.insert(id).inserted { out.append(id) }
+        defaults.set(Array(out.prefix(max(Self.seenKeep, now.count))), forKey: Self.seenMailKey)
     }
 
     /// Unread People emails not seen before get a banner (same People rule as the icon number); everything in the inbox then counts as seen.
