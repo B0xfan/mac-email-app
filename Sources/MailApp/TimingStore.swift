@@ -68,7 +68,17 @@ extension MailStore {
             snoozed = ids.compactMap { have[$0] } + (await gmail.messages(ids: ids.filter { have[$0] == nil }))
         }
         // brought back some other way (Undo, the phone): forget the time
-        let gone = timing.data.snoozes.keys.filter { !ids.contains($0) }
+        var gone = timing.data.snoozes.keys.filter { !ids.contains($0) }
+        // the stored mail may not carry the label yet (a snooze the phone just made): Gmail has the last word, and when it cannot answer the time is kept
+        if !gone.isEmpty {
+            let g = gmail
+            let asked = await mapLimited(Array(gone), limit: 4) { id -> (String, Bool) in
+                do { return (id, !(try await g.message(id: id, full: false)).labels.contains(l)) }
+                catch GmailError.http(404, _) { return (id, true) }   // deleted: nothing to wait for
+                catch { return (id, false) }
+            }
+            gone = asked.filter(\.1).map(\.0)
+        }
         if !gone.isEmpty { timing.change { t in gone.forEach { t.snoozes[$0] = nil } } }
     }
 
