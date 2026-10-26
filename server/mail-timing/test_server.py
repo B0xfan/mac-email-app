@@ -8,6 +8,7 @@ drafts, sent_log, mode = {"d1", "d2", "d3", "d4", "d5", "d6", "d7", "e1", "e2", 
 threads, modify_log, forms, bad_rt = {}, [], [], set()
 bad_cid = set()
 mode["modify"] = 200
+rm_log, msg_labels = [], {}   # snooze: what the pretend mailbox holds per message
 def thread(mid, *others): return [{"id": mid, "labelIds": ["SENT"], "internalDate": "1000000"}] + [{"id": o[0], "labelIds": o[1], "internalDate": str(o[2])} for o in others]
 class G(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -17,7 +18,9 @@ class G(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0); raw = self.rfile.read(n)
         if self.path.startswith("/messages/") and self.path.endswith("/modify"):
             if mode["modify"] != 200: return self.reply(mode["modify"], {})
-            modify_log.append((self.path[10:-7], json.loads(raw)["addLabelIds"])); return self.reply(200, {})
+            j = json.loads(raw); modify_log.append((self.path[10:-7], j["addLabelIds"])); rm_log.append(j.get("removeLabelIds"))
+            if self.path[10:-7] in msg_labels: msg_labels[self.path[10:-7]] = (msg_labels[self.path[10:-7]] - set(j.get("removeLabelIds") or [])) | set(j["addLabelIds"])
+            return self.reply(200, {})
         if self.path == "/token":
             form = dict(x.split("=") for x in raw.decode().split("&")); forms.append(form)
             if form["refresh_token"] in bad_rt: return self.reply(400, {"error": "invalid_grant"})
@@ -32,6 +35,10 @@ class G(BaseHTTPRequestHandler):
             if did in drafts: drafts.discard(did); sent_log.append(did); return self.reply(200, {"id": "m-" + did, "threadId": "t-" + did})
             return self.reply(404, {})
     def do_GET(self):
+        if self.path == "/labels": return self.reply(200, {"labels": [{"id": "INBOX", "name": "INBOX"}, {"id": "L1", "name": "Snoozed"}]})
+        if self.path.startswith("/messages/"):
+            m = self.path[10:].split("?")[0]
+            return self.reply(200, {"id": m, "labelIds": sorted(msg_labels[m])}) if m in msg_labels else self.reply(404, {})
         if self.path.startswith("/threads/"):
             t = self.path[9:].split("?")[0]
             return self.reply(200, {"messages": threads[t]}) if t in threads else self.reply(404, {})
@@ -386,6 +393,53 @@ c.execute("UPDATE devices SET signin_ok=0 WHERE email='me@example.com' AND devic
 check("setup error and every other device refused: job waits to retry, nothing flagged failed", row("fa2")["status"] == "pending" and "fa2" not in sent_log
       and c.execute("SELECT signin_ok FROM devices WHERE device='phone2'").fetchone()[0] == 1)
 c.execute("DELETE FROM devices WHERE device='phone2'"); c.execute("UPDATE devices SET signin_ok=1 WHERE email='me@example.com'"); c.execute("DELETE FROM jobs WHERE draft_id='fa2'"); c.commit(); bad_cid.clear()
+# ---- snooze return ----
+def snz(): return {x["message_id"]: x for x in req("GET", "/snoozes", key=K2)[1]["snoozes"]}
+def put_snz(m, at, **kw): return req("PUT", "/snoozes/" + m, {"wake_at": at, **kw}, K2)
+c.execute("UPDATE devices SET signin_ok=1 WHERE email='me@example.com'"); c.commit()
+check("snooze: no key refused (GET, PUT, DELETE)", all(req(m, p, {"wake_at": now + 60} if m == "PUT" else None)[0] == 401 for m, p in (("GET", "/snoozes"), ("PUT", "/snoozes/s1"), ("DELETE", "/snoozes/s1"))))
+check("snooze: bad id, bad time, both time forms refused", req("PUT", "/snoozes/a.b", {"wake_at": now + 60}, K2)[0] == 404
+      and all(put_snz("s1", v)[0] == 400 for v in (0, "x", True, now + 9 * 10**8))
+      and req("PUT", "/snoozes/s1", {"wake_at": now + 60, "wake_in_seconds": 60}, K2)[0] == 400 and req("PUT", "/snoozes/s1", {}, K2)[0] == 400)
+mark = len(modify_log); msg_labels["s1"] = {"L1", "UNREAD"}
+check("snooze: created pending", put_snz("s1", now + 600) == (200, {"status": "pending"}) and snz()["s1"]["wake_at"] == now + 600)
+server.tick(now + 599); check("snooze: nothing happens before the time", len(modify_log) == mark and snz()["s1"]["status"] == "pending")
+put_snz("s1", now + 5000); server.tick(now + 700)
+check("snooze: an edited time is respected", len(modify_log) == mark and snz()["s1"]["wake_at"] == now + 5000)
+server.tick(now + 5000)
+check("snooze: at the time it goes back to the inbox, unread, snooze label off", modify_log[mark:] == [("s1", ["INBOX", "UNREAD"])] and rm_log[-1] == ["L1"] and msg_labels["s1"] == {"INBOX", "UNREAD"} and snz()["s1"]["status"] == "woken")
+tv = req("GET", "/timing-view", key=K2)[1]
+check("snooze: shared view updated like the Mac (time dropped, surfaced + back_tag set)", "s1" not in tv["snoozes"] and tv["surfaced"]["s1"] == now + 5000 and "s1" in tv["back_tag"] and tv["version"] >= 1)
+server.tick(now + 9000); check("snooze: never fires twice", len(modify_log) == mark + 1)
+check("snooze: snoozing it again later works", put_snz("s1", now + 20000) == (200, {"status": "pending"}) and snz()["s1"]["status"] == "pending")
+check("snooze: cancel before the time", req("DELETE", "/snoozes/s1", key=K2) == (200, {"status": "pending"}) and "s1" not in snz())
+msg_labels["s1"] = {"L1"}; server.tick(now + 30000); check("snooze: a cancelled snooze never fires", len(modify_log) == mark + 1)
+check("snooze: cancelling an unknown one is harmless", req("DELETE", "/snoozes/zzz", key=K2) == (200, {"status": "none"}))
+msg_labels["s2"] = {"INBOX"}; put_snz("s2", now - 60); server.tick(now + 40000)
+check("snooze: brought back by hand earlier: left alone", snz()["s2"]["status"] == "skipped" and len(modify_log) == mark + 1)
+msg_labels["s3"] = {"L1", "TRASH"}; put_snz("s3", now - 60); server.tick(now + 40000)
+check("snooze: trashed while snoozed: left alone", snz()["s3"]["status"] == "skipped" and len(modify_log) == mark + 1)
+put_snz("s4", now - 60); server.tick(now + 40000); check("snooze: email deleted: marked gone", snz()["s4"]["status"] == "gone")
+msg_labels["s5"] = {"L1"}; mode["modify"] = 503; put_snz("s5", now - 60); server.tick(now + 41000)
+check("snooze: Google error: kept to retry", snz()["s5"]["status"] == "pending" and msg_labels["s5"] == {"L1"})
+mode["modify"] = 200; server.tick(now + 41010); check("snooze: not retried before its back-off", snz()["s5"]["status"] == "pending")
+server.tick(now + 42000); check("snooze: retry later succeeds, once", snz()["s5"]["status"] == "woken" and msg_labels["s5"] == {"INBOX", "UNREAD"})
+msg_labels["s6"] = {"L1"}; put_snz("s6", now - 60); ts = [threading.Thread(target=server.tick, args=(now + 50000,)) for _ in range(4)]; [t.start() for t in ts]; [t.join() for t in ts]
+check("snooze: four simultaneous checks wake once", [m for m, _ in modify_log].count("s6") == 1)
+c.execute("INSERT INTO snoozes(email,message_id,wake_at,status,claimed_at,updated) VALUES('me@example.com','s7',?, 'waking', ?, ?)", (now - 900, int(time.time()), now)); c.commit()
+check("snooze: edit or cancel while it is waking refused for now", put_snz("s7", now + 5)[0] == 409 and req("DELETE", "/snoozes/s7", key=K2)[0] == 409)
+c.execute("UPDATE snoozes SET claimed_at=?", (now - 400,)); c.commit(); msg_labels["s7"] = {"L1"}; server.tick(now + 60000)
+check("snooze: stuck 'waking' after a crash is recovered and woken once", snz()["s7"]["status"] == "woken" and [m for m, _ in modify_log].count("s7") == 1)
+mode["token"] = 400; server._tokens.clear(); msg_labels["s8"] = {"L1"}; put_snz("s8", now - 60); server.tick(now + 70000)
+check("snooze: revoked sign-in: failed and flagged, mailbox untouched", snz()["s8"]["note"] == "signin" and msg_labels["s8"] == {"L1"})
+mode["token"] = 200; K2 = req("POST", "/register", {"refresh_token": "r" * 20})[1]["api_key"]
+check("snooze: signing in again gives it another go", snz()["s8"]["status"] == "pending"); server.tick(now + 80000)
+check("snooze: and it is then woken once", snz()["s8"]["status"] == "woken")
+for i in range(server.MAX_PENDING): c.execute("INSERT INTO snoozes(email,message_id,wake_at,status,updated) VALUES('me@example.com',?,?, 'pending', 1)", ("f%d" % i, now + 99999))
+c.commit(); check("snooze: 201st pending refused, but an edit of an existing one still works", put_snz("new", now + 60)[0] == 429 and put_snz("f0", now + 70)[0] == 200)
+c.execute("DELETE FROM snoozes WHERE message_id LIKE 'f%'"); c.commit()
+c.execute("INSERT INTO snoozes(email,message_id,wake_at,status,updated) VALUES('b@example.com','x9',5,'pending',1)"); c.commit()
+check("snooze: one person never sees another's", "x9" not in snz())
 # 6. create + copy is one transaction
 def fresh_db(users_sql, path):
     os.environ["DB_PATH"] = path; k = sqlite3.connect(path); k.execute(users_sql); k.commit(); k.close()
@@ -402,7 +456,7 @@ check("first start of an old database: six simultaneous starters, no error, the 
 fresh_db("CREATE TABLE users(email TEXT, key_hash TEXT)", broken)   # cannot be copied (columns missing)
 try: server.db(); failed = False
 except sqlite3.Error: failed = True
-k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders','timing_view')").fetchone()[0]; k.close()
+k = sqlite3.connect(broken); left = k.execute("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('devices','jobs','organizer','reminders','timing_view','snoozes')").fetchone()[0]; k.close()
 check("a copy that fails leaves no half-made tables behind (the next start tries again)", failed and left == 0)
 os.environ["DB_PATH"] = real
 print("FAILURES:", fails); sys.exit(1 if fails else 0)
