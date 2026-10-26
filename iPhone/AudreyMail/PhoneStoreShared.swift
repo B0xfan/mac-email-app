@@ -43,7 +43,10 @@ extension PhoneStore {
     }
     /// Reads the server's state and merges this phone's snoozes into it, as the Mac does (a stale answer is read again, up to three times). No server or no answer: the last state stays.
     func syncTimingView() async {
-        guard let server, state == .signedIn, !timingBusy else { return }
+        guard let server, state == .signedIn else { return }
+        var waited = 0
+        while timingBusy && waited < 300 { try? await Task.sleep(nanoseconds: 100_000_000); waited += 1 }   // another sync is under way: wait for it, then merge again
+        guard !timingBusy, state == .signedIn else { return }
         timingBusy = true; defer { timingBusy = false }
         for _ in 0..<3 {
             let before = timingView ?? TimingView()
