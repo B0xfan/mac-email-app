@@ -72,6 +72,8 @@ final class PhoneSettings: ObservableObject {
     @Published var blockTrackers: Bool { didSet { d.set(blockTrackers, forKey: "blockTrackers") } }
     @Published var loadImages: Bool { didSet { d.set(loadImages, forKey: "loadImages") } }
     @Published var badge: BadgeChoice { didSet { d.set(badge.rawValue, forKey: "iconBadge") } }
+    /// A banner for new emails from people while the app is closed (checked in the background, so it can come late). Needs the iPhone's Notifications permission too.
+    @Published var notifyNewMail: Bool { didSet { d.set(notifyNewMail, forKey: "notifyNewMail") } }
     @Published var keepTextDays: Int { didSet { d.set(keepTextDays, forKey: "keepTextDays") } }
 
     init(defaults: UserDefaults = .standard) {
@@ -99,6 +101,7 @@ final class PhoneSettings: ObservableObject {
         blockTrackers = d.object(forKey: "blockTrackers") as? Bool ?? true
         loadImages = d.object(forKey: "loadImages") as? Bool ?? false   // the phone always hid pictures until Show
         badge = BadgeChoice(rawValue: d.string(forKey: "iconBadge") ?? "") ?? .people
+        notifyNewMail = d.object(forKey: "notifyNewMail") as? Bool ?? true
         let kt = d.object(forKey: "keepTextDays") as? Int ?? SyncEngine.textDefault
         keepTextDays = Self.textChoices.contains(kt) ? kt : SyncEngine.textDefault
     }

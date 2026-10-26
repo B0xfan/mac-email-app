@@ -62,6 +62,21 @@ extension PhoneStore {
         saveTimingView()
     }
 
+    /// Snoozed emails whose time passed while the phone could not reach the server: back to the inbox, unread, as the server would have done. One that is no longer
+    /// in Snoozed (read, moved or woken elsewhere) is left alone. Any that Gmail could not give keep their time and are tried again next time.
+    private func returnLate(_ ids: [String]) async {
+        guard let label = snoozeLabelID else { return }
+        let r = await gmail.messagesChecked(ids: ids)
+        guard !r.mails.isEmpty else { return }
+        let still = r.mails.filter { $0.labels.contains(label) && !$0.labels.contains("TRASH") }.map(\.id)
+        if !still.isEmpty {
+            guard (try? await gmail.modify(ids: still, add: ["INBOX", "UNREAD"], remove: [label])) != nil else { return }
+            setLocalSnoozes(still, at: nil)
+        }
+        r.mails.forEach { phoneSnoozes[$0.id] = nil }   // the ones Gmail could not give stay for the next try
+        if !still.isEmpty { Task { await refresh() } }   // the emails show in the inbox at once
+    }
+
     /// Tells the server what it must hold: first the early returns to forget, then every phone snooze it does not already have at that time
     /// (so a snooze made with no network, or lost at the server, is sent on the next open). One try per answer: busy, too many or no network wait for the next open.
     func flushSnoozes() async {
@@ -74,12 +89,17 @@ extension PhoneStore {
                 for id in snoozeCancels.sorted() { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
                 guard !phoneSnoozes.isEmpty else { continue }
                 let have = try await server.snoozes(), now = Int(Date().timeIntervalSince1970)
+                var late: [String] = []
                 for (id, at) in phoneSnoozes.sorted(by: { $0.value < $1.value }) {
-                    if at < now - 86400 { phoneSnoozes[id] = nil; continue }   // long past: the server has acted
+                    if at < now - 3600 {   // the server takes no time over an hour past: if it never had this one, it comes back now; if it had it, the server has acted
+                        if have[id] == nil { late.append(id) } else { phoneSnoozes[id] = nil }
+                        continue
+                    }
                     if have[id]?.wakeAt == at { continue }
                     do { try await server.putSnooze(id, wakeAt: at) }
                     catch PhoneServerError.refused(400) { phoneSnoozes[id] = nil }   // a time the server will not take (over an hour ago): it stays in Snoozed
                 }
+                if !late.isEmpty { await returnLate(late) }
             } catch { return }   // no network, busy, 429 or an old server: the phone works on its own and tries again next time
         } while snoozeDirty
     }

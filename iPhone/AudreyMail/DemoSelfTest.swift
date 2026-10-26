@@ -656,6 +656,42 @@ enum DemoSelfTest {
         _ = await until { !store.snoozeBusy }
         check("a 400 (a time the server will not take) is dropped, not retried for ever, and it stays snoozed", store.phoneSnoozes[sid[1]] == nil && box.with { $0.msgs.first { $0.id == sid[1] }!.labels.contains("Label_snoozed") })
 
+        // a snooze whose time passed (over an hour ago) before the phone reached the server comes back at once
+        box.with { $0.srvSnoozes[sid[1]] = nil }
+        store.phoneSnoozes = [sid[1]: Int(Date().timeIntervalSince1970) - 7200]
+        await store.flushSnoozes()
+        check("a snooze long past that the server never had comes back to the inbox, unread, and leaves Snoozed", await until { box.with { b in let l = b.msgs.first { $0.id == sid[1] }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } && row(sid[1]) != nil } && store.phoneSnoozes.isEmpty)
+        store.phoneSnoozes = [sid[2]: Int(Date().timeIntervalSince1970) - 7200]
+        await store.flushSnoozes()
+        check("one the server already holds is left to the server: the phone forgets its copy and nothing else changes", store.phoneSnoozes.isEmpty && box.with { $0.msgs.first { $0.id == sid[2] }!.labels.contains("Label_snoozed") })
+
+        // banners for new mail while the app is closed: unread People emails not seen before, once each
+        final class Told { var lists: [[String]] = [] }
+        let told = Told()
+        store.announcer = { told.lists.append($0.map(\.id)) }
+        store.prefs.notifyNewMail = true
+        store.defaults.removeObject(forKey: PhoneStore.seenMailKey)
+        await store.announceNewMail()
+        check("the first look only records what is there: no banner for old mail", told.lists.isEmpty && store.defaults.stringArray(forKey: PhoneStore.seenMailKey) != nil)
+        let known = store.inboxMails.first { MailCategory.guess($0) == .people }!.from, person = "\(known.name) <\(known.email)>"   // a sender the inbox already knows
+        box.with { b in
+            b.msgs.append(DemoMailbox.Msg(id: "n1", thread: "Tn1", labels: ["INBOX", "UNREAD"], from: person, subject: "Lunch on Friday?", body: "Are you around?", date: Date()))
+            b.msgs.append(DemoMailbox.Msg(id: "n3", thread: "Tn3", labels: ["INBOX", "UNREAD"], from: "Daily Deals <deals@shop.example>", subject: "Big sale", body: "Buy now", date: Date(), unsub: true))
+        }
+        await store.refresh()
+        await store.announceNewMail()
+        check("a new unread email from a person gets one banner, and a newsletter gets none", told.lists == [["n1"]])
+        await store.announceNewMail()
+        check("the same email is not announced twice", told.lists == [["n1"]])
+        store.prefs.notifyNewMail = false
+        box.with { $0.msgs.append(DemoMailbox.Msg(id: "n2", thread: "Tn2", labels: ["INBOX", "UNREAD"], from: person, subject: "One more thing", body: "Also", date: Date())) }
+        await store.refresh()
+        await store.announceNewMail()
+        store.prefs.notifyNewMail = true
+        await store.announceNewMail()
+        check("with the setting off there is no banner, and that email is not announced later either", told.lists == [["n1"]])
+        store.announcer = Badge.announce
+
         // the label: found by name (Snoozed, or Mail Snoozed), made if missing, second name if Gmail refuses the first
         let snoozedID = store.snoozeLabelID
         box.with { b in b.labels = b.labels.map { $0.id == "Label_snoozed" ? (id: "Label_snoozed", name: "Mail Snoozed") : $0 }; b.writes = [] }

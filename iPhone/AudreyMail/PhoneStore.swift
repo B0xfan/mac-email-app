@@ -123,6 +123,7 @@ final class PhoneStore: ObservableObject {
     let timingURL: URL
     var timingBusy = false
     var snoozeBusy = false, snoozeDirty = false
+    var announcer: ([Mail]) async -> Void = Badge.announce   // shows the new-mail banners; the checks swap it
     @Published var snoozeTarget: Mail?   // the email whose time picker is open (swipe, long press); the open email has its own
     // snoozes made on this phone that the server must hold, and early returns it must forget (Undo): kept on the phone until the server has answered
     var phoneSnoozes: [String: Int] { get { defaults.dictionary(forKey: "phoneSnoozes") as? [String: Int] ?? [:] } set { defaults.set(newValue, forKey: "phoneSnoozes") } }
@@ -148,6 +149,7 @@ final class PhoneStore: ObservableObject {
         await refresh()
         for _ in 0..<60 where refreshing { try? await Task.sleep(nanoseconds: 500_000_000) }   // a refresh the open app started is still the one that counts
         if state == .signedIn && lastRefresh <= before { return }   // the check failed: the saved inbox is old, so the icon keeps its number
+        await announceNewMail()
         await Badge.set(badgeCount ?? 0)
     }
 
@@ -203,7 +205,7 @@ final class PhoneStore: ObservableObject {
         opened.clear(); seen.clear(); pics.clear(); away = nil; awayError = nil; rules = []; ruleNames = [:]; rulesError = nil; rulesLoaded = false
         try? FileManager.default.removeItem(at: cacheURL)
         try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil; timingBase = TimingView()
-        defaults.removeObject(forKey: "phoneSnoozes"); defaults.removeObject(forKey: "snoozeCancels")
+        defaults.removeObject(forKey: "phoneSnoozes"); defaults.removeObject(forKey: "snoozeCancels"); defaults.removeObject(forKey: Self.seenMailKey)
     }
 
     // MARK: - Storage (Settings, Storage)

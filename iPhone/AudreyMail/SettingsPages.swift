@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import MailCore
 
 // The simple Settings pages: each one reads and writes PhoneSettings (kept on this phone) or the store.
@@ -97,12 +98,22 @@ struct SendingPage: View {
 
 struct InboxSettingsPage: View {
     @EnvironmentObject var prefs: PhoneSettings
+    @Environment(\.scenePhase) private var phase
+    @State private var blocked = false
     var body: some View {
         SettingsPageList(title: "Inbox", intro: "How the inbox behaves as you work through it.") {
             Section {
                 MenuRow(title: "Number on the app icon", detail: "Unread emails", selection: $prefs.badge,
                         options: BadgeChoice.allCases.map { (value: $0, label: $0.title + ($0 == .people ? " (default)" : "")) })
-            } footer: { Text("It updates when you open or leave the app. The iPhone may also let Audrey Mail update it in the background now and then, but not on a timetable you choose.").foregroundStyle(Theme.sub) }.setCard()
+            } footer: { Text("It updates when you open or leave the app, and whenever the iPhone lets Audrey Mail check your mail in the background.").foregroundStyle(Theme.sub) }.setCard()
+            Section {
+                SwitchRow(title: "New email notifications", detail: "A banner for new emails from people, even when the app is closed.", isOn: $prefs.notifyNewMail)
+                if prefs.notifyNewMail && blocked {
+                    Button("Notifications are off for Audrey Mail on this iPhone. Tap to open iPhone Settings.") {
+                        if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) }
+                    }.font(.system(size: 14))
+                }
+            } footer: { Text("When the app is closed the iPhone decides when Audrey Mail may check your mail, at most every 15 minutes or so, so a banner can come late. Background App Refresh must be on for Audrey Mail in iPhone Settings. Only emails from people get a banner.").foregroundStyle(Theme.sub) }.setCard()
             Section {
                 ChoiceRow(title: "Go back to the list", tag: "Default", on: prefs.afterArchive == .list) { prefs.afterArchive = .list }
                 ChoiceRow(title: "Open the next email below", on: prefs.afterArchive == .below) { prefs.afterArchive = .below }
@@ -120,8 +131,10 @@ struct InboxSettingsPage: View {
             Section {
                 MenuRow(title: "Check for new email", detail: "While the app is open", selection: $prefs.checkMinutes,
                         options: PhoneSettings.checkChoices.map { (value: $0, label: PhoneSettings.checkLabel($0) + ($0 == 0 ? " (default)" : "")) })
-            } footer: { Text("This timer only runs while Audrey Mail is open. In the background, the iPhone decides when Audrey Mail may check, so there is no timetable to set.").foregroundStyle(Theme.sub) }.setCard()
+            } footer: { Text("This timer only runs while Audrey Mail is open. With the app closed, the iPhone decides when Audrey Mail may check, so there is no timetable to set.").foregroundStyle(Theme.sub) }.setCard()
         }
+        .task(id: phase) { blocked = await Badge.bannersBlocked() }   // again when you come back from iPhone Settings
+        .task(id: prefs.notifyNewMail) { if prefs.notifyNewMail { await Badge.ask(); blocked = await Badge.bannersBlocked() } }
     }
 }
 

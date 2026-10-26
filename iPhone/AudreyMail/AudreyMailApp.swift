@@ -36,7 +36,7 @@ extension View {
     func phoneEnvironment(_ store: PhoneStore) -> some View { environmentObject(store).environmentObject(store.prefs).environmentObject(store.pics) }
 }
 
-/// The unread number on the app icon. Works on the free account: it needs only the badge permission, no push.
+/// The number on the app icon and the new-mail banners. Both work on the free account: they need only the iPhone's Notifications permission and the background wake-up above, no push.
 enum Badge {
     static let taskID = "com.johnhesch.audreymail.badge"
 
@@ -49,9 +49,28 @@ enum Badge {
     }
 
     /// iOS shows its question once; later calls just get the old answer. Kept apart from `set` so a new unread count can never cancel it.
-    static func ask() async { if !pretend { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) } }
+    static func ask() async { if !pretend { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge, .alert, .sound]) } }
 
     static func set(_ n: Int) async { if !pretend { try? await UNUserNotificationCenter.current().setBadgeCount(n) } }
+
+    /// True when the person wants banners but the iPhone's own Notifications switch for this app is off (it was only asked about the number before).
+    static func bannersBlocked() async -> Bool {
+        if pretend { return false }
+        let s = await UNUserNotificationCenter.current().notificationSettings()
+        return s.authorizationStatus == .denied || (s.authorizationStatus == .authorized && s.alertSetting != .enabled)
+    }
+
+    /// One banner per email (up to 3), or one banner for the lot. Nothing shows if the iPhone has banners off.
+    static func announce(_ mails: [Mail]) async {
+        guard !pretend, !(await bannersBlocked()) else { return }
+        let c = UNUserNotificationCenter.current()
+        func make(_ id: String, _ title: String, _ body: String) async {
+            let n = UNMutableNotificationContent(); n.title = title; n.body = body; n.sound = .default
+            try? await c.add(UNNotificationRequest(identifier: id, content: n, trigger: nil))
+        }
+        if mails.count <= 3 { for m in mails { await make(m.id, m.from.display, m.subject) } }
+        else { await make("new-mail", "\(mails.count) new emails", mails.prefix(3).map { $0.from.display }.joined(separator: ", ") + " and more") }
+    }
 
     /// Asks iOS for a background wake-up in 15 minutes or later; iOS decides if and when.
     static func schedule() {
