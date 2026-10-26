@@ -319,11 +319,18 @@ public final class MailDB: @unchecked Sendable {
         return out
     }
 
+    private static let rareLabel = 2000
     /// Newest first. Only confirmed rows.
     public func list(_ spec: DBListSpec, limit: Int, offset: Int = 0) -> [Mail] {
         var sql = Self.selectRows + " WHERE m.verified=1"
         var args: [Any?] = []
-        for l in spec.all { sql += " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"; args.append(l) }
+        for l in spec.all {
+            // a rare label (Snoozed, Set Aside) starts from the label index instead of walking every message by date; same rows either way
+            var n = 0
+            run("SELECT COUNT(*) FROM (SELECT 1 FROM message_labels WHERE label=? LIMIT ?)", [l, Self.rareLabel], { n = Int(sqlite3_column_int64($0, 0)) })
+            sql += n < Self.rareLabel ? " AND m.id IN (SELECT msg FROM message_labels WHERE label=?)" : " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"
+            args.append(l)
+        }
         for l in spec.none { sql += " AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"; args.append(l) }
         sql += " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
         args.append(limit); args.append(offset)
