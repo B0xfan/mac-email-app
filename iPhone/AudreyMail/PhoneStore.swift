@@ -135,11 +135,13 @@ final class PhoneStore: ObservableObject {
     /// A background wake-up (iPhone decides when): read the inbox, then set the icon number. A fresh launch has not started yet.
     func refreshForIcon() async {
         if state == .loading {
-            guard let email = await sign.savedEmail() else { return }
+            guard let email = await sign.savedEmail() else { await Badge.set(0); return }   // sign-in lost while the app was closed: no old number stays on the icon
             accountEmail = email; state = .signedIn; loadCache()
         }
+        let before = lastRefresh
         await refresh()
         for _ in 0..<60 where refreshing { try? await Task.sleep(nanoseconds: 500_000_000) }   // a refresh the open app started is still the one that counts
+        if state == .signedIn && lastRefresh <= before { return }   // the check failed: the saved inbox is old, so the icon keeps its number
         await Badge.set(badgeCount ?? 0)
     }
 

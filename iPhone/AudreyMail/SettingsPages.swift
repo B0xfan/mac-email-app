@@ -116,11 +116,11 @@ struct InboxSettingsPage: View {
             Section {
                 MenuRow(title: "Check for new email", detail: "While the app is open", selection: $prefs.checkMinutes,
                         options: PhoneSettings.checkChoices.map { (value: $0, label: PhoneSettings.checkLabel($0) + ($0 == 0 ? " (default)" : "")) })
-            } footer: { Text("An iPhone does not let an app check on a timetable in the background, so this only applies while Audrey Mail is open.").foregroundStyle(Theme.sub) }.setCard()
+            } footer: { Text("This timer only runs while Audrey Mail is open. In the background, the iPhone decides when Audrey Mail may check, so there is no timetable to set.").foregroundStyle(Theme.sub) }.setCard()
             Section {
                 MenuRow(title: "Number on the app icon", detail: "Unread emails", selection: $prefs.badge,
                         options: BadgeChoice.allCases.map { (value: $0, label: $0.title + ($0 == .people ? " (default)" : "")) })
-            } footer: { Text("It updates when you open or leave the app, and now and then in the background when the iPhone allows it.").foregroundStyle(Theme.sub) }.setCard()
+            } footer: { Text("It updates when you open or leave the app. The iPhone may also let Audrey Mail update it in the background now and then, but not on a timetable you choose.").foregroundStyle(Theme.sub) }.setCard()
         }
     }
 }

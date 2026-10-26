@@ -40,15 +40,18 @@ extension View {
 enum Badge {
     static let taskID = "com.johnhesch.audreymail.badge"
 
-    static func set(_ n: Int, ask: Bool = false) async {
+    private static var pretend: Bool {
         #if DEBUG
-        if DemoMode.screen != nil || DemoMode.selfTest { return }   // pretend runs never ask for a permission
+        return DemoMode.screen != nil || DemoMode.selfTest   // pretend runs never ask for a permission
+        #else
+        return false
         #endif
-        let c = UNUserNotificationCenter.current()
-        if n > 0 || ask { _ = try? await c.requestAuthorization(options: [.badge]) }   // iOS shows its question once; later calls just get the old answer
-        if Task.isCancelled { return }   // a newer number is already on its way
-        try? await c.setBadgeCount(n)
     }
+
+    /// iOS shows its question once; later calls just get the old answer. Kept apart from `set` so a new unread count can never cancel it.
+    static func ask() async { if !pretend { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) } }
+
+    static func set(_ n: Int) async { if !pretend { try? await UNUserNotificationCenter.current().setBadgeCount(n) } }
 
     /// Asks iOS for a background wake-up in 15 minutes or later; iOS decides if and when.
     static func schedule() {
