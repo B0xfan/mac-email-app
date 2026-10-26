@@ -60,6 +60,12 @@ enum Badge {
         return s.authorizationStatus == .denied || (s.authorizationStatus == .authorized && s.alertSetting != .enabled)
     }
 
+    /// True when the iPhone's Notifications switch for this app is off altogether (not just banners).
+    static func notificationsDenied() async -> Bool {
+        if pretend { return false }
+        return await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
     /// One banner per email (up to 3), or one banner for the lot. Nothing shows if the iPhone has banners off.
     static func announce(_ mails: [Mail]) async {
         guard !pretend, !(await bannersBlocked()) else { return }

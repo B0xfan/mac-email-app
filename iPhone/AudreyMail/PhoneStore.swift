@@ -128,6 +128,9 @@ final class PhoneStore: ObservableObject {
     // snoozes made on this phone that the server must hold, and early returns it must forget (Undo): kept on the phone until the server has answered
     var phoneSnoozes: [String: Int] { get { defaults.dictionary(forKey: "phoneSnoozes") as? [String: Int] ?? [:] } set { defaults.set(newValue, forKey: "phoneSnoozes") } }
     var snoozeCancels: Set<String> { get { Set(defaults.stringArray(forKey: "snoozeCancels") ?? []) } set { defaults.set(Array(newValue).sorted(), forKey: "snoozeCancels") } }
+    // the server holds one snooze per conversation (its newest email); the other inbox emails of the row wait here for that one to come back
+    var snoozeKin: [String: [String]] { get { defaults.dictionary(forKey: "snoozeKin") as? [String: [String]] ?? [:] } set { defaults.set(newValue, forKey: "snoozeKin") } }
+    var refreshAgain = false   // asked for while a refresh was running: it goes round once more
 
     // MARK: - Start, sign in, sign out
 
@@ -205,7 +208,7 @@ final class PhoneStore: ObservableObject {
         opened.clear(); seen.clear(); pics.clear(); away = nil; awayError = nil; rules = []; ruleNames = [:]; rulesError = nil; rulesLoaded = false
         try? FileManager.default.removeItem(at: cacheURL)
         try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil; timingBase = TimingView()
-        defaults.removeObject(forKey: "phoneSnoozes"); defaults.removeObject(forKey: "snoozeCancels"); defaults.removeObject(forKey: Self.seenMailKey)
+        defaults.removeObject(forKey: "phoneSnoozes"); defaults.removeObject(forKey: "snoozeCancels"); defaults.removeObject(forKey: "snoozeKin"); defaults.removeObject(forKey: Self.seenMailKey)
     }
 
     // MARK: - Storage (Settings, Storage)
@@ -265,6 +268,10 @@ final class PhoneStore: ObservableObject {
 
     func refresh() async {
         guard state == .signedIn, !refreshing else { return }
+        repeat { refreshAgain = false; await refreshPass() } while refreshAgain && state == .signedIn
+    }
+
+    private func refreshPass() async {
         refreshing = true
         defer { refreshing = false; sendersChecked = true }   // a failed refresh must not leave unapproved mail hidden
         await writeChain?.value
@@ -284,7 +291,7 @@ final class PhoneStore: ObservableObject {
             lastRefresh = Date()
             saveCache()
             if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
-            Task { await flushSnoozes(); await syncTimingView() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
+            Task { await syncTimingView(); await flushSnoozes() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
             await classifySenders()
             if !blockedLoaded, let l = try? await flow.list() { blocked = l; blockedLoaded = true; pics.recheck() }   // so a blocked sender never gets a logo visit (quietly: a failure here is not worth a banner)
         } catch { await fail(error, "Could not load mail.") }

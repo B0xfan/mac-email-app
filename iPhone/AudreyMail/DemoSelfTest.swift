@@ -653,17 +653,88 @@ enum DemoSelfTest {
         check("and the next try sends it", box.with { $0.srvSnoozes[sid[4]] != nil })
         box.with { $0.srvSnoozeForce = [400] }
         await store.snooze(row(sid[1])!, until: Date().addingTimeInterval(7200)).value; await store.settle()
-        _ = await until { !store.snoozeBusy }
-        check("a 400 (a time the server will not take) is dropped, not retried for ever, and it stays snoozed", store.phoneSnoozes[sid[1]] == nil && box.with { $0.msgs.first { $0.id == sid[1] }!.labels.contains("Label_snoozed") })
+        check("a 400 (a time the server will not take) puts the email back at once, as a late snooze: not dropped to sit in Snoozed",
+              await until { box.with { b in let l = b.msgs.first { $0.id == sid[1] }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } && row(sid[1]) != nil }
+              && store.phoneSnoozes[sid[1]] == nil && store.timingView?.snoozes[sid[1]] == nil)
 
-        // a snooze whose time passed (over an hour ago) before the phone reached the server comes back at once
-        box.with { $0.srvSnoozes[sid[1]] = nil }
-        store.phoneSnoozes = [sid[1]: Int(Date().timeIntervalSince1970) - 7200]
+        // Snooze only for an inbox email (the open email's More menu)
+        await store.openList(.label("Label_snoozed"))
+        check("Snooze is offered for an inbox email and not for one opened from Snoozed", PhoneStore.canSnooze(row(sid[0])!) && store.folderMails.contains { $0.id == sid[2] } && !store.folderMails.contains { PhoneStore.canSnooze($0) })
+
+        // a conversation: the label goes on every inbox email of the row, the server gets one snooze (the row's email), the rest follows when it comes back
+        box.with { b in
+            b.msgs.append(DemoMailbox.Msg(id: "k1a", thread: "Tk1", labels: ["INBOX", "UNREAD"], from: "Kim Lee <kim.lee@example.com>", subject: "Trip plans", body: "First", date: Date().addingTimeInterval(-600)))
+            b.msgs.append(DemoMailbox.Msg(id: "k1b", thread: "Tk1", labels: ["INBOX", "UNREAD"], from: "Kim Lee <kim.lee@example.com>", subject: "Re: Trip plans", body: "Second", date: Date().addingTimeInterval(-300)))
+            b.srvLog = []
+        }
+        await store.refresh()
+        let convo = store.inbox.first { $0.threadID == "Tk1" }
+        check("a conversation with two inbox emails is one row that stands for both", convo?.id == "k1b" && convo?.siblings == ["k1a"])
+        await store.snooze(convo!, until: Date().addingTimeInterval(4 * 3600)).value; await store.settle()
+        check("snoozing it sends the server one request (the row's email) and puts the label on both emails",
+              await until { box.with { $0.srvSnoozes["k1b"] != nil } } && box.with { b in b.srvSnoozes["k1a"] == nil && b.srvLog.filter { $0.hasPrefix("snooze put k1") }.count == 1
+                  && b.msgs.filter { ["k1a", "k1b"].contains($0.id) }.allSatisfy { $0.labels.contains("Label_snoozed") && !$0.labels.contains("INBOX") } })
+        box.serverWakes(now: Date().addingTimeInterval(5 * 3600))
+        await store.refresh()
+        check("when the server brings the row's email back, the phone brings the rest of the conversation back too",
+              await until { box.with { b in b.msgs.filter { ["k1a", "k1b"].contains($0.id) }.allSatisfy { $0.labels.contains("INBOX") && !$0.labels.contains("Label_snoozed") } } && store.snoozeKin["k1b"] == nil && store.phoneSnoozes["k1b"] == nil })
+
+        // each email on its own: an answer for one never stops the others
+        box.with { b in
+            for n in ["a", "b", "c"] { b.msgs.append(DemoMailbox.Msg(id: "k3" + n, thread: "Tk3" + n, labels: ["INBOX", "UNREAD"], from: "Sam Roe <sam.roe@example.com>", subject: "Item " + n, body: "Hello", date: Date().addingTimeInterval(-900))) }
+        }
+        await store.refresh()
+        box.with { $0.srvDown = true }
+        for (n, id) in ["k3a", "k3b", "k3c"].enumerated() { await store.snooze(row(id)!, until: Date().addingTimeInterval(Double(6 + n) * 3600)).value }
+        await store.settle()
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        _ = await until { !store.snoozeBusy }
+        box.with { $0.srvDown = false; $0.srvSnoozeForce = [404, 429]; $0.srvLog = [] }
+        await store.syncTimingView(); await store.flushSnoozes()
+        check("a 404 for one email and a 429 for the next do not stop the run: the third still reaches the server, the first two are kept for next time",
+              box.with { $0.srvSnoozes["k3c"] != nil && $0.srvSnoozes["k3a"] == nil && $0.srvSnoozes["k3b"] == nil } && store.phoneSnoozes["k3a"] != nil && store.phoneSnoozes["k3b"] != nil)
         await store.flushSnoozes()
-        check("a snooze long past that the server never had comes back to the inbox, unread, and leaves Snoozed", await until { box.with { b in let l = b.msgs.first { $0.id == sid[1] }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } && row(sid[1]) != nil } && store.phoneSnoozes.isEmpty)
-        store.phoneSnoozes = [sid[2]: Int(Date().timeIntervalSince1970) - 7200]
+        check("and the next try sends them", box.with { $0.srvSnoozes["k3a"] != nil && $0.srvSnoozes["k3b"] != nil })
+
+        // late snoozes: the time passed and the server did not bring the email back
+        let now0 = Int(Date().timeIntervalSince1970)
+        func late(_ id: String, _ labels: [String], at: Int, view: Int? = nil, server: String? = nil) {
+            box.with { b in
+                b.msgs.append(DemoMailbox.Msg(id: id, thread: "T" + id, labels: labels, from: "Old Friend <old@example.com>", subject: "Late " + id, body: "Hi", date: Date()))
+                if let server { b.srvSnoozes[id] = (at, server) }
+                if let view { var sn = (b.srvTV["snoozes"] as? [String: Int]) ?? [:]; sn[id] = view; b.srvTV["snoozes"] = sn; b.srvTVVersion += 1 }
+            }
+            var p = store.phoneSnoozes; p[id] = at; store.phoneSnoozes = p
+            if let view { var v = store.timingView ?? TimingView(); v.snoozes[id] = view; store.timingView = v; store.timingBase.snoozes[id] = view }
+        }
+        _ = await until { !store.snoozeBusy }
+        store.phoneSnoozes = [:]; store.snoozeKin = [:]
+        late("late1", ["Label_snoozed"], at: now0 - 7200)
+        late("late2", ["Label_snoozed", "SPAM"], at: now0 - 7200)
+        late("late3", ["Label_snoozed", "TRASH"], at: now0 - 7200)
+        store.phoneSnoozes = store.phoneSnoozes.merging(["late4": now0 - 7200]) { a, _ in a }   // late4 was deleted in Gmail: it is not in the mailbox
+        late("late5", ["Label_snoozed"], at: now0 - 7200, view: now0 + 3 * 3600)
+        late("late6", ["Label_snoozed"], at: now0 - 600, view: now0 - 600, server: "failed")
+        late("late7", ["Label_snoozed"], at: now0 - 600, view: now0 - 600, server: "pending")
+        late("late8", ["Label_snoozed"], at: now0 + 600, view: now0 + 600, server: "pending")
+        late("late9", ["Label_snoozed"], at: now0 - 600, view: now0 - 600, server: "woken")
         await store.flushSnoozes()
-        check("one the server already holds is left to the server: the phone forgets its copy and nothing else changes", store.phoneSnoozes.isEmpty && box.with { $0.msgs.first { $0.id == sid[2] }!.labels.contains("Label_snoozed") })
+        func backHome(_ id: String) -> Bool { box.with { b in let l = b.msgs.first { $0.id == id }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } }
+        func stillSnoozed(_ id: String) -> Bool { box.with { b in let l = b.msgs.first { $0.id == id }!.labels; return !l.contains("INBOX") && l.contains("Label_snoozed") } }
+        check("a late snooze comes back to the inbox, unread, and leaves Snoozed", backHome("late1") && store.phoneSnoozes["late1"] == nil)
+        let v1 = store.timingView
+        check("it is recorded as the Mac and the server record a wake: the time is gone, the return time is now, and it is tagged Back from snooze",
+              v1?.snoozes["late1"] == nil && abs((v1?.surfaced["late1"] ?? 0) - now0) < 120 && v1?.backTag.contains("late1") == true)
+        check("one in Spam or Trash is not brought back, and is forgotten", stillSnoozed("late2") && box.with { $0.msgs.first { $0.id == "late3" }!.labels.contains("TRASH") } && !backHome("late3")
+              && store.phoneSnoozes["late2"] == nil && store.phoneSnoozes["late3"] == nil && v1?.snoozes["late2"] == nil && v1?.backTag.contains("late2") != true)
+        check("one deleted in Gmail is forgotten, not retried for ever", store.phoneSnoozes["late4"] == nil)
+        check("a snooze the shared view moved to a later time is not late: it stays snoozed and the phone keeps waiting", stillSnoozed("late5") && store.phoneSnoozes["late5"] != nil)
+        check("a snooze the server marks failed, or leaves pending well past its time, comes back", backHome("late6") && backHome("late7"))
+        check("a pending one that is not due yet waits, and one the server woke is handled: not brought back by the phone", stillSnoozed("late8") && store.phoneSnoozes["late8"] != nil && stillSnoozed("late9") && store.phoneSnoozes["late9"] == nil)
+        check("the emails that came back show in the inbox at once", await until { row("late1") != nil && row("late6") != nil })
+        box.with { b in b.msgs.removeAll { $0.id.hasPrefix("late") || $0.id.hasPrefix("k1") || $0.id.hasPrefix("k3") }; for k in b.srvSnoozes.keys where k.hasPrefix("late") || k.hasPrefix("k") { b.srvSnoozes[k] = nil } }
+        store.phoneSnoozes = [:]; store.snoozeKin = [:]
+        await store.refresh()
 
         // banners for new mail while the app is closed: unread People emails not seen before, once each
         final class Told { var lists: [[String]] = [] }
@@ -683,6 +754,10 @@ enum DemoSelfTest {
         check("a new unread email from a person gets one banner, and a newsletter gets none", told.lists == [["n1"]])
         await store.announceNewMail()
         check("the same email is not announced twice", told.lists == [["n1"]])
+        store.defaults.set(["ghost"] + (store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []), forKey: PhoneStore.seenMailKey)
+        store.markSeen()
+        check("the seen list is rebuilt from the inbox as it is now, so an email that left is forgotten and the list never needs trimming",
+              Set(store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []) == Set(store.inbox.map(\.id)))
         store.prefs.notifyNewMail = false
         box.with { $0.msgs.append(DemoMailbox.Msg(id: "n2", thread: "Tn2", labels: ["INBOX", "UNREAD"], from: person, subject: "One more thing", body: "Also", date: Date())) }
         await store.refresh()

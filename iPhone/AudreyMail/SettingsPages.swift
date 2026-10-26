@@ -100,6 +100,7 @@ struct InboxSettingsPage: View {
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.scenePhase) private var phase
     @State private var blocked = false
+    @State private var allOff = false   // Notifications are off altogether, not just banners
     var body: some View {
         SettingsPageList(title: "Inbox", intro: "How the inbox behaves as you work through it.") {
             Section {
@@ -109,7 +110,7 @@ struct InboxSettingsPage: View {
             Section {
                 SwitchRow(title: "New email notifications", detail: "A banner for new emails from people, even when the app is closed.", isOn: $prefs.notifyNewMail)
                 if prefs.notifyNewMail && blocked {
-                    Button("Notifications are off for Audrey Mail on this iPhone. Tap to open iPhone Settings.") {
+                    Button((allOff ? "Notifications are off" : "Banners are off") + " for Audrey Mail on this iPhone. Tap to open iPhone Settings.") {
                         if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) }
                     }.font(.system(size: 14))
                 }
@@ -133,8 +134,8 @@ struct InboxSettingsPage: View {
                         options: PhoneSettings.checkChoices.map { (value: $0, label: PhoneSettings.checkLabel($0) + ($0 == 0 ? " (default)" : "")) })
             } footer: { Text("This timer only runs while Audrey Mail is open. With the app closed, the iPhone decides when Audrey Mail may check, so there is no timetable to set.").foregroundStyle(Theme.sub) }.setCard()
         }
-        .task(id: phase) { blocked = await Badge.bannersBlocked() }   // again when you come back from iPhone Settings
-        .task(id: prefs.notifyNewMail) { if prefs.notifyNewMail { await Badge.ask(); blocked = await Badge.bannersBlocked() } }
+        .task(id: phase) { blocked = await Badge.bannersBlocked(); allOff = await Badge.notificationsDenied() }   // again when you come back from iPhone Settings
+        .task(id: prefs.notifyNewMail) { if prefs.notifyNewMail { await Badge.ask(); blocked = await Badge.bannersBlocked(); allOff = await Badge.notificationsDenied() } }
     }
 }
 

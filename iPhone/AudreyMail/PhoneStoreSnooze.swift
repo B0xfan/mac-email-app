@@ -25,7 +25,11 @@ extension PhoneStore {
         return id
     }
 
+    /// Snooze is offered for an email that is in the inbox; one filed elsewhere (a folder, Snoozed, search) would be put into the inbox by Undo.
+    static func canSnooze(_ m: Mail) -> Bool { m.labels.contains("INBOX") }
+
     /// The email leaves the inbox until `until` (the whole row: its other inbox emails leave too). Undo puts it back and tells the server to forget it.
+    /// The server gets one snooze per conversation (the row's email); the rest of the row follows when that one comes back.
     @discardableResult
     func snooze(_ m: Mail, until: Date) -> Task<Void, Never> {
         Task {
@@ -37,10 +41,10 @@ extension PhoneStore {
                  onDone: { [weak self] ok in
                     guard let self else { return }
                     if !ok { self.setLocalSnoozes(ids, at: nil); return }   // Gmail refused: it is still in the inbox
-                    // Undo may have come first: only a snooze that is still wanted goes to the server
-                    let wanted = ids.filter { self.timingView?.snoozes[$0] == at }
-                    if !wanted.isEmpty { self.phoneSnoozes.merge(wanted.map { ($0, at) }, uniquingKeysWith: { _, n in n }); self.snoozeCancels.subtract(wanted) }
-                    Task { await self.flushSnoozes(); await self.syncTimingView() }
+                    guard self.timingView?.snoozes[m.id] == at else { return }   // Undo came first: nothing for the server
+                    self.phoneSnoozes[m.id] = at; self.snoozeCancels.remove(m.id)
+                    if ids.count > 1 { self.snoozeKin[m.id] = Array(ids.dropFirst()) }
+                    Task { await self.syncTimingView(); await self.flushSnoozes() }
                  })
         }
     }
@@ -51,7 +55,8 @@ extension PhoneStore {
         let held = phoneSnoozes
         var mine = held; ids.forEach { mine[$0] = nil }
         if mine != held { phoneSnoozes = mine; snoozeCancels.formUnion(ids.filter { held[$0] != nil }) }
-        Task { await flushSnoozes(); await syncTimingView() }
+        var kin = snoozeKin; ids.forEach { kin[$0] = nil }; snoozeKin = kin
+        Task { await syncTimingView(); await flushSnoozes() }
     }
 
     /// The snooze times on this phone (shown as "Back Tue 3:00 PM", written to /timing-view by the next sync). A snooze replaces a returned-email mark, as on the Mac.
@@ -62,23 +67,41 @@ extension PhoneStore {
         saveTimingView()
     }
 
-    /// Snoozed emails whose time passed while the phone could not reach the server: back to the inbox, unread, as the server would have done. One that is no longer
-    /// in Snoozed (read, moved or woken elsewhere) is left alone. Any that Gmail could not give keep their time and are tried again next time.
+    /// Emails this phone brought back itself are recorded the way the Mac (TimingStore.wake) and the server do: the time is gone, the return time is kept, and the row says "Back from snooze".
+    private func markReturned(_ ids: [String], now: Int) {
+        var v = timingView ?? TimingView()
+        for id in ids { v.snoozes[id] = nil; v.surfaced[id] = now; v.backTag.append(id) }
+        timingView = v.normalized()
+        saveTimingView()
+    }
+
+    private func forgetSnooze(_ id: String) { phoneSnoozes[id] = nil; snoozeKin[id] = nil }
+
+    /// Snoozed emails whose time passed and the server did not bring back (no network, refused, failed): back to the inbox, unread, as the server would have done.
+    /// One that is no longer in Snoozed (read, moved, woken elsewhere), is in Trash or Spam, or was deleted is left alone and forgotten. One Gmail could not answer for stays for the next try.
     private func returnLate(_ ids: [String]) async {
         guard let label = snoozeLabelID else { return }
-        let r = await gmail.messagesChecked(ids: ids)
-        guard !r.mails.isEmpty else { return }
-        let still = r.mails.filter { $0.labels.contains(label) && !$0.labels.contains("TRASH") }.map(\.id)
-        if !still.isEmpty {
-            guard (try? await gmail.modify(ids: still, add: ["INBOX", "UNREAD"], remove: [label])) != nil else { return }
-            setLocalSnoozes(still, at: nil)
+        var back: [String] = [], finished: [String] = []
+        for id in ids {
+            do {
+                let m = try await gmail.message(id: id, full: false)
+                if m.labels.contains(label) && !m.labels.contains("TRASH") && !m.labels.contains("SPAM") { back.append(id) }
+                finished.append(id)
+            } catch GmailError.http(404, _) { finished.append(id) }   // deleted while snoozed: nothing to bring back, and no more tries
+            catch {}
         }
-        r.mails.forEach { phoneSnoozes[$0.id] = nil }   // the ones Gmail could not give stay for the next try
-        if !still.isEmpty { Task { await refresh() } }   // the emails show in the inbox at once
+        if !back.isEmpty { guard (try? await gmail.modify(ids: back, add: ["INBOX", "UNREAD"], remove: [label])) != nil else { return } }
+        let gone = finished.filter { !back.contains($0) }
+        if !gone.isEmpty { setLocalSnoozes(gone, at: nil) }
+        if !back.isEmpty { markReturned(back, now: Int(Date().timeIntervalSince1970)) }
+        finished.forEach(forgetSnooze)
+        if !back.isEmpty { refreshAgain = true; await refresh() }   // the emails show in the inbox at once: now, or when the refresh that is running ends
     }
 
     /// Tells the server what it must hold: first the early returns to forget, then every phone snooze it does not already have at that time
-    /// (so a snooze made with no network, or lost at the server, is sent on the next open). One try per answer: busy, too many or no network wait for the next open.
+    /// (so a snooze made with no network, or lost at the server, is sent on the next open). The shared view (/timing-view) must already hold a snooze before the server is told,
+    /// because the server skips any snooze the view does not show. Each email is handled on its own: an answer for one (busy, too many, refused) never stops the rest;
+    /// no network does. Emails past their time that the server did not bring back come back here.
     func flushSnoozes() async {
         guard let server, state == .signedIn else { return }
         if snoozeBusy { snoozeDirty = true; return }   // a run is under way: it goes round again for what was added meanwhile
@@ -86,21 +109,41 @@ extension PhoneStore {
         repeat {
             snoozeDirty = false
             do {
-                for id in snoozeCancels.sorted() { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
+                for id in snoozeCancels.sorted() {
+                    do { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
+                    catch PhoneServerError.refused(let c) where c != 429 { snoozeCancels.remove(id) }   // the server will not take it: nothing to cancel
+                    catch PhoneServerError.refused(_) {}   // too many calls: next time
+                    catch PhoneServerError.busy {}
+                }
                 guard !phoneSnoozes.isEmpty else { continue }
                 let have = try await server.snoozes(), now = Int(Date().timeIntervalSince1970)
                 var late: [String] = []
                 for (id, at) in phoneSnoozes.sorted(by: { $0.value < $1.value }) {
-                    if at < now - 3600 {   // the server takes no time over an hour past: if it never had this one, it comes back now; if it had it, the server has acted
-                        if have[id] == nil { late.append(id) } else { phoneSnoozes[id] = nil }
+                    let shared = timingBase.snoozes[id]   // the time in the shared view, as of the last sync
+                    if let shared, shared > at { continue }   // moved later in the shared view (the Mac): that time counts, the server follows it
+                    if let h = have[id], h.wakeAt == at {   // the server holds this snooze
+                        switch h.status {
+                        case "woken": late += snoozeKin[id] ?? []; forgetSnooze(id)   // the rest of its conversation follows
+                        case "gone": late += snoozeKin[id] ?? []; setLocalSnoozes([id], at: nil); forgetSnooze(id)
+                        case "skipped", "failed": late.append(id)   // the server did not bring it back
+                        case "pending": if at < now - 120 { late.append(id) }   // the server is well past its time
+                        default: break   // waking: the server is on it
+                        }
                         continue
                     }
-                    if have[id]?.wakeAt == at { continue }
+                    guard shared == at else { if at <= now { late.append(id) }; continue }   // not in the shared view yet: the server must not hear of it first
+                    if at < now - 3600 { late.append(id); continue }   // the server takes no time over an hour past
                     do { try await server.putSnooze(id, wakeAt: at) }
-                    catch PhoneServerError.refused(400) { phoneSnoozes[id] = nil }   // a time the server will not take (over an hour ago): it stays in Snoozed
+                    catch PhoneServerError.refused(400) { late.append(id) }   // a time the server will not take: it comes back now
+                    catch PhoneServerError.refused(_) {}   // 429 and the like: this one waits for the next open, the others go on
+                    catch PhoneServerError.busy {}
                 }
-                if !late.isEmpty { await returnLate(late) }
-            } catch { return }   // no network, busy, 429 or an old server: the phone works on its own and tries again next time
+                if !late.isEmpty {
+                    var all: [String] = []
+                    for id in late { for x in [id] + (snoozeKin[id] ?? []) where !all.contains(x) { all.append(x) } }
+                    await returnLate(all)
+                }
+            } catch { return }   // no network or an old server: the phone works on its own and tries again next time
         } while snoozeDirty
     }
 }
