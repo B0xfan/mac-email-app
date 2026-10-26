@@ -37,6 +37,7 @@ final class DemoMailbox: @unchecked Sendable {
     var srvTVVersion = 0, srvTV: [String: Any] = [:]   // the snooze state the Mac and the phone share
     var srvSnoozes: [String: (wake: Int, status: String)] = [:]   // the server's snooze return list
     var refuseLabel: String?                            // Gmail refuses to make a label with this name (409)
+    var failModify = false, failRead: Set<String> = []   // Gmail refuses every label change / refuses to read these emails (400)
     var srvSnoozeForce: [Int] = []                      // answers forced for the next snooze calls, one each (409 = busy waking, 429 = too many, 400 = bad time)
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
@@ -50,7 +51,7 @@ final class DemoMailbox: @unchecked Sendable {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
         msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; vacation = ["enableAutoReply": false]; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0; msgFetches = 0; filterSerial = 0; msgFetches = 0; filterSerial = 0
-        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]; srvSnoozes = [:]; srvSnoozeForce = []; refuseLabel = nil
+        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]; srvSnoozes = [:]; srvSnoozeForce = []; refuseLabel = nil; failModify = false; failRead = []
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -154,6 +155,7 @@ final class DemoMailbox: @unchecked Sendable {
         case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true}]}"#)
         case ("POST", "/messages/batchModify"):
             let ids = body["ids"] as? [String] ?? [], add = body["addLabelIds"] as? [String] ?? [], rem = body["removeLabelIds"] as? [String] ?? []
+            if failModify { return (400, #"{"error":{"code":400,"message":"Invalid"}}"#) }
             writes.append("modify \(ids.sorted().joined(separator: ",")) +\(add.joined(separator: ",")) -\(rem.joined(separator: ","))")
             change(ids, add: add, remove: rem)
             return (200, "{}")
@@ -219,6 +221,7 @@ final class DemoMailbox: @unchecked Sendable {
         }
         if method == "GET", rel.hasPrefix("/messages/") {
             let id = String(rel.dropFirst("/messages/".count))
+            if failRead.contains(id) { return (400, #"{"error":{"code":400,"message":"Invalid"}}"#) }
             guard let m = msgs.first(where: { $0.id == id }) else { return (404, #"{"error":{"code":404,"message":"Not Found"}}"#) }
             if q("format") == "full" { msgFetches += 1 }
             return (200, json(m, full: q("format") == "full"))
@@ -317,7 +320,7 @@ final class DemoMailbox: @unchecked Sendable {
             // the real server reads the shared view first: an id the view does not show is skipped, a different time there is the time that counts
             guard let want = (srvTV["snoozes"] as? [String: Int])?[id] else { srvSnoozes[id]?.status = "skipped"; continue }
             if want != e.wake { srvSnoozes[id]?.wake = want; if want > t { continue } }
-            guard let i = msgs.firstIndex(where: { $0.id == id }), let lid = labels.first(where: { ["Snoozed", "Mail Snoozed"].contains($0.name) })?.id, msgs[i].labels.contains(lid), !msgs[i].labels.contains("TRASH") else { srvSnoozes[id]?.status = "skipped"; continue }
+            guard let i = msgs.firstIndex(where: { $0.id == id }), let lid = labels.first(where: { ["Snoozed", "Mail Snoozed"].contains($0.name) })?.id, msgs[i].labels.contains(lid), !msgs[i].labels.contains("TRASH"), !msgs[i].labels.contains("SPAM") else { srvSnoozes[id]?.status = "skipped"; continue }
             change([id], add: ["INBOX", "UNREAD"], remove: [lid]); srvSnoozes[id]?.status = "woken"; srvLog.append("snooze woke \(id)")
             var sn = srvTV["snoozes"] as? [String: Int] ?? [:], su = srvTV["surfaced"] as? [String: Int] ?? [:], bt = srvTV["back_tag"] as? [String] ?? []
             sn[id] = nil; su[id] = t; bt.append(id)
