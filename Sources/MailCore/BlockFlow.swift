@@ -43,6 +43,9 @@ public final class BlockFlow: @unchecked Sendable {
         return l.id
     }
 
+    /// The label id if it is already known here (set once a block or the Blocked list has looked it up); no Gmail call.
+    public var knownLabelID: String? { labelID }
+
     /// nil when no block has ever been made (no such label yet).
     public func existingLabel() async throws -> String? {
         if let id = labelID { return id }

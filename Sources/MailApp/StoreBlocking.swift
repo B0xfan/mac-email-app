@@ -75,6 +75,8 @@ extension MailStore {
         await runSearch()
     }
 
+    var blockedLabelID: String? { blockFlow.knownLabelID }
+
     /// A company logo is a visit to the sender's website, so only for people already trusted: a contact, an approved or known sender. Never a new (screened) or blocked sender.
     func logoOK(_ m: Mail) -> Bool {
         let e = m.from.email.lowercased()
