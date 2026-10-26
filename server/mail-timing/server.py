@@ -10,9 +10,12 @@ E = os.environ.get
 PREFIX = "/api/mail-timing"
 DRAFT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")   # \Z, not $: "$" lets a trailing newline through
 DEVICE_RE = re.compile(r"^[a-z0-9-]{1,20}\Z")   # "mac" (what an app that sends no name means) or "iphone"
-MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536
+MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536; MAX_TIMING = 2000
 GRACE = lambda: int(E("GRACE_SECONDS", "120"))   # the Mac, if awake, goes first; this is the backstop
 MAX_PENDING = 200
+SIGNIN_OFF = "signin label off"   # a sign-in failure that must not forget LABEL_OFF; signing in again restores it
+LABEL_OFF = "label off"   # snooze note: Gmail already took the snooze label off, only the shared view is left to write
+SNOOZE_LABELS = ("Snoozed", "Mail Snoozed")   # the Gmail label the Mac and phone put on a snoozed email (Mail's own fallback name second)
 _tokens = {}   # email -> (access token, expiry); memory only
 _lock = threading.Lock()
 
@@ -22,10 +25,14 @@ def cfg_gmail(): return E("GMAIL_BASE", "https://gmail.googleapis.com/gmail/v1/u
 SCHEMA = ["""CREATE TABLE IF NOT EXISTS devices(email TEXT NOT NULL, device TEXT NOT NULL, key_hash TEXT NOT NULL, refresh_token TEXT NOT NULL,
         client_id TEXT, signin_ok INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, PRIMARY KEY(email, device))""",   # client_id NULL = the Mac's Google key
   """CREATE TABLE IF NOT EXISTS organizer(email TEXT PRIMARY KEY, version INTEGER NOT NULL, doc TEXT NOT NULL, updated INTEGER NOT NULL)""",   # Smart Folders + saved searches: names, rules, search words
+  """CREATE TABLE IF NOT EXISTS timing_view(email TEXT PRIMARY KEY, version INTEGER NOT NULL, doc TEXT NOT NULL, updated INTEGER NOT NULL)""",   # snooze + "no reply yet" state: message ids and times only
   """CREATE TABLE IF NOT EXISTS jobs(email TEXT NOT NULL, draft_id TEXT NOT NULL, send_at INTEGER NOT NULL,
         status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
         sent_id TEXT, thread_id TEXT, note TEXT, updated INTEGER NOT NULL, remind_at INTEGER, PRIMARY KEY(email, draft_id))""",
   """CREATE TABLE IF NOT EXISTS reminders(email TEXT NOT NULL, message_id TEXT NOT NULL, thread_id TEXT NOT NULL, remind_at INTEGER NOT NULL,
+        status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
+        note TEXT, updated INTEGER NOT NULL, PRIMARY KEY(email, message_id))""",
+  """CREATE TABLE IF NOT EXISTS snoozes(email TEXT NOT NULL, message_id TEXT NOT NULL, wake_at INTEGER NOT NULL,
         status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, claimed_at INTEGER,
         note TEXT, updated INTEGER NOT NULL, PRIMARY KEY(email, message_id))"""]   # ids and times only, never email text
 
@@ -176,6 +183,62 @@ def remind(c, r, now):
     if transient and n < 20: return rfinish(c, email, mid, "pending", now, None, now + min(60 * 2 ** n, 1800), n)
     rfinish(c, email, mid, "failed", now, "could not remind" if transient or s != 403 else "Google refused permission", attempts=n)
 
+# ---- snooze: put a snoozed email back in the inbox at its time, phone off or not ----
+
+def sfinish(c, email, mid, status, now, note=None, retry_at=0, attempts=None):
+    with c: c.execute("UPDATE snoozes SET status=?, note=?, retry_at=?, claimed_at=NULL, updated=?, attempts=COALESCE(?,attempts) WHERE email=? AND message_id=?",
+                      (status, note, retry_at, now, attempts, email, mid))
+
+def woke(c, email, mid, now):
+    """Done in ONE transaction with the status: the shared snooze view (what the apps read) says it came back, exactly as the Mac's own wake would write it."""
+    with c:
+        c.execute("BEGIN IMMEDIATE")
+        cur = tv_doc(c, email); doc = {k: cur[k] for k in TV_TIMES + TV_IDS}
+        doc["snoozes"].pop(mid, None); doc["surfaced"][mid] = now
+        if mid not in doc["back_tag"]: doc["back_tag"].append(mid)
+        doc["back_tag"] = doc["back_tag"][-MAX_TIMING:]   # shortcut: a full list drops its oldest, which only loses a "Back from snooze" line
+        doc["surfaced"] = dict(sorted(doc["surfaced"].items(), key=lambda kv: kv[1])[-MAX_TIMING:])
+        c.execute("INSERT INTO timing_view(email,version,doc,updated) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET version=excluded.version, doc=excluded.doc, updated=excluded.updated",
+                  (email, cur["version"] + 1, json.dumps(doc), now))
+        c.execute("UPDATE snoozes SET status='woken', note=NULL, claimed_at=NULL, updated=? WHERE email=? AND message_id=?", (now, email, mid))
+
+def wake(c, r, now, labels):
+    email, mid = r["email"], r["message_id"]
+    with c: n = c.execute("UPDATE snoozes SET status='waking', claimed_at=? WHERE email=? AND message_id=? AND status='pending' AND wake_at <= ?",
+                          (now, email, mid, now)).rowcount   # one winner; a cancel or edit that landed first wins
+    if n != 1: return
+    want = tv_doc(c, email)["snoozes"].get(mid)   # the Mac changes the shared view only, never /snoozes: that view is the truth
+    if want is None: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
+    if want != r["wake_at"]:
+        with c: c.execute("UPDATE snoozes SET wake_at=?, status='pending', claimed_at=NULL, attempts=0, retry_at=0, note=NULL, updated=? WHERE email=? AND message_id=?", (want, now, email, mid))
+        return   # moved to the new time; the next pass wakes it then
+    off = r["note"] == LABEL_OFF   # Gmail may already have the label off (set right before the POST, since a timed-out reply still changed it): a retry must finish the shared view, not call it "skipped"
+    try:
+        s, ids = 200, labels.get(email)
+        if ids is None:   # once per account per pass
+            s, b = as_user(c, email, "GET", "/labels")
+            if s == 200: ids = labels[email] = {l.get("name"): l.get("id") for l in b.get("labels", []) if isinstance(l, dict)}
+        if s == 200:
+            lid = next((ids[n] for n in SNOOZE_LABELS if n in ids), None)
+            s, b = as_user(c, email, "GET", "/messages/" + mid + "?format=minimal")
+            if s == 200:   # brought back or thrown away by hand in the meantime: leave it alone
+                have = set(b.get("labelIds") or [])
+                labeled = bool(lid) and lid in have
+                if {"TRASH", "SPAM"} & have or not labeled and r["note"] != LABEL_OFF: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
+                if labeled:
+                    with c: c.execute("UPDATE snoozes SET note=? WHERE email=? AND message_id=?", (LABEL_OFF, email, mid))   # survives a crash before the view is written
+                    off = True   # right before the POST: if its reply times out, Gmail may still have made the change
+                    s, b = as_user(c, email, "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"], "removeLabelIds": [lid]})
+                if s == 200: return woke(c, email, mid, now)
+    except SignInGone:
+        return sfinish(c, email, mid, "failed", now, SIGNIN_OFF if off else "signin")
+    except Exception: s, b = 599, {}
+    if s == 404: return sfinish(c, email, mid, "gone", now, "email deleted")
+    n = r["attempts"] + 1
+    transient = s in (429, 599) or s >= 500 or (s == 403 and "imit" in reason_of(b))
+    if transient and n < 20: return sfinish(c, email, mid, "pending", now, LABEL_OFF if off else None, now + min(60 * 2 ** n, 1800), n)
+    sfinish(c, email, mid, "failed", now, "could not wake" if transient or s != 403 else "Google refused permission", attempts=n)
+
 def tick(now=None):
     now = int(now or time.time()); c = db()
     try: _tick(c, now)
@@ -188,11 +251,17 @@ def _tick(c, now):
         c.execute("UPDATE reminders SET status='failed', note='could not remind', attempts=attempts+1, claimed_at=NULL WHERE status='firing' AND claimed_at < ? AND attempts >= 19", (now - 300,))
         c.execute("UPDATE reminders SET status='pending', attempts=attempts+1 WHERE status='firing' AND claimed_at < ?", (now - 300,))   # a crash counts as an attempt
         c.execute("DELETE FROM reminders WHERE status IN ('fired','replied','gone','failed') AND updated < ?", (now - 14 * 86400,))
+        c.execute("UPDATE snoozes SET status='failed', note='could not wake', attempts=attempts+1, claimed_at=NULL WHERE status='waking' AND claimed_at < ? AND attempts >= 19", (now - 300,))
+        c.execute("UPDATE snoozes SET status='pending', attempts=attempts+1 WHERE status='waking' AND claimed_at < ?", (now - 300,))   # a crash counts as an attempt; waking twice is harmless (the label check skips it)
+        c.execute("DELETE FROM snoozes WHERE status IN ('woken','skipped','gone','failed') AND updated < ?", (now - 14 * 86400,))
     for j in c.execute("SELECT * FROM jobs WHERE status='pending' AND send_at + COALESCE(grace, ?) <= ? AND retry_at <= ? ORDER BY send_at",
                        (GRACE(), now, now)).fetchall():
         process(c, j, now)
     for r in c.execute("SELECT * FROM reminders WHERE status='pending' AND remind_at + ? <= ? AND retry_at <= ? ORDER BY remind_at", (GRACE(), now, now)).fetchall():
         remind(c, r, now)
+    labels = {}
+    for r in c.execute("SELECT * FROM snoozes WHERE status='pending' AND wake_at <= ? AND retry_at <= ? ORDER BY wake_at", (now, now)).fetchall():
+        wake(c, r, now, labels)
 
 def worker():
     while True:
@@ -206,7 +275,13 @@ def org_doc(c, email):
     r = c.execute("SELECT version, doc FROM organizer WHERE email=?", (email,)).fetchone()
     return {"version": r["version"], **json.loads(r["doc"])} if r else {"version": 0, "smart": [], "searches": []}
 
+TV_TIMES, TV_IDS = ("snoozes", "surfaced"), ("back_tag", "no_reply")
+def tv_doc(c, email):
+    r = c.execute("SELECT version, doc FROM timing_view WHERE email=?", (email,)).fetchone()
+    return {"version": r["version"], **json.loads(r["doc"])} if r else {"version": 0, **{k: {} for k in TV_TIMES}, **{k: [] for k in TV_IDS}}
+
 def rrow(r): return {k: r[k] for k in ("message_id", "thread_id", "remind_at", "status", "note")}
+def srow(r): return {k: r[k] for k in ("message_id", "wake_at", "status", "note")}
 def jrow(r): return {k: r[k] for k in ("draft_id", "send_at", "status", "sent_id", "thread_id", "note")}
 
 class H(BaseHTTPRequestHandler):
@@ -236,15 +311,23 @@ class H(BaseHTTPRequestHandler):
                 reg = method == "POST" and parts == ["register"]
                 u = None if reg else self.user(c)
                 if not reg and not u: return self.out(401, {"error": "bad key"})   # key first: an anonymous caller never gets the big read
-                data = self.body(MAX_ORGANIZER_BODY if parts == ["organizer"] else 8192) if method in ("POST", "PUT") else {}
+                data = self.body(MAX_ORGANIZER_BODY if parts in (["organizer"], ["timing-view"]) else 8192) if method in ("POST", "PUT") else {}
                 if reg: return self.register(c, data)
                 if method == "GET" and parts == ["jobs"]:
                     return self.out(200, {"signin_ok": bool(u["signin_ok"]), "jobs": [jrow(r) for r in c.execute("SELECT * FROM jobs WHERE email=? ORDER BY send_at", (u["email"],))]})
                 if method == "GET" and parts == ["reminders"]:
                     return self.out(200, {"signin_ok": bool(u["signin_ok"]), "reminders": [rrow(r) for r in c.execute("SELECT * FROM reminders WHERE email=? ORDER BY remind_at", (u["email"],))]})
+                if method == "GET" and parts == ["snoozes"]:
+                    return self.out(200, {"signin_ok": bool(u["signin_ok"]), "snoozes": [srow(r) for r in c.execute("SELECT * FROM snoozes WHERE email=? ORDER BY wake_at", (u["email"],))]})
                 if parts == ["organizer"]:
                     if method == "GET": return self.out(200, org_doc(c, u["email"]))
                     if method == "PUT": return self.put_organizer(c, u, data)
+                if parts == ["timing-view"]:
+                    if method == "GET": return self.out(200, tv_doc(c, u["email"]))
+                    if method == "PUT": return self.put_timing_view(c, u, data)
+                if len(parts) == 2 and parts[0] == "snoozes" and DRAFT_RE.match(parts[1]):
+                    if method == "PUT": return self.put_snooze(c, u, parts[1], data)
+                    if method == "DELETE": return self.del_snooze(c, u, parts[1])
                 if len(parts) == 2 and parts[0] == "reminders" and DRAFT_RE.match(parts[1]):
                     if method == "PUT": return self.put_reminder(c, u, parts[1], data)
                     if method == "DELETE": return self.del_reminder(c, u, parts[1])
@@ -284,6 +367,7 @@ class H(BaseHTTPRequestHandler):
                       (email, dev, hashlib.sha256(key.encode()).hexdigest(), rt, cid, now))
             c.execute("UPDATE jobs SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
             c.execute("UPDATE reminders SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
+            c.execute("UPDATE snoozes SET status='pending', note=CASE note WHEN ? THEN ? END, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note IN ('signin', ?)", (SIGNIN_OFF, LABEL_OFF, email, SIGNIN_OFF))
         with _lock: _tokens.pop(email + "/" + dev, None)
         self.out(200, {"api_key": key, "email": email, "device": dev})
 
@@ -339,6 +423,24 @@ class H(BaseHTTPRequestHandler):
                       (u["email"], bv + 1, json.dumps(doc), int(time.time())))
         self.out(200, {"version": bv + 1})
 
+    def put_timing_view(self, c, u, d):
+        bv = d.get("base_version")
+        if not isinstance(bv, int) or isinstance(bv, bool) or bv < 0: raise ValueError("base_version needed")
+        doc = {}
+        for k in TV_TIMES + TV_IDS:   # all four required, so a half-formed call can never wipe the others; anything else sent is not kept
+            v = d.get(k)
+            if not isinstance(v, dict if k in TV_TIMES else list) or len(v) > MAX_TIMING: raise ValueError(k + " must be a " + ("map" if k in TV_TIMES else "list") + " of up to %d" % MAX_TIMING)
+            if not all(isinstance(i, str) and DRAFT_RE.match(i) for i in v): raise ValueError("every id in " + k + " must be a message id")
+            if k in TV_TIMES and not all(isinstance(t, int) and not isinstance(t, bool) and 0 < t < 4102444800 for t in v.values()): raise ValueError("every time in " + k + " must be unix seconds")
+            doc[k] = v
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            cur = tv_doc(c, u["email"])
+            if cur["version"] != bv: return self.out(409, cur)   # another device saved first: merge onto this and try again
+            c.execute("INSERT INTO timing_view(email,version,doc,updated) VALUES(?,?,?,?) ON CONFLICT(email) DO UPDATE SET version=excluded.version, doc=excluded.doc, updated=excluded.updated",
+                      (u["email"], bv + 1, json.dumps(doc), int(time.time())))
+        self.out(200, {"version": bv + 1})
+
     def put_reminder(self, c, u, mid, d):
         at, th, now = d.get("remind_at"), d.get("thread_id"), int(time.time())
         if not isinstance(at, int) or isinstance(at, bool) or not now - 3600 <= at < now + 400 * 86400: raise ValueError("remind_at must be within the last hour or the next 400 days")
@@ -352,6 +454,28 @@ class H(BaseHTTPRequestHandler):
             c.execute("INSERT INTO reminders(email,message_id,thread_id,remind_at,status,updated) VALUES(?,?,?,?, 'pending', ?) ON CONFLICT(email,message_id) DO UPDATE SET thread_id=excluded.thread_id, remind_at=excluded.remind_at, attempts=0, retry_at=0, updated=excluded.updated",
                       (u["email"], mid, th, at, now))
         self.out(200, {"status": "pending"})
+
+    def put_snooze(self, c, u, mid, d):
+        now = int(time.time()); at = self.when(d, "wake_at", now)   # the phone sends the exact time it worked out (wake_at); wake_in_seconds also works
+        if not isinstance(at, int) or isinstance(at, bool) or not now - 3600 <= at < now + 400 * 86400: raise ValueError("wake_at must be within the last hour or the next 400 days")
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            r = c.execute("SELECT status FROM snoozes WHERE email=? AND message_id=?", (u["email"], mid)).fetchone()
+            if r and r["status"] == "waking": return self.out(409, {"status": "waking"})   # in flight: ask again in a moment
+            if (not r or r["status"] != "pending") and c.execute("SELECT COUNT(*) FROM snoozes WHERE email=? AND status='pending'", (u["email"],)).fetchone()[0] >= MAX_PENDING:
+                return self.out(429, {"error": "too many snoozes"})
+            c.execute("INSERT INTO snoozes(email,message_id,wake_at,status,updated) VALUES(?,?,?, 'pending', ?) ON CONFLICT(email,message_id) DO UPDATE SET wake_at=excluded.wake_at, status='pending', attempts=0, retry_at=0, note=NULL, updated=excluded.updated",
+                      (u["email"], mid, at, now))   # an email that came back earlier can be snoozed again: the old result row is reused
+        self.out(200, {"status": "pending"})
+
+    def del_snooze(self, c, u, mid):
+        with c:
+            c.execute("BEGIN IMMEDIATE")
+            r = c.execute("SELECT status FROM snoozes WHERE email=? AND message_id=?", (u["email"], mid)).fetchone()
+            if not r: return self.out(200, {"status": "none"})
+            if r["status"] == "waking": return self.out(409, {"status": "waking"})
+            c.execute("DELETE FROM snoozes WHERE email=? AND message_id=?", (u["email"], mid))
+        self.out(200, {"status": r["status"]})   # "pending" = cancelled; woken/skipped/gone/failed = result acknowledged
 
     def del_reminder(self, c, u, mid):
         with c:

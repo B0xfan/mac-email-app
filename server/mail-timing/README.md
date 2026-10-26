@@ -70,6 +70,19 @@ Names, rules and search words only, never email text. The server keeps the lists
 - `GET /organizer` -> `{"version": n, "smart": [...], "searches": [...]}` (`version` 0 and empty lists until someone saves).
 - `PUT /organizer` `{"base_version": n, "smart": [...], "searches": [...]}` (both lists required) -> 200 `{"version": n+1}`. 409 = someone saved first: the body is the current `{"version","smart","searches"}`; merge onto it and try again with its version. 400 = malformed.
 
+## Snooze and "no reply yet" state (shared by the person's devices)
+Same pattern as the Smart Folder list; ids and times only, never email text.
+- `GET /timing-view` -> `{"version": n, "snoozes": {messageId: unix time it comes back}, "surfaced": {messageId: unix time it came back}, "back_tag": [messageId], "no_reply": [messageId]}` (`version` 0 and empty until someone saves).
+- `PUT /timing-view` `{"base_version": n, "snoozes": {...}, "surfaced": {...}, "back_tag": [...], "no_reply": [...]}` (all four required, the whole state each time) -> 200 `{"version": n+1}`. 409 = someone saved first: the body is the current state; merge and PUT again with its version.
+- Ids are Gmail message ids (letters, digits, `_`, `-`, up to 64); times are whole unix seconds. Up to 2000 entries in each, whole call up to 64 KB (400 otherwise; nginx's 70 KB is the outer wall). Anything else in the call is not kept. 400 malformed, 401 bad key (checked before the body is read).
+
+## Snooze return (phone snoozes come back while the phone is off)
+The Mac and phone snooze the same way in Gmail: the label `Snoozed` (or `Mail Snoozed` if that name was taken) is added and `INBOX` removed. The server only does the return; the app still adds the label and removes INBOX itself when it snoozes. Ids and times only.
+1. Create or change: `PUT /snoozes/<messageId>` `{"wake_at": <unix seconds>}` (or `"wake_in_seconds": N` from the server's clock; both = 400). Same Gmail message id the label was put on. 200 `{"status":"pending"}`. 400 bad time (not more than 1 hour in the past, not more than 400 days ahead). 409 `waking` = in flight, ask again in a few seconds. 429 = refused, already 200 snoozes waiting. An email that came back earlier can be snoozed again with the same call.
+2. Cancel (un-snooze early): `DELETE /snoozes/<messageId>`. 200 `status`: `pending` = cancelled in time; `none` = nothing there; `woken|skipped|gone|failed` = result acknowledged. 409 `waking` = ask again shortly. The app still removes the label and puts the email back itself.
+3. Status: `GET /snoozes` -> `{"signin_ok": bool, "snoozes":[{message_id, wake_at, status, note}]}`. status: `pending` | `waking` | `woken` (server brought it back) | `skipped` (it was no longer snoozed, or was in Trash or Spam: nothing changed) | `gone` (email deleted) | `failed` (note `signin` = register again and it retries; `could not wake` = gave up after 20 tries; `Google refused permission`). Finished ones are kept 14 days.
+4. At `wake_at` (checked every 10 seconds, so up to about 10 s late; no grace window) the server adds `INBOX` and `UNREAD` and removes the snooze label, only if the email still has that label and is not in Trash or Spam. It also writes the shared view (`/timing-view`): drops the id from `snoozes`, sets `surfaced[id]` to the wake time and appends the id to `back_tag`, so the Mac and phone show "Back from snooze" like their own wake. Before waking, the server checks `/timing-view` (the Mac only updates that, never `/snoozes`): id gone there = skipped; a different time there = the server moves to that time instead of waking. So a phone snooze needs both calls. If Gmail took the label off but the view write failed, the retry finishes the view. A device re-reads `GET /timing-view` (and `GET /snoozes`) when it opens.
+
 ## Not here
-No snooze, no big-file/Drive attachments (the Mac still refuses those), no email content.
+No big-file/Drive attachments (the Mac still refuses those), no email content.
 Self-check: `python3 -I -B test_server.py` (pretend Google, no network).
