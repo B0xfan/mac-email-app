@@ -100,6 +100,10 @@ struct InboxSettingsPage: View {
     var body: some View {
         SettingsPageList(title: "Inbox", intro: "How the inbox behaves as you work through it.") {
             Section {
+                MenuRow(title: "Number on the app icon", detail: "Unread emails", selection: $prefs.badge,
+                        options: BadgeChoice.allCases.map { (value: $0, label: $0.title + ($0 == .people ? " (default)" : "")) })
+            } footer: { Text("It updates when you open or leave the app. The iPhone may also let Audrey Mail update it in the background now and then, but not on a timetable you choose.").foregroundStyle(Theme.sub) }.setCard()
+            Section {
                 ChoiceRow(title: "Go back to the list", tag: "Default", on: prefs.afterArchive == .list) { prefs.afterArchive = .list }
                 ChoiceRow(title: "Open the next email below", on: prefs.afterArchive == .below) { prefs.afterArchive = .below }
                 ChoiceRow(title: "Open the next unread email", on: prefs.afterArchive == .unread) { prefs.afterArchive = .unread }
@@ -117,10 +121,6 @@ struct InboxSettingsPage: View {
                 MenuRow(title: "Check for new email", detail: "While the app is open", selection: $prefs.checkMinutes,
                         options: PhoneSettings.checkChoices.map { (value: $0, label: PhoneSettings.checkLabel($0) + ($0 == 0 ? " (default)" : "")) })
             } footer: { Text("This timer only runs while Audrey Mail is open. In the background, the iPhone decides when Audrey Mail may check, so there is no timetable to set.").foregroundStyle(Theme.sub) }.setCard()
-            Section {
-                MenuRow(title: "Number on the app icon", detail: "Unread emails", selection: $prefs.badge,
-                        options: BadgeChoice.allCases.map { (value: $0, label: $0.title + ($0 == .people ? " (default)" : "")) })
-            } footer: { Text("It updates when you open or leave the app. The iPhone may also let Audrey Mail update it in the background now and then, but not on a timetable you choose.").foregroundStyle(Theme.sub) }.setCard()
         }
     }
 }
