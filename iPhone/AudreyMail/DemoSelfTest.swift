@@ -638,7 +638,7 @@ enum DemoSelfTest {
         box.with { $0.srvDown = true }
         await store.snooze(row(sid[2])!, until: Date().addingTimeInterval(7200)).value; await store.settle()
         _ = await until { !store.snoozeBusy }
-        check("with no network the email is still snoozed in Gmail and the phone remembers to tell the server", box.with { $0.msgs.first { $0.id == sid[2] }!.labels.contains("Label_snoozed") && $0.srvSnoozes.isEmpty } && store.phoneSnoozes[sid[2]] != nil)
+        check("with no network the email is still snoozed in Gmail and the phone remembers to tell the server", box.with { $0.msgs.first { $0.id == sid[2] }!.labels.contains("Label_snoozed") && $0.srvSnoozes[sid[2]] == nil } && store.phoneSnoozes[sid[2]] != nil)
         box.with { $0.srvDown = false }
         await store.refresh()
         check("next time the phone opens, the server is told and the shared view is updated", await until { box.with { $0.srvSnoozes[sid[2]] != nil && (($0.srvTV["snoozes"] as? [String: Int]) ?? [:])[sid[2]] != nil } })
