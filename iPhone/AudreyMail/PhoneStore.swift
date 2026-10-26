@@ -291,7 +291,7 @@ final class PhoneStore: ObservableObject {
             lastRefresh = Date()
             saveCache()
             if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
-            Task { await syncTimingView(); await flushSnoozes() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
+            Task { await flushSnoozes() }   // reads the shared view first, then tells the server what it must hold; returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
             await classifySenders()
             if !blockedLoaded, let l = try? await flow.list() { blocked = l; blockedLoaded = true; pics.recheck() }   // so a blocked sender never gets a logo visit (quietly: a failure here is not worth a banner)
         } catch { await fail(error, "Could not load mail.") }

@@ -44,7 +44,7 @@ extension PhoneStore {
                     guard self.timingView?.snoozes[m.id] == at else { return }   // Undo came first: nothing for the server
                     self.phoneSnoozes[m.id] = at; self.snoozeCancels.remove(m.id)
                     if ids.count > 1 { self.snoozeKin[m.id] = Array(ids.dropFirst()) }
-                    Task { await self.syncTimingView(); await self.flushSnoozes() }
+                    Task { await self.flushSnoozes() }
                  })
         }
     }
@@ -56,7 +56,7 @@ extension PhoneStore {
         var mine = held; ids.forEach { mine[$0] = nil }
         if mine != held { phoneSnoozes = mine; snoozeCancels.formUnion(ids.filter { held[$0] != nil }) }
         var kin = snoozeKin; ids.forEach { kin[$0] = nil }; snoozeKin = kin
-        Task { await syncTimingView(); await flushSnoozes() }
+        Task { await flushSnoozes() }
     }
 
     /// The snooze times on this phone (shown as "Back Tue 3:00 PM", written to /timing-view by the next sync). A snooze replaces a returned-email mark, as on the Mac.
@@ -99,8 +99,8 @@ extension PhoneStore {
     }
 
     /// Tells the server what it must hold: first the early returns to forget, then every phone snooze it does not already have at that time
-    /// (so a snooze made with no network, or lost at the server, is sent on the next open). The shared view (/timing-view) must already hold a snooze before the server is told,
-    /// because the server skips any snooze the view does not show. Each email is handled on its own: an answer for one (busy, too many, refused) never stops the rest;
+    /// (so a snooze made with no network, or lost at the server, is sent on the next open). It reads and writes the shared view (/timing-view) first: the view must already hold a snooze
+    /// before the server is told, because the server skips any snooze the view does not show. Each email is handled on its own: an answer for one (busy, too many, refused) never stops the rest;
     /// no network does. Emails past their time that the server did not bring back come back here.
     func flushSnoozes() async {
         guard let server, state == .signedIn else { return }
@@ -108,6 +108,8 @@ extension PhoneStore {
         snoozeBusy = true; defer { snoozeBusy = false }
         repeat {
             snoozeDirty = false
+            await syncTimingView()   // first the shared view: the server is told of a snooze only once the view shows it
+            let viewBefore = timingView
             do {
                 for id in snoozeCancels.sorted() {
                     do { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
@@ -144,6 +146,7 @@ extension PhoneStore {
                     await returnLate(all)
                 }
             } catch { return }   // no network or an old server: the phone works on its own and tries again next time
+            if timingView != viewBefore { await syncTimingView() }   // emails brought back here are written to the shared view too
         } while snoozeDirty
     }
 }
