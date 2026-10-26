@@ -17,6 +17,7 @@ struct ReadView: View {
     @State private var snoozing = false
     @State private var moving = false
     @State private var movedAway = false   // the sheet closes first, then this screen
+    @State private var snoozedAway = false   // the same for Snooze
     @State private var todoOpen = false
     @State private var open: Set<String> = []   // the messages of a grouped conversation that are shown open
     @State private var started = false
@@ -77,7 +78,7 @@ struct ReadView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { store.markUnread(mail); dismiss() } label: { Label("Mark as unread", systemImage: "envelope.badge") }
-                    Button { snoozing = true } label: { Label("Snooze…", systemImage: "clock") }
+                    if PhoneStore.canSnooze(mail) { Button { snoozing = true } label: { Label("Snooze…", systemImage: "clock") } }   // only an inbox email: Undo would put any other into the inbox
                     Button { blockTarget = m } label: { Label("Block sender", systemImage: "nosign") }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("More")
             }
@@ -87,8 +88,8 @@ struct ReadView: View {
         .task(id: mail.id) { await load() }   // this screen reads its own email, so folding it away in a conversation never cancels the read
         .onDisappear { store.tabBarHidden = false }
         .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail, from: fromFolder) { movedAway = true }.presentationDetents([.medium, .large]) }
-        .sheet(isPresented: $snoozing) {
-            SnoozeSheet { d in snoozing = false; store.snooze(mail, until: d); dismiss() } cancel: { snoozing = false }
+        .sheet(isPresented: $snoozing, onDismiss: { if snoozedAway { dismiss() } }) {
+            SnoozeSheet { d in snoozedAway = true; snoozing = false; store.snooze(mail, until: d) } cancel: { snoozing = false }
         }
         .sheet(isPresented: $todoOpen) { TodoSheet(mail: full ?? mail).presentationDetents([.height(420), .large]) }
         .sheet(item: $blockTarget) { t in

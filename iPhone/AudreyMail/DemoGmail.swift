@@ -309,11 +309,14 @@ final class DemoMailbox: @unchecked Sendable {
     }
 
     /// The server brings back every snoozed email whose time has come, as the real one does with the phone off: the email gets Inbox and Unread back and loses the snooze label,
-    /// and the shared snooze view says it came back (dropped from snoozes, marked in surfaced and back_tag). An email that no longer carries the label is skipped.
+    /// and the shared snooze view says it came back (dropped from snoozes, marked in surfaced and back_tag). An email that no longer carries the label, or that the shared view does not show, is skipped.
     func serverWakes(now: Date = Date()) {
         lock.lock(); defer { lock.unlock() }
         let t = Int(now.timeIntervalSince1970)
         for (id, e) in srvSnoozes.sorted(by: { $0.key < $1.key }) where e.status == "pending" && e.wake <= t {
+            // the real server reads the shared view first: an id the view does not show is skipped, a different time there is the time that counts
+            guard let want = (srvTV["snoozes"] as? [String: Int])?[id] else { srvSnoozes[id]?.status = "skipped"; continue }
+            if want != e.wake { srvSnoozes[id]?.wake = want; if want > t { continue } }
             guard let i = msgs.firstIndex(where: { $0.id == id }), let lid = labels.first(where: { ["Snoozed", "Mail Snoozed"].contains($0.name) })?.id, msgs[i].labels.contains(lid), !msgs[i].labels.contains("TRASH") else { srvSnoozes[id]?.status = "skipped"; continue }
             change([id], add: ["INBOX", "UNREAD"], remove: [lid]); srvSnoozes[id]?.status = "woken"; srvLog.append("snooze woke \(id)")
             var sn = srvTV["snoozes"] as? [String: Int] ?? [:], su = srvTV["surfaced"] as? [String: Int] ?? [:], bt = srvTV["back_tag"] as? [String] ?? []
