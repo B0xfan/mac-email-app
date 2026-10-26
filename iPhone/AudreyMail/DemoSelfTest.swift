@@ -769,6 +769,47 @@ enum DemoSelfTest {
         check("a snooze the server marks failed, or leaves pending well past its time, comes back", backHome("late6") && backHome("late7"))
         check("a pending one that is not due yet waits, and one the server woke is handled: not brought back by the phone", stillSnoozed("late8") && store.phoneSnoozes["late8"] != nil && stillSnoozed("late9") && store.phoneSnoozes["late9"] == nil)
         check("the emails that came back show in the inbox at once", await until { row("late1") != nil && row("late6") != nil })
+        // the rest of a conversation stays recorded until it is really back (the server woke the row's email; Gmail refuses a read or a change)
+        for (rep, kin) in [("lateR", "lateS"), ("lateT", "lateU")] {
+            late(rep, ["INBOX"], at: now0 - 600, view: now0 - 600, server: "woken")
+            late(kin, ["Label_snoozed"], at: now0 - 600)
+            store.phoneSnoozes = store.phoneSnoozes.filter { $0.key != kin }
+            var k = store.snoozeKin; k[rep] = [kin]; store.snoozeKin = k
+        }
+        box.with { $0.failRead = ["lateS"]; $0.failModify = true }
+        await idle(); await store.flushSnoozes()
+        check("when Gmail cannot be read or changed, the conversation's other emails stay in Snoozed and the phone keeps its record of them",
+              stillSnoozed("lateS") && stillSnoozed("lateU") && store.snoozeKin["lateR"] == ["lateS"] && store.snoozeKin["lateT"] == ["lateU"] && store.phoneSnoozes["lateR"] != nil && store.phoneSnoozes["lateT"] != nil)
+        box.with { $0.failModify = false }
+        await store.flushSnoozes()
+        check("the next try brings back the one that could be read, and keeps the record of the other", backHome("lateU") && stillSnoozed("lateS") && store.snoozeKin["lateT"] == nil && store.phoneSnoozes["lateT"] == nil && store.snoozeKin["lateR"] == ["lateS"] && store.phoneSnoozes["lateR"] != nil)
+        box.with { $0.failRead = [] }
+        await store.flushSnoozes()
+        check("and once every email is back the record is gone", backHome("lateS") && store.snoozeKin["lateR"] == nil && store.phoneSnoozes["lateR"] == nil)
+
+        // a time the shared view changed (the Mac moved it) is the time that counts, here and at the server
+        late("lateM1", ["Label_snoozed"], at: now0 + 3 * 3600, view: now0 + 1800, server: "pending")
+        late("lateM2", ["Label_snoozed"], at: now0 + 1800, view: now0 + 2 * 3600)
+        late("lateM3", ["Label_snoozed"], at: now0 - 1200, view: now0 - 600, server: "woken")
+        box.with { b in b.srvSnoozes["lateM3"] = (now0 - 600, "woken") }
+        late("lateM3k", ["Label_snoozed"], at: now0 - 1200)
+        store.phoneSnoozes = store.phoneSnoozes.filter { $0.key != "lateM3k" }
+        var km = store.snoozeKin; km["lateM3"] = ["lateM3k"]; store.snoozeKin = km
+        await idle(); await store.flushSnoozes()
+        check("moved earlier in the shared view: the phone takes that time and the server is told it", store.phoneSnoozes["lateM1"] == now0 + 1800 && box.with { $0.srvSnoozes["lateM1"]?.wake == now0 + 1800 })
+        check("moved later before the server ever heard of it: the phone takes that time and the server is told it", store.phoneSnoozes["lateM2"] == now0 + 2 * 3600 && box.with { $0.srvSnoozes["lateM2"]?.wake == now0 + 2 * 3600 })
+        check("when the server woke the row's email at the new time, the other emails follow", backHome("lateM3k") && store.phoneSnoozes["lateM3"] == nil && store.snoozeKin["lateM3"] == nil)
+
+        // a cancel (Undo) is dropped only when the server says it cannot take it (400, 404); any other answer keeps it for the next try
+        store.snoozeCancels = ["lateC1"]; box.with { $0.srvSnoozeForce = [403] }
+        await store.flushSnoozes()
+        check("a refusal such as 403 keeps the cancel for the next try", store.snoozeCancels == ["lateC1"])
+        await store.flushSnoozes()
+        check("and the next try sends it", store.snoozeCancels.isEmpty)
+        store.snoozeCancels = ["lateC2"]; box.with { $0.srvSnoozeForce = [400] }
+        await store.flushSnoozes()
+        check("a 400 means the server will not take the cancel: it is dropped", store.snoozeCancels.isEmpty)
+
         box.with { b in b.msgs.removeAll { $0.id.hasPrefix("late") || $0.id.hasPrefix("k1") || $0.id.hasPrefix("k3") }; for k in b.srvSnoozes.keys where k.hasPrefix("late") || k.hasPrefix("k") { b.srvSnoozes[k] = nil } }
         store.phoneSnoozes = [:]; store.snoozeKin = [:]
         await idle(); await store.refresh(); await idle()

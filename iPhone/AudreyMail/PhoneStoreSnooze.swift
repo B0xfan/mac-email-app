@@ -75,27 +75,28 @@ extension PhoneStore {
         saveTimingView()
     }
 
-    private func forgetSnooze(_ id: String) { phoneSnoozes[id] = nil; snoozeKin[id] = nil }
-
-    /// Snoozed emails whose time passed and the server did not bring back (no network, refused, failed): back to the inbox, unread, as the server would have done.
+    /// Snoozed emails whose time passed and the server did not bring back (no network, refused, failed), or the rest of a conversation whose row email the server woke: back to the inbox, unread, as the server would have done.
     /// One that is no longer in Snoozed (read, moved, woken elsewhere), is in Trash or Spam, or was deleted is left alone and forgotten. One Gmail could not answer for stays for the next try.
-    private func returnLate(_ ids: [String]) async {
-        guard let label = snoozeLabelID else { return }
-        var back: [String] = [], finished: [String] = []
-        for id in ids {
-            do {
-                let m = try await gmail.message(id: id, full: false)
-                if m.labels.contains(label) && !m.labels.contains("TRASH") && !m.labels.contains("SPAM") { back.append(id) }
-                finished.append(id)
-            } catch GmailError.http(404, _) { finished.append(id) }   // deleted while snoozed: nothing to bring back, and no more tries
-            catch {}
+    /// Returns the emails that are settled (really back, or nothing to bring back); the caller forgets its records only for those.
+    private func returnLate(_ ids: [String]) async -> Set<String> {
+        guard let label = snoozeLabelID else { return [] }
+        let g = gmail
+        let read = await mapLimited(ids, limit: 6) { id -> (String, Mail?, Bool) in   // Bool: Gmail says it is gone
+            do { return (id, try await g.message(id: id, full: false), false) }
+            catch GmailError.http(404, _) { return (id, nil, true) }   // deleted while snoozed: nothing to bring back, and no more tries
+            catch { return (id, nil, false) }
         }
-        if !back.isEmpty { guard (try? await gmail.modify(ids: back, add: ["INBOX", "UNREAD"], remove: [label])) != nil else { return } }
+        var back: [String] = [], finished: [String] = []
+        for (id, m, gone) in read {
+            if let m { if m.labels.contains(label) && !m.labels.contains("TRASH") && !m.labels.contains("SPAM") { back.append(id) }; finished.append(id) }
+            else if gone { finished.append(id) }
+        }
+        if !back.isEmpty { guard (try? await gmail.modify(ids: back, add: ["INBOX", "UNREAD"], remove: [label])) != nil else { return [] } }
         let gone = finished.filter { !back.contains($0) }
         if !gone.isEmpty { setLocalSnoozes(gone, at: nil) }
         if !back.isEmpty { markReturned(back, now: Int(Date().timeIntervalSince1970)) }
-        finished.forEach(forgetSnooze)
         if !back.isEmpty { refreshAgain = true; await refresh() }   // the emails show in the inbox at once: now, or when the refresh that is running ends
+        return Set(finished)
     }
 
     /// Tells the server what it must hold: first the early returns to forget, then every phone snooze it does not already have at that time
@@ -113,20 +114,22 @@ extension PhoneStore {
             do {
                 for id in snoozeCancels.sorted() {
                     do { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
-                    catch PhoneServerError.refused(let c) where c != 429 { snoozeCancels.remove(id) }   // the server will not take it: nothing to cancel
-                    catch PhoneServerError.refused(_) {}   // too many calls: next time
+                    catch PhoneServerError.refused(let c) where c == 400 || c == 404 { snoozeCancels.remove(id) }   // the server will not take it, or does not know it: nothing to cancel
+                    catch PhoneServerError.refused(_) {}   // too many calls, signed out, a server or proxy fault: the cancel stays for next time
                     catch PhoneServerError.busy {}
                 }
                 guard !phoneSnoozes.isEmpty else { continue }
                 let have = try await server.snoozes(), now = Int(Date().timeIntervalSince1970)
-                var late: [String] = []
-                for (id, at) in phoneSnoozes.sorted(by: { $0.value < $1.value }) {
+                var late: [String] = [], handled: [String] = []   // handled: the server woke or lost the row's email; its conversation still has to come back
+                for (id, held) in phoneSnoozes.sorted(by: { $0.value < $1.value }) {
+                    var at = held
+                    // the shared view holds another time and this phone has nothing unsent for it (the Mac moved it): that time counts, here and at the server
+                    if let v = timingView?.snoozes[id], v != at, v == timingBase.snoozes[id] { at = v; var p = phoneSnoozes; p[id] = v; phoneSnoozes = p }
                     let shared = timingBase.snoozes[id]   // the time in the shared view, as of the last sync
-                    if let shared, shared > at { continue }   // moved later in the shared view (the Mac): that time counts, the server follows it
                     if let h = have[id], h.wakeAt == at {   // the server holds this snooze
                         switch h.status {
-                        case "woken": late += snoozeKin[id] ?? []; forgetSnooze(id)   // the rest of its conversation follows
-                        case "gone": late += snoozeKin[id] ?? []; setLocalSnoozes([id], at: nil); forgetSnooze(id)
+                        case "woken": handled.append(id)
+                        case "gone": setLocalSnoozes([id], at: nil); handled.append(id)
                         case "skipped", "failed": late.append(id)   // the server did not bring it back
                         case "pending": if at < now - 120 { late.append(id) }   // the server is well past its time
                         default: break   // waking: the server is on it
@@ -140,10 +143,18 @@ extension PhoneStore {
                     catch PhoneServerError.refused(_) {}   // 429 and the like: this one waits for the next open, the others go on
                     catch PhoneServerError.busy {}
                 }
-                if !late.isEmpty {
+                if !late.isEmpty || !handled.isEmpty {
                     var all: [String] = []
-                    for id in late { for x in [id] + (snoozeKin[id] ?? []) where !all.contains(x) { all.append(x) } }
-                    await returnLate(all)
+                    for x in late + handled.flatMap({ snoozeKin[$0] ?? [] }) + late.flatMap({ snoozeKin[$0] ?? [] }) where !all.contains(x) { all.append(x) }
+                    let done = all.isEmpty ? [] : await returnLate(all)
+                    // a record goes only when everything it stands for is back: the conversation's other emails first, then the row's own email
+                    var p = phoneSnoozes, k = snoozeKin
+                    for rep in late + handled {
+                        let rest = (k[rep] ?? []).filter { !done.contains($0) }
+                        k[rep] = rest.isEmpty ? nil : rest
+                        if rest.isEmpty && (handled.contains(rep) || done.contains(rep)) { p[rep] = nil }
+                    }
+                    phoneSnoozes = p; snoozeKin = k
                 }
             } catch { return }   // no network or an old server: the phone works on its own and tries again next time
             if timingView != viewBefore { await syncTimingView() }   // emails brought back here are written to the shared view too
