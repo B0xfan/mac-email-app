@@ -56,7 +56,7 @@ struct SettingsView: View {
                     }.frame(minHeight: 56).accessibilityElement(children: .combine)
                 } header: { Text("Shared with your Mac").foregroundStyle(Theme.sub) }.setCard()
                 Section {
-                    HStack { Text("Audrey Mail for iPhone"); Spacer(); Text(version).foregroundStyle(Theme.sub) }.frame(minHeight: 44).id("about")
+                    HStack { Text("Audrey Mail for iPhone"); Spacer(); Text("\(version) (\(build))").foregroundStyle(Theme.sub) }.frame(minHeight: 44).id("about")
                 } header: { Text("About").foregroundStyle(Theme.sub) }
                   footer: { Text("Sign out is inside Accounts, the same place as on the Mac.").foregroundStyle(Theme.sub) }.setCard()
             }
@@ -110,6 +110,7 @@ struct SettingsView: View {
         NavigationLink(value: page) { SettingsLine(icon: icon, title: title, tag: tag, value: value) }
     }
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0" }
+    private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "" }
 
     static func todoName(_ l: TodoList) -> String { switch l { case .obsidian: return "Obsidian"; case .reminders: return "Reminders"; case .todoist: return "Todoist"; case .clickup: return "ClickUp" } }
     static func daysText(_ d: Int) -> String { d == 1 ? "1 day" : "\(d) days" }

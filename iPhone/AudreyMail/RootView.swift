@@ -35,7 +35,7 @@ struct RootView: View {
                 if UIApplication.shared.applicationState == .active, store.state == .signedIn { await store.refreshIfStale(after: seconds - 1) }
             }
         }
-        .task(id: store.badgeCount) { if let n = store.badgeCount { await Badge.set(n) } }
+        .task(id: store.badgeCount) { if let n = store.badgeCount { await Badge.set(n, ask: store.state == .signedIn) } }   // signed in: iOS asks once even while the number is 0
         .onChange(of: phase) { _, p in
             if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() }; store.resumeHeld() }
             if p == .background, store.state == .signedIn { Badge.schedule() }

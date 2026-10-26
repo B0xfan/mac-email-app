@@ -40,12 +40,12 @@ extension View {
 enum Badge {
     static let taskID = "com.johnhesch.audreymail.badge"
 
-    static func set(_ n: Int) async {
+    static func set(_ n: Int, ask: Bool = false) async {
         #if DEBUG
         if DemoMode.screen != nil || DemoMode.selfTest { return }   // pretend runs never ask for a permission
         #endif
         let c = UNUserNotificationCenter.current()
-        if n > 0 { _ = try? await c.requestAuthorization(options: [.badge]) }   // iOS shows its question once; later calls just get the old answer
+        if n > 0 || ask { _ = try? await c.requestAuthorization(options: [.badge]) }   // iOS shows its question once; later calls just get the old answer
         if Task.isCancelled { return }   // a newer number is already on its way
         try? await c.setBadgeCount(n)
     }
