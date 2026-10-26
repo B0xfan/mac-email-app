@@ -24,28 +24,41 @@ extension PhoneStore {
 
     var snoozeLabelID: String? { Self.snoozeLabelNames.lazy.compactMap { n in self.labelList.first { $0.name == n }?.id }.first }
 
-    // MARK: - Snooze times and returned emails (the Mac writes them to the Mail server, the phone reads them)
+    // MARK: - Snooze times and returned emails (the Mac and the phone both write them to the Mail server)
+
+    private struct TimingFile: Codable { var current: TimingView; var base: TimingView }
 
     func loadTimingView() {
-        guard let d = try? Data(contentsOf: timingURL), let v = try? JSONDecoder().decode(TimingView.self, from: d) else { return }
-        timingView = v
+        guard let d = try? Data(contentsOf: timingURL) else { return }
+        if let f = try? JSONDecoder().decode(TimingFile.self, from: d) { timingView = f.current; timingBase = f.base }
+        else if let v = try? JSONDecoder().decode(TimingView.self, from: d) { timingView = v; timingBase = v }   // the file an older version wrote: what the server had
+    }
+    func saveTimingView() {
+        guard let v = timingView, let d = try? JSONEncoder().encode(TimingFile(current: v, base: timingBase)) else { return }
+        try? d.write(to: timingURL, options: .atomic)
     }
     /// Returned emails show at the top with the time they came back. Until the Mac's state has been read once, rows look as Gmail has them.
     func withTiming(_ ms: [Mail]) -> [Mail] {
         (timingView.map { v in ms.map { v.applied(to: $0) } } ?? ms).sorted { $0.date > $1.date }
     }
+    /// Reads the server's state and merges this phone's snoozes into it, as the Mac does (a stale answer is read again, up to three times). No server or no answer: the last state stays.
     func syncTimingView() async {
         guard let server, state == .signedIn, !timingBusy else { return }
         timingBusy = true; defer { timingBusy = false }
-        guard let r = try? await server.readTiming(), state == .signedIn, r.view != timingView else { return }   // no server or no answer: the last state stays
-        timingView = r.view
-        inbox = withTiming(inbox); saveCache()
-        if let d = try? JSONEncoder().encode(r.view) { try? d.write(to: timingURL, options: .atomic) }
+        for _ in 0..<3 {
+            let before = timingView ?? TimingView()
+            guard let r = try? await TimingViewSync.run(base: timingBase, local: before, link: server), state == .signedIn else { return }
+            if (timingView ?? TimingView()) != before { continue }   // snoozed meanwhile: merge again so it is not overwritten
+            timingBase = r.merged
+            if r.merged != timingView { timingView = r.merged; inbox = withTiming(inbox); saveCache() }
+            saveTimingView()
+            return
+        }
     }
     /// The tag on a Snoozed row ("Back Tue 3:00 PM"), as on the Mac.
     func backText(_ m: Mail) -> String? { timingView?.backText(m.id) }
     /// The line under a returned email, as on the Mac; it goes once the email has been opened.
-    // shortcut: reading it here hides the line on this phone only; the Mac clears its own when opened there. The phone does not write to the server.
+    // shortcut: reading it here hides the line on this phone only; the Mac clears its own when opened there. The phone writes only snoozes.
     func backLine(_ m: Mail) -> String? { m.unread ? timingView?.backLine(m.id, arrived: m.arrived) : nil }
     func isNoReply(_ m: Mail) -> Bool { timingView?.noReply.contains(m.id) == true }
 

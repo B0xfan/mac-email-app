@@ -210,6 +210,9 @@ struct SwipeButton: View {
     var body: some View {
         if choice != .none && !(choice == .archive && needsInbox && !mail.labels.contains("INBOX")) {
             Button { store.swipe(choice, mail) } label: { Label(title, systemImage: symbol) }.tint(tint)
+            if choice == .archive {   // Snooze sits on the same swipe as Archive; a full swipe still archives
+                Button { store.snoozeTarget = mail } label: { Label("Snooze", systemImage: "clock") }.tint(Theme.accInk)
+            }
         }
     }
     private var title: String {

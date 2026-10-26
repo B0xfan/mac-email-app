@@ -34,7 +34,10 @@ final class DemoMailbox: @unchecked Sendable {
     var srvTimeoutPut = false              // the server stores the held email but the answer never comes back
     var srvVersion = 0
     var srvSmart: [Any] = [], srvSearches: [Any] = []
-    var srvTVVersion = 0, srvTV: [String: Any] = [:]   // the Mac's snooze state (the phone only reads it)
+    var srvTVVersion = 0, srvTV: [String: Any] = [:]   // the snooze state the Mac and the phone share
+    var srvSnoozes: [String: (wake: Int, status: String)] = [:]   // the server's snooze return list
+    var refuseLabel: String?                            // Gmail refuses to make a label with this name (409)
+    var srvSnoozeForce: [Int] = []                      // answers forced for the next snooze calls, one each (409 = busy waking, 429 = too many, 400 = bad time)
     let known: Set<String> = ["maya.ortiz@example.com", "daniel.reyes@example.com", "lucia.f@example.com", "tom.becker@example.com", "noreply@northwind-bank.example", "no-reply@parcelpoint.example", "billing@cloudline.example", "news@trailhead.example", "news@pocketgarden.example", "bookings@aerovia.example"]
 
     init() { reset() }
@@ -47,7 +50,7 @@ final class DemoMailbox: @unchecked Sendable {
             msgs.append(Msg(id: id, thread: "T" + id, labels: labels, from: from, subject: subject, body: body, date: date, unsub: unsub))
         }
         msgs = []; labels = [(id: "Label_receipts", name: "Receipts"), (id: "Label_travel", name: "Travel"), (id: "Label_italy", name: "Travel/Italy"), (id: "Label_taxes", name: "Taxes"), (id: "Label_pinned", name: "Pinned"), (id: "Label_snoozed", name: "Snoozed")]; filters = []; vacation = ["enableAutoReply": false]; sent = []; writes = []; expired = false; failSend = false; drafts = []; attFail = false; attFailOnce = false; attDownloads = 0; msgFetches = 0; filterSerial = 0; msgFetches = 0; filterSerial = 0
-        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]
+        draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]; srvSnoozes = [:]; srvSnoozeForce = []; refuseLabel = nil
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
@@ -133,6 +136,7 @@ final class DemoMailbox: @unchecked Sendable {
         case ("GET", "/labels"): return (200, "{\"labels\":[\(labels.map { "{\"id\":\"\($0.id)\",\"name\":\"\($0.name)\",\"type\":\"user\"}" }.joined(separator: ","))]}")
         case ("POST", "/labels"):
             let name = body["name"] as? String ?? "?"
+            if name == refuseLabel { return (409, #"{"error":{"code":409,"message":"Label name exists or conflicts"}}"#) }
             labels.append((id: "Label_" + name.lowercased(), name: name)); writes.append("label \(name)")
             return (200, "{\"id\":\"Label_\(name.lowercased())\",\"name\":\"\(name)\",\"type\":\"user\"}")
         case ("GET", "/settings/filters"):
@@ -270,6 +274,28 @@ final class DemoMailbox: @unchecked Sendable {
             var o = srvTV; if o.isEmpty { o = ["snoozes": [String: Int](), "surfaced": [String: Int](), "back_tag": [String](), "no_reply": [String]()] }
             o["version"] = srvTVVersion; return (200, out(o))
         }
+        if path == "timing-view", method == "PUT" {
+            guard body["base_version"] as? Int == srvTVVersion else { var o = srvTV; o["version"] = srvTVVersion; return (409, out(o)) }
+            srvTV = ["snoozes": body["snoozes"] ?? [:], "surfaced": body["surfaced"] ?? [:], "back_tag": body["back_tag"] ?? [], "no_reply": body["no_reply"] ?? []]; srvTVVersion += 1
+            srvLog.append("timing-view saved v\(srvTVVersion)")
+            return (200, out(["version": srvTVVersion]))
+        }
+        if path == "snoozes", method == "GET" {
+            return (200, out(["signin_ok": true, "snoozes": srvSnoozes.sorted { $0.value.wake < $1.value.wake }.map { ["message_id": $0.key, "wake_at": $0.value.wake, "status": $0.value.status] as [String: Any] }]))
+        }
+        if path.hasPrefix("snoozes/") {
+            let id = String(path.dropFirst("snoozes/".count))
+            if !srvSnoozeForce.isEmpty { let c = srvSnoozeForce.removeFirst(); srvLog.append("snooze \(method) \(id) refused \(c)"); return (c, out(c == 409 ? ["status": "waking"] : ["error": "no"])) }
+            if method == "PUT" {
+                guard let at = body["wake_at"] as? Int else { return (400, out(["error": "wake_at"])) }
+                srvSnoozes[id] = (at, "pending"); srvLog.append("snooze put \(id) \(at)")
+                return (200, out(["status": "pending"]))
+            }
+            if method == "DELETE" {
+                let had = srvSnoozes.removeValue(forKey: id)?.status ?? "none"; srvLog.append("snooze delete \(id)")
+                return (200, out(["status": had]))
+            }
+        }
         if path == "organizer" {
             if method == "GET" { return (200, out(["version": srvVersion, "smart": srvSmart, "searches": srvSearches])) }
             if method == "PUT" {
@@ -280,6 +306,20 @@ final class DemoMailbox: @unchecked Sendable {
             }
         }
         return (404, "{}")
+    }
+
+    /// The server brings back every snoozed email whose time has come, as the real one does with the phone off: the email gets Inbox and Unread back and loses the snooze label,
+    /// and the shared snooze view says it came back (dropped from snoozes, marked in surfaced and back_tag). An email that no longer carries the label is skipped.
+    func serverWakes(now: Date = Date()) {
+        lock.lock(); defer { lock.unlock() }
+        let t = Int(now.timeIntervalSince1970)
+        for (id, e) in srvSnoozes.sorted(by: { $0.key < $1.key }) where e.status == "pending" && e.wake <= t {
+            guard let i = msgs.firstIndex(where: { $0.id == id }), let lid = labels.first(where: { ["Snoozed", "Mail Snoozed"].contains($0.name) })?.id, msgs[i].labels.contains(lid), !msgs[i].labels.contains("TRASH") else { srvSnoozes[id]?.status = "skipped"; continue }
+            change([id], add: ["INBOX", "UNREAD"], remove: [lid]); srvSnoozes[id]?.status = "woken"; srvLog.append("snooze woke \(id)")
+            var sn = srvTV["snoozes"] as? [String: Int] ?? [:], su = srvTV["surfaced"] as? [String: Int] ?? [:], bt = srvTV["back_tag"] as? [String] ?? []
+            sn[id] = nil; su[id] = t; bt.append(id)
+            srvTV["snoozes"] = sn; srvTV["surfaced"] = su; srvTV["back_tag"] = bt; srvTV["no_reply"] = srvTV["no_reply"] ?? [String](); srvTVVersion += 1
+        }
     }
 
     /// The server sends every held email whose time has come, as the real one does when the phone is gone: the Gmail draft is sent and the job is forgotten.

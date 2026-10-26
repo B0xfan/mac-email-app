@@ -58,6 +58,7 @@ struct InboxView: View {
             if s == "blocked" { path.append(MailboxRoute.blocked) }
             if s == "blockedsender" { path.append(MailboxRoute.blocked); path.append(MailboxRoute.sender("deals@brightside-offers.example")) }
             if s == "drafts" { path.append(MailboxRoute.drafts) }
+            if s == "snooze", let m = store.inbox.first { store.snoozeTarget = m }
         }
         #endif
     }
@@ -144,6 +145,7 @@ struct InboxView: View {
             .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
             .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m) }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m) }
+            .contextMenu { Button { store.snoozeTarget = m } label: { Label("Snooze…", systemImage: "clock") } }
     }
 }
 

@@ -604,6 +604,71 @@ enum DemoSelfTest {
         await store.clearStoredMail()
         check("Clear stored mail empties what the phone kept and reads the inbox again from Gmail", store.opened.count == 0 && !store.inbox.isEmpty && store.state == .signedIn)
 
+        // Snooze on the phone: the Gmail label goes on and Inbox comes off; the Mail server brings the email back at its time
+        PhoneServer.snoozeGap = 0; PhoneServer.busyPause = 0.01
+        func until(_ ok: () -> Bool) async -> Bool { for _ in 0..<160 { if ok() { return true }; try? await Task.sleep(nanoseconds: 50_000_000) }; return ok() }
+        let monday = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 14, minute: 10))!
+        func dayHour(_ d: Date) -> String { let c = Calendar.current.dateComponents([.weekday, .day, .hour, .minute], from: d); return "\(c.weekday!)/\(c.day!)/\(c.hour!):\(c.minute!)" }
+        check("the time picker offers the Mac's times: Later today 6 PM, This evening 7 PM, Tomorrow morning, Saturday 9 AM, Next Monday 8 AM",
+              SnoozeTimes.presets(now: monday).map { "\($0.label) \(dayHour($0.date))" } == ["Later today 2/26/18:0", "This evening 2/26/19:0", "Tomorrow morning 3/27/8:0", "This weekend 7/31/9:0", "Next week 2/2/8:0"])
+        let pool = Array(store.inbox.prefix(5)), sid = pool.map(\.id)
+        check("there are emails to snooze", pool.count == 5)
+        let wake = Int(Date().timeIntervalSince1970) + 3 * 3600
+        store.snooze(pool[0], until: Date(timeIntervalSince1970: TimeInterval(wake)))
+        await store.settle()
+        check("Snooze puts the Snoozed label on in Gmail, takes Inbox off, and the row leaves the inbox", box.with { b in let l = b.msgs.first { $0.id == sid[0] }!.labels; return l.contains("Label_snoozed") && !l.contains("INBOX") } && row(sid[0]) == nil)
+        check("the bar says when it comes back and offers Undo", store.toast?.text.hasPrefix("Snoozed until ") == true && store.toast?.undo != nil)
+        check("the server is told the exact time, and the shared snooze view carries it (like the Mac)", await until { box.with { $0.srvSnoozes[sid[0]]?.wake == wake && ($0.srvTV["snoozes"] as? [String: Int])?[sid[0]] == wake } })
+        await store.openList(.label("Label_snoozed"))
+        check("it shows in Snoozed with its return time", store.folderMails.contains { $0.id == sid[0] } && store.backText(store.folderMails.first { $0.id == sid[0] }!) != nil)
+        store.toast?.undo?(); await store.settle()
+        check("Undo puts it back in the inbox, in Gmail and on the screen", box.with { b in let l = b.msgs.first { $0.id == sid[0] }!.labels; return l.contains("INBOX") && !l.contains("Label_snoozed") } && row(sid[0]) != nil)
+        let forgotten = await until { box.with { $0.srvSnoozes[sid[0]] == nil && (($0.srvTV["snoozes"] as? [String: Int]) ?? [:])[sid[0]] == nil } && store.phoneSnoozes.isEmpty && store.snoozeCancels.isEmpty }
+        check("Undo makes the server forget the time and the shared view drop it", forgotten && store.timingView?.snoozes[sid[0]] == nil)
+
+        // the server brings it back on time, with the phone doing nothing
+        store.snooze(row(sid[1])!, until: Date().addingTimeInterval(-5)); await store.settle()
+        check("a snooze that is already due is held by the server too", await until { box.with { $0.srvSnoozes[sid[1]] != nil } } && row(sid[1]) == nil)
+        box.serverWakes()
+        await store.refresh()
+        check("when the server brings it back it is in the inbox again, unread, without the Snoozed label, at the top", box.with { b in let l = b.msgs.first { $0.id == sid[1] }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } && row(sid[1]) != nil)
+        check("and the shared view says it came back: the time is gone, it sits at the top and its line reads Back from snooze", await until { store.timingView?.snoozes[sid[1]] == nil && store.timingView?.surfaced[sid[1]] != nil } && store.inbox.first?.id == sid[1] && store.backLine(row(sid[1])!)?.hasPrefix("\u{263E} Back from snooze") == true)
+
+        // no network, a busy server, too many snoozes, a time the server refuses
+        box.with { $0.srvDown = true }
+        store.snooze(row(sid[2])!, until: Date().addingTimeInterval(7200)); await store.settle()
+        _ = await until { !store.snoozeBusy }
+        check("with no network the email is still snoozed in Gmail and the phone remembers to tell the server", box.with { $0.msgs.first { $0.id == sid[2] }!.labels.contains("Label_snoozed") && $0.srvSnoozes.isEmpty } && store.phoneSnoozes[sid[2]] != nil)
+        box.with { $0.srvDown = false }
+        await store.refresh()
+        check("next time the phone opens, the server is told and the shared view is updated", await until { box.with { $0.srvSnoozes[sid[2]] != nil && (($0.srvTV["snoozes"] as? [String: Int]) ?? [:])[sid[2]] != nil } })
+        box.with { $0.srvSnoozeForce = [409, 409]; $0.srvLog = [] }
+        store.snooze(row(sid[3])!, until: Date().addingTimeInterval(7200)); await store.settle()
+        check("a 409 (the server is busy with that email) is asked again a moment later and then goes through", await until { box.with { $0.srvSnoozes[sid[3]] != nil } } && box.with { $0.srvLog.filter { $0.contains("refused 409") }.count } == 2)
+        box.with { $0.srvSnoozeForce = [429] }
+        store.snooze(row(sid[4])!, until: Date().addingTimeInterval(7200)); await store.settle()
+        _ = await until { !store.snoozeBusy }
+        check("a 429 (too many snoozes) changes nothing for John: it stays snoozed and the phone keeps the time to send later", box.with { $0.srvSnoozes[sid[4]] == nil } && store.phoneSnoozes[sid[4]] != nil && box.with { $0.msgs.first { $0.id == sid[4] }!.labels.contains("Label_snoozed") })
+        await store.flushSnoozes()
+        check("and the next try sends it", box.with { $0.srvSnoozes[sid[4]] != nil })
+        box.with { $0.srvSnoozeForce = [400] }
+        store.snooze(row(sid[1])!, until: Date().addingTimeInterval(7200)); await store.settle()
+        _ = await until { !store.snoozeBusy }
+        check("a 400 (a time the server will not take) is dropped, not retried for ever, and it stays snoozed", store.phoneSnoozes[sid[1]] == nil && box.with { $0.msgs.first { $0.id == sid[1] }!.labels.contains("Label_snoozed") })
+
+        // the label: found by name (Snoozed, or Mail Snoozed), made if missing, second name if Gmail refuses the first
+        let snoozedID = store.snoozeLabelID
+        box.with { b in b.labels = b.labels.map { $0.id == "Label_snoozed" ? (id: "Label_snoozed", name: "Mail Snoozed") : $0 }; b.writes = [] }
+        store.labelList = (try? await store.gmail.labelsStrict()) ?? []
+        check("an existing Mail Snoozed label is used by its name, not made again", await store.ensureSnoozeLabel() == snoozedID && !box.with { $0.writes.contains { $0.hasPrefix("label ") } })
+        box.with { b in b.labels.removeAll { $0.id == "Label_snoozed" }; b.refuseLabel = "Snoozed" }
+        store.labelList = []
+        let second = await store.ensureSnoozeLabel()
+        check("when Gmail refuses the name Snoozed, the label is made as Mail Snoozed", second == "Label_mail snoozed" && box.with { $0.labels.contains { $0.name == "Mail Snoozed" } })
+        box.with { b in b.labels.removeAll { $0.name == "Mail Snoozed" }; b.refuseLabel = nil }
+        store.labelList = []
+        check("with no label at all it is made as Snoozed", await store.ensureSnoozeLabel() == "Label_snoozed" && box.with { $0.labels.contains { $0.name == "Snoozed" } })
+
         // sign out and sign-in ended
         await store.signOut()
         check("signing out clears the phone", store.state == .signedOut(again: false) && store.inbox.isEmpty)

@@ -118,9 +118,15 @@ final class PhoneStore: ObservableObject {
     var organizerBase = Organizer()
     var organizerBusy = false
     let organizerURL: URL
-    @Published var timingView: TimingView?   // the Mac's snooze state; nil = never read yet (rows then look as Gmail has them)
+    @Published var timingView: TimingView?   // the snooze state shared with the Mac; nil = never read yet (rows then look as Gmail has them)
+    var timingBase = TimingView()   // what this phone last agreed on with the server (the merge needs it to tell "I removed it" from "the Mac added it")
     let timingURL: URL
     var timingBusy = false
+    var snoozeBusy = false, snoozeDirty = false
+    @Published var snoozeTarget: Mail?   // the email whose time picker is open (swipe, long press); the open email has its own
+    // snoozes made on this phone that the server must hold, and early returns it must forget (Undo): kept on the phone until the server has answered
+    var phoneSnoozes: [String: Int] { get { defaults.dictionary(forKey: "phoneSnoozes") as? [String: Int] ?? [:] } set { defaults.set(newValue, forKey: "phoneSnoozes") } }
+    var snoozeCancels: Set<String> { get { Set(defaults.stringArray(forKey: "snoozeCancels") ?? []) } set { defaults.set(Array(newValue).sorted(), forKey: "snoozeCancels") } }
 
     // MARK: - Start, sign in, sign out
 
@@ -196,7 +202,8 @@ final class PhoneStore: ObservableObject {
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
         opened.clear(); seen.clear(); pics.clear(); away = nil; awayError = nil; rules = []; ruleNames = [:]; rulesError = nil; rulesLoaded = false
         try? FileManager.default.removeItem(at: cacheURL)
-        try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil
+        try? FileManager.default.removeItem(at: organizerURL); try? FileManager.default.removeItem(at: timingURL); timingView = nil; timingBase = TimingView()
+        defaults.removeObject(forKey: "phoneSnoozes"); defaults.removeObject(forKey: "snoozeCancels")
     }
 
     // MARK: - Storage (Settings, Storage)
@@ -275,7 +282,7 @@ final class PhoneStore: ObservableObject {
             lastRefresh = Date()
             saveCache()
             if let l = try? await gmail.labelsStrict(), state == .signedIn { labelList = l }   // the Pinned and Snoozed labels are needed to show pins and the Snoozed list
-            Task { await syncTimingView() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
+            Task { await flushSnoozes(); await syncTimingView() }   // returned emails go to the top with the time they came back (apart, so a slow server never holds the refresh)
             await classifySenders()
             if !blockedLoaded, let l = try? await flow.list() { blocked = l; blockedLoaded = true; pics.recheck() }   // so a blocked sender never gets a logo visit (quietly: a failure here is not worth a banner)
         } catch { await fail(error, "Could not load mail.") }
@@ -395,7 +402,8 @@ final class PhoneStore: ObservableObject {
     }
 
     /// The row leaves the screen at once (the inbox or the open folder, whichever shows it); Gmail is told in order.
-    func move(_ m: Mail, add: [String], remove: [String], text: String) {
+    /// `onUndo` runs when Undo is pressed; `onDone(true)` once Gmail has taken the change, `onDone(false)` if it refused (the row is back by then).
+    func move(_ m: Mail, add: [String], remove: [String], text: String, onUndo: (@MainActor () -> Void)? = nil, onDone: (@MainActor (Bool) -> Void)? = nil) {
         let ids = [m.id] + (m.siblings ?? [])
         let fromInbox = inbox.contains { $0.threadID == m.threadID }, fromFolder = folderMails.contains { $0.id == m.id }
         inbox.removeAll { $0.threadID == m.threadID }
@@ -406,13 +414,14 @@ final class PhoneStore: ObservableObject {
         }
         pendingGone.insert(m.threadID)
         saveCache()
-        show(text, undo: { [weak self] in self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) })
+        show(text, undo: { [weak self] in onUndo?(); self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) })
         enqueue { [weak self] in
             guard let self else { return }
-            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID) }   // confirmed: a later reply may bring it back
+            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID); onDone?(true) }   // confirmed: a later reply may bring it back
             catch {
                 self.pendingGone.remove(m.threadID)
                 self.putBack(m, inbox: fromInbox, folder: fromFolder)   // it did not move: put it back
+                onDone?(false)
                 await self.fail(error, "That change could not be made.")
             }
         }

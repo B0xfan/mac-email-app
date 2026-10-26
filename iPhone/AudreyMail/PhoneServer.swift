@@ -29,7 +29,7 @@ struct KeychainServerKey: ServerKeyStore {
     }
 }
 
-actor PhoneServer: OrganizerLink {
+actor PhoneServer: OrganizerLink, TimingViewLink {
     static let device = "iphone"
     /// Held emails wait this long after the Undo countdown for the app to send first (server limit 0 to 120; the spec recommends 5).
     static let grace = 5
@@ -99,7 +99,56 @@ actor PhoneServer: OrganizerLink {
         return o["status"] as? String ?? "none"
     }
 
-    // MARK: Snooze state (the Mac writes it; the phone only reads it)
+    // MARK: Snooze state (shared with the Mac: GET and PUT /timing-view)
+
+    func writeTiming(base: Int, _ view: TimingView) async throws -> TimingViewWrite {
+        let (c, o) = try await call("PUT", "timing-view", TimingViewWire.body(base: base, view))
+        if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
+        if c == 409, let r = TimingViewWire.decode(o) { return .conflict(version: r.version, r.view) }   // someone saved after we read: merge onto theirs
+        throw PhoneServerError.refused(c)
+    }
+
+    // MARK: Snooze return (the server puts the email back in the inbox at its time, phone off or not)
+
+    /// Seconds between snooze calls and before asking again after a 409. The built-in checks shorten both.
+    nonisolated(unsafe) static var snoozeGap = 2.0
+    nonisolated(unsafe) static var busyPause = 3.0
+    private var lastSnoozeCall = Date.distantPast
+    /// nginx lets about 30 calls a minute through (burst 20): snooze calls leave at least 2 seconds apart, so a run of snoozes never trips it.
+    private func snoozePaced() async {
+        let wait = Self.snoozeGap - Date().timeIntervalSince(lastSnoozeCall)
+        lastSnoozeCall = Date().addingTimeInterval(max(wait, 0))   // claimed before sleeping: a second caller queues behind this one
+        if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+    }
+
+    /// One snooze call; 409 (the server is waking this very email) is asked again a few seconds later, up to three times.
+    private func snoozeCall(_ method: String, _ id: String, _ body: [String: Any]? = nil) async throws {
+        for attempt in 0..<4 {
+            await snoozePaced()
+            let (c, _) = try await call(method, "snoozes/" + id, body)
+            if c == 200 { return }
+            if c == 409, attempt < 3 { try? await Task.sleep(nanoseconds: UInt64(Self.busyPause * 1_000_000_000)); continue }
+            throw c == 409 ? PhoneServerError.busy : PhoneServerError.refused(c)   // 400: a time the server will not take; 429: 200 pending already
+        }
+    }
+
+    /// The server brings this email back at `wakeAt` (unix seconds). The phone has already put the Snoozed label on and taken Inbox off.
+    func putSnooze(_ id: String, wakeAt: Int) async throws { try await snoozeCall("PUT", id, ["wake_at": wakeAt]) }
+
+    /// Cancels the early return (Undo). Nothing there is also a 200.
+    func deleteSnooze(_ id: String) async throws { try await snoozeCall("DELETE", id) }
+
+    /// What the server holds for this person: message id -> (unix time, status). The phone re-reads it on open to find snoozes the server never heard about.
+    func snoozes() async throws -> [String: (wakeAt: Int, status: String)] {
+        let (c, o) = try await call("GET", "snoozes")
+        guard c == 200, let list = o["snoozes"] as? [[String: Any]] else { throw PhoneServerError.refused(c) }
+        return Dictionary(list.compactMap { r -> (String, (wakeAt: Int, status: String))? in
+            guard let id = r["message_id"] as? String, let at = (r["wake_at"] as? NSNumber)?.intValue else { return nil }
+            return (id, (at, r["status"] as? String ?? ""))
+        }, uniquingKeysWith: { a, _ in a })
+    }
+
+    // MARK: Snooze state read
 
     func readTiming() async throws -> (version: Int, view: TimingView) {
         let (c, o) = try await call("GET", "timing-view")

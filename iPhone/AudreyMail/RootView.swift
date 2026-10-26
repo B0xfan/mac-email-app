@@ -24,6 +24,7 @@ struct RootView: View {
         .animation(.default, value: store.toast?.id)
         .animation(.default, value: store.sendToast?.id)
         .fullScreenCover(item: $store.composeSeed, onDismiss: { DispatchQueue.main.async { store.showNextCompose() } }) { ComposeView(seed: $0) }
+        .sheet(item: $store.snoozeTarget) { m in SnoozeSheet { d in store.snoozeTarget = nil; store.snooze(m, until: d) } cancel: { store.snoozeTarget = nil } }
         .tint(Theme.acc)
         .preferredColorScheme(prefs.theme.scheme)
         .task { sel = initialTab; await store.start() }

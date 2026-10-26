@@ -30,6 +30,8 @@
 		A274955014B5C867A4523019 /* PhoneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25D6674FD218785770FFA4E /* PhoneServer.swift */; };
 		A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */; };
 		A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */; };
+		B5A000000000000000005002 /* PhoneStoreSnooze.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A000000000000000005001 /* PhoneStoreSnooze.swift */; };
+		B5A000000000000000005004 /* SnoozeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A000000000000000005003 /* SnoozeSheet.swift */; };
 		A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */; };
 		BF73913514DA707F79FA0074 /* PhoneSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15D27AC830309096B0FE59C /* PhoneSettings.swift */; };
 		B3EAF47A6FF1B6DB5AF81453 /* PhoneFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B4554C9EF108323808DA97 /* PhoneFiles.swift */; };
@@ -66,6 +68,8 @@
 		A25D6674FD218785770FFA4E /* PhoneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneServer.swift; sourceTree = "<group>"; };
 		A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreShared.swift; sourceTree = "<group>"; };
 		A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreHeld.swift; sourceTree = "<group>"; };
+		B5A000000000000000005001 /* PhoneStoreSnooze.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreSnooze.swift; sourceTree = "<group>"; };
+		B5A000000000000000005003 /* SnoozeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnoozeSheet.swift; sourceTree = "<group>"; };
 		A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartFolderViews.swift; sourceTree = "<group>"; };
 		B15D27AC830309096B0FE59C /* PhoneSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSettings.swift; sourceTree = "<group>"; };
 		B0B4554C9EF108323808DA97 /* PhoneFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneFiles.swift; sourceTree = "<group>"; };
@@ -120,6 +124,8 @@
 				A100000000000000001AC2DA /* MailboxesView.swift */,
 				A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */,
 				A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */,
+				B5A000000000000000005001 /* PhoneStoreSnooze.swift */,
+				B5A000000000000000005003 /* SnoozeSheet.swift */,
 				A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */,
 				A25D6674FD218785770FFA4E /* PhoneServer.swift */,
 				BE5FB66A857488E1718D9FB7 /* PhonePictures.swift */,
@@ -233,6 +239,8 @@
 				A100000000000000001AC2DB /* MailboxesView.swift in Sources */,
 				A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */,
 				A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */,
+				B5A000000000000000005002 /* PhoneStoreSnooze.swift in Sources */,
+				B5A000000000000000005004 /* SnoozeSheet.swift in Sources */,
 				A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */,
 				B185C6BE4C5C0BC87DF5FDCA /* PhonePictures.swift in Sources */,
 				BEE920E64E6412BCE02B91E1 /* SettingsTodo.swift in Sources */,

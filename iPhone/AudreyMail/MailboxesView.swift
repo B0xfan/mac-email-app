@@ -265,6 +265,7 @@ struct FolderMailsView: View {
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
                         .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m, needsInbox: true) }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m, needsInbox: true) }
+                        .contextMenu { if m.labels.contains("INBOX") { Button { store.snoozeTarget = m } label: { Label("Snooze…", systemImage: "clock") } } }
                 }
                 if store.folderNext != nil {
                     Button { Task { await store.loadMoreFolder() } } label: { Text("Show older emails").frame(maxWidth: .infinity, minHeight: 44) }
