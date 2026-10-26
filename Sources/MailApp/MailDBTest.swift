@@ -54,6 +54,19 @@ extension SelfTest {
         db.upsert([lsMail("body", ["INBOX"], text: "the secret text of the email")], verified: true)
         check("stored mail: the email text is not stored yet (step 8 decides what is kept)", db.messages(ids: ["body"])["body"]?.text == nil)
 
+        // the label-index path and the old full-scan path give the same rows, in the same order (ties on date included), for every page
+        var many: [Mail] = []
+        for i in 0..<40 { many.append(lsMail("r\(i)", (i % 4 == 0 ? ["Label_rare"] : ["Label_other"]) + (i % 10 == 0 ? ["TRASH"] : []), age: Double(1000 + i / 3))) }
+        db.upsert(many, verified: true)
+        let rareSpec = DBListSpec(all: ["Label_rare"], none: ["TRASH"]), rareAll = DBListSpec(all: ["Label_rare"])
+        func pages(_ s: DBListSpec, limit: Int) -> [[String]] { stride(from: 0, to: 45, by: limit).map { db.list(s, limit: limit, offset: $0).map(\.id) } }
+        db.rareLabelLimit = 2000; let viaIndex = (pages(rareSpec, limit: 3), pages(rareAll, limit: 4), db.list(DBListSpec(all: ["INBOX"]), limit: 9).map(\.id))
+        db.rareLabelLimit = 0; let viaScan = (pages(rareSpec, limit: 3), pages(rareAll, limit: 4), db.list(DBListSpec(all: ["INBOX"]), limit: 9).map(\.id))
+        db.rareLabelLimit = 2000
+        check("stored mail: a rare label starts from the label index and gives the same rows as the full scan (with and without exclusions, paged)",
+              viaIndex == viaScan && viaIndex.0.joined().count == 8 && viaIndex.1.joined().count == 10)
+        db.delete(ids: many.map(\.id))
+
         db.applyLabels(ids: ["m1"], add: ["Label_2"], remove: ["INBOX", "UNREAD"])
         check("stored mail: a label change moves the message between lists", db.list(DBListSpec(all: ["Label_2"]), limit: 5).map(\.id) == ["m1"] && !db.list(DBListSpec(all: ["INBOX"]), limit: 9).contains { $0.id == "m1" })
         db.applyLabels(ids: ["ghost"], add: ["INBOX"], remove: [])

@@ -319,7 +319,8 @@ public final class MailDB: @unchecked Sendable {
         return out
     }
 
-    private static let rareLabel = 2000
+    /// A label on fewer messages than this is "rare": the list starts from the label index. Settable so a check can compare both ways.
+    public var rareLabelLimit = 2000
     /// Newest first. Only confirmed rows.
     public func list(_ spec: DBListSpec, limit: Int, offset: Int = 0) -> [Mail] {
         var sql = Self.selectRows + " WHERE m.verified=1"
@@ -327,8 +328,8 @@ public final class MailDB: @unchecked Sendable {
         for l in spec.all {
             // a rare label (Snoozed, Set Aside) starts from the label index instead of walking every message by date; same rows either way
             var n = 0
-            run("SELECT COUNT(*) FROM (SELECT 1 FROM message_labels WHERE label=? LIMIT ?)", [l, Self.rareLabel], { n = Int(sqlite3_column_int64($0, 0)) })
-            sql += n < Self.rareLabel ? " AND m.id IN (SELECT msg FROM message_labels WHERE label=?)" : " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"
+            run("SELECT COUNT(*) FROM (SELECT 1 FROM message_labels WHERE label=? LIMIT ?)", [l, rareLabelLimit], { n = Int(sqlite3_column_int64($0, 0)) })
+            sql += n < rareLabelLimit ? " AND m.id IN (SELECT msg FROM message_labels WHERE label=?)" : " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"
             args.append(l)
         }
         for l in spec.none { sql += " AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"; args.append(l) }
