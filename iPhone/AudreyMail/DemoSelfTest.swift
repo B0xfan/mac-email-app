@@ -659,6 +659,38 @@ enum DemoSelfTest {
               await until { box.with { b in let l = b.msgs.first { $0.id == sid[1] }!.labels; return l.contains("INBOX") && l.contains("UNREAD") && !l.contains("Label_snoozed") } && row(sid[1]) != nil }
               && store.phoneSnoozes[sid[1]] == nil && store.timingView?.snoozes[sid[1]] == nil)
 
+        // banners for new mail while the app is closed: unread People emails not seen before, once each
+        final class Told { var lists: [[String]] = [] }
+        let told = Told()
+        store.announcer = { told.lists.append($0.map(\.id)) }
+        store.prefs.notifyNewMail = true
+        store.defaults.removeObject(forKey: PhoneStore.seenMailKey)
+        await store.announceNewMail()
+        check("the first look only records what is there: no banner for old mail", told.lists.isEmpty && store.defaults.stringArray(forKey: PhoneStore.seenMailKey) != nil)
+        let known = store.inboxMails.first { MailCategory.guess($0) == .people }!.from, person = "\(known.name) <\(known.email)>"   // a sender the inbox already knows
+        box.with { b in
+            b.msgs.append(DemoMailbox.Msg(id: "n1", thread: "Tn1", labels: ["INBOX", "UNREAD"], from: person, subject: "Lunch on Friday?", body: "Are you around?", date: Date()))
+            b.msgs.append(DemoMailbox.Msg(id: "n3", thread: "Tn3", labels: ["INBOX", "UNREAD"], from: "Daily Deals <deals@shop.example>", subject: "Big sale", body: "Buy now", date: Date(), unsub: true))
+        }
+        await idle(); await store.refresh()
+        await store.announceNewMail()
+        print("INFO banners told: \(told.lists); n1 in the inbox: \(row("n1") != nil), new sender: \(row("n1").map { store.isNew($0) } as Any), people: \(row("n1").map { MailCategory.guess($0) == .people } as Any), seen: \(store.defaults.stringArray(forKey: PhoneStore.seenMailKey)?.contains("n1") as Any), sender used: \(person)")
+        check("a new unread email from a person gets one banner, and a newsletter gets none", told.lists == [["n1"]])
+        await store.announceNewMail()
+        check("the same email is not announced twice", told.lists == [["n1"]])
+        store.defaults.set(["ghost"] + (store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []), forKey: PhoneStore.seenMailKey)
+        store.markSeen()
+        check("the seen list is rebuilt from the inbox as it is now, so an email that left is forgotten and the list never needs trimming",
+              Set(store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []) == Set(store.inbox.map(\.id)))
+        store.prefs.notifyNewMail = false
+        box.with { $0.msgs.append(DemoMailbox.Msg(id: "n2", thread: "Tn2", labels: ["INBOX", "UNREAD"], from: person, subject: "One more thing", body: "Also", date: Date())) }
+        await idle(); await store.refresh()
+        await store.announceNewMail()
+        store.prefs.notifyNewMail = true
+        await store.announceNewMail()
+        check("with the setting off there is no banner, and that email is not announced later either", told.lists == [["n1"]])
+        store.announcer = Badge.announce
+
         // Snooze only for an inbox email (the open email's More menu)
         await store.openList(.label("Label_snoozed"))
         check("Snooze is offered for an inbox email and not for one opened from Snoozed", PhoneStore.canSnooze(row(sid[0])!) && store.folderMails.contains { $0.id == sid[2] } && !store.folderMails.contains { PhoneStore.canSnooze($0) })
@@ -740,38 +772,6 @@ enum DemoSelfTest {
         box.with { b in b.msgs.removeAll { $0.id.hasPrefix("late") || $0.id.hasPrefix("k1") || $0.id.hasPrefix("k3") }; for k in b.srvSnoozes.keys where k.hasPrefix("late") || k.hasPrefix("k") { b.srvSnoozes[k] = nil } }
         store.phoneSnoozes = [:]; store.snoozeKin = [:]
         await idle(); await store.refresh(); await idle()
-
-        // banners for new mail while the app is closed: unread People emails not seen before, once each
-        final class Told { var lists: [[String]] = [] }
-        let told = Told()
-        store.announcer = { told.lists.append($0.map(\.id)) }
-        store.prefs.notifyNewMail = true
-        store.defaults.removeObject(forKey: PhoneStore.seenMailKey)
-        await store.announceNewMail()
-        check("the first look only records what is there: no banner for old mail", told.lists.isEmpty && store.defaults.stringArray(forKey: PhoneStore.seenMailKey) != nil)
-        let known = store.inboxMails.first { MailCategory.guess($0) == .people }!.from, person = "\(known.name) <\(known.email)>"   // a sender the inbox already knows
-        box.with { b in
-            b.msgs.append(DemoMailbox.Msg(id: "n1", thread: "Tn1", labels: ["INBOX", "UNREAD"], from: person, subject: "Lunch on Friday?", body: "Are you around?", date: Date()))
-            b.msgs.append(DemoMailbox.Msg(id: "n3", thread: "Tn3", labels: ["INBOX", "UNREAD"], from: "Daily Deals <deals@shop.example>", subject: "Big sale", body: "Buy now", date: Date(), unsub: true))
-        }
-        await idle(); await store.refresh()
-        await store.announceNewMail()
-        print("INFO banners told: \(told.lists)")
-        check("a new unread email from a person gets one banner, and a newsletter gets none", told.lists == [["n1"]])
-        await store.announceNewMail()
-        check("the same email is not announced twice", told.lists == [["n1"]])
-        store.defaults.set(["ghost"] + (store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []), forKey: PhoneStore.seenMailKey)
-        store.markSeen()
-        check("the seen list is rebuilt from the inbox as it is now, so an email that left is forgotten and the list never needs trimming",
-              Set(store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []) == Set(store.inbox.map(\.id)))
-        store.prefs.notifyNewMail = false
-        box.with { $0.msgs.append(DemoMailbox.Msg(id: "n2", thread: "Tn2", labels: ["INBOX", "UNREAD"], from: person, subject: "One more thing", body: "Also", date: Date())) }
-        await idle(); await store.refresh()
-        await store.announceNewMail()
-        store.prefs.notifyNewMail = true
-        await store.announceNewMail()
-        check("with the setting off there is no banner, and that email is not announced later either", told.lists == [["n1"]])
-        store.announcer = Badge.announce
 
         // the label: found by name (Snoozed, or Mail Snoozed), made if missing, second name if Gmail refuses the first
         let snoozedID = store.snoozeLabelID
