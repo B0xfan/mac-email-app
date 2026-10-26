@@ -435,6 +435,13 @@ enum DemoSelfTest {
         check("the Settings start as the phone has always behaved: Archive right, Trash left, one preview line, pictures hidden, no sender pictures, screening on, no check timer, back to the list after archiving",
               prefs.swipeRight == .archive && prefs.swipeLeft == .trash && prefs.previewLines == 1 && !prefs.loadImages && prefs.blockTrackers && !prefs.senderPictures && prefs.screenNewSenders
               && prefs.checkMinutes == 0 && prefs.afterArchive == .list && !prefs.groupConversations && prefs.inboxMode == .smart && prefs.theme == .system && prefs.signature.isEmpty && prefs.recentDays == 2)
+        let peopleUnread = store.unread(in: .people), allUnread = store.totalUnread
+        check("the icon number starts as unread from People, and All unread counts the whole inbox (more than People here)",
+              prefs.badge == .people && store.badgeCount == peopleUnread + store.pinnedMails.filter { $0.unread && MailCategory.guess($0) == .people }.count && peopleUnread > 0 && allUnread > peopleUnread)
+        prefs.badge = .all
+        check("choosing All unread changes the icon number to the whole inbox count", store.badgeCount == allUnread)
+        prefs.badge = .people
+        check("the icon number is saved and read back from the phone's settings", PhoneSettings(defaults: { let d = UserDefaults(suiteName: "badge-check")!; d.removePersistentDomain(forName: "badge-check"); d.set("all", forKey: "iconBadge"); return d }()).badge == .all)
         check("the Quick Replies start as the Mac's four answers", prefs.quickReplies == ["Sounds good, see you then.", "Thanks!", "Got it, I will reply properly soon.", "Can we do another time?"])
         let signed = SignedText.apply(text: "Sounds good", signature: "Alex\nSent from my iPhone")
         check("the signature goes under what you type, in the formatted and the plain text; an empty one adds nothing", signed.plain == "Sounds good\n\nAlex\nSent from my iPhone" && signed.html.contains("Sent from my iPhone") && SignedText.apply(text: "Hi", signature: "  ").plain == "Hi" && SignedText.apply(text: "Hi", signature: nil).html == TextTools.plainToHTML("Hi"))

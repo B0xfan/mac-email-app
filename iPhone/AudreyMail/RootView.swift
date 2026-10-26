@@ -35,8 +35,10 @@ struct RootView: View {
                 if UIApplication.shared.applicationState == .active, store.state == .signedIn { await store.refreshIfStale(after: seconds - 1) }
             }
         }
+        .task(id: store.badgeCount) { if let n = store.badgeCount { await Badge.set(n) } }
         .onChange(of: phase) { _, p in
             if p == .active, store.state == .signedIn { Task { await store.refreshIfStale() }; store.resumeHeld() }
+            if p == .background, store.state == .signedIn { Badge.schedule() }
             if p == .background { store.sendPendingNow() }   // leaving the app or locking the phone: an email the server holds stays with it, any other goes out at once
         }
     }

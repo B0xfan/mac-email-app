@@ -132,6 +132,26 @@ final class PhoneStore: ObservableObject {
         await afterSignIn()
     }
 
+    /// A background wake-up (iPhone decides when): read the inbox, then set the icon number. A fresh launch has not started yet.
+    func refreshForIcon() async {
+        if state == .loading {
+            guard let email = await sign.savedEmail() else { return }
+            accountEmail = email; state = .signedIn; loadCache()
+        }
+        await refresh()
+        for _ in 0..<60 where refreshing { try? await Task.sleep(nanoseconds: 500_000_000) }   // a refresh the open app started is still the one that counts
+        await Badge.set(badgeCount ?? 0)
+    }
+
+    /// The number on the app icon; nil until it is known whether anyone is signed in.
+    var badgeCount: Int? {
+        switch state {
+        case .loading: return nil
+        case .signedOut: return 0
+        case .signedIn: return prefs.badge == .people ? inboxMails.filter { $0.unread && MailCategory.guess($0) == .people }.count : totalUnread
+        }
+    }
+
     private func afterSignIn() async {
         if accountEmail.isEmpty, let e = try? await gmail.profileEmail() { accountEmail = e }
         await refresh()
