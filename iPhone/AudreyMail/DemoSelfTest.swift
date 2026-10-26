@@ -663,8 +663,8 @@ enum DemoSelfTest {
         check("an existing Mail Snoozed label is used by its name, not made again", await store.ensureSnoozeLabel() == snoozedID && !box.with { $0.writes.contains { $0.hasPrefix("label ") } })
         box.with { b in b.labels.removeAll { $0.id == "Label_snoozed" }; b.refuseLabel = "Snoozed" }
         store.labelList = []
-        let second = await store.ensureSnoozeLabel()
-        check("when Gmail refuses the name Snoozed, the label is made as Mail Snoozed", second == "Label_mail snoozed" && box.with { $0.labels.contains { $0.name == "Mail Snoozed" } })
+        let madeSecond = await store.ensureSnoozeLabel()
+        check("when Gmail refuses the name Snoozed, the label is made as Mail Snoozed", madeSecond == "Label_mail snoozed" && box.with { $0.labels.contains { $0.name == "Mail Snoozed" } })
         box.with { b in b.labels.removeAll { $0.name == "Mail Snoozed" }; b.refuseLabel = nil }
         store.labelList = []
         check("with no label at all it is made as Snoozed", await store.ensureSnoozeLabel() == "Label_snoozed" && box.with { $0.labels.contains { $0.name == "Snoozed" } })
