@@ -13,6 +13,7 @@ DEVICE_RE = re.compile(r"^[a-z0-9-]{1,20}\Z")   # "mac" (what an app that sends 
 MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536; MAX_TIMING = 2000
 GRACE = lambda: int(E("GRACE_SECONDS", "120"))   # the Mac, if awake, goes first; this is the backstop
 MAX_PENDING = 200
+LABEL_OFF = "label off"   # snooze note: Gmail already took the snooze label off, only the shared view is left to write
 SNOOZE_LABELS = ("Snoozed", "Mail Snoozed")   # the Gmail label the Mac and phone put on a snoozed email (Mail's own fallback name second)
 _tokens = {}   # email -> (access token, expiry); memory only
 _lock = threading.Lock()
@@ -200,29 +201,42 @@ def woke(c, email, mid, now):
                   (email, cur["version"] + 1, json.dumps(doc), now))
         c.execute("UPDATE snoozes SET status='woken', note=NULL, claimed_at=NULL, updated=? WHERE email=? AND message_id=?", (now, email, mid))
 
-def wake(c, r, now):
+def wake(c, r, now, labels):
     email, mid = r["email"], r["message_id"]
     with c: n = c.execute("UPDATE snoozes SET status='waking', claimed_at=? WHERE email=? AND message_id=? AND status='pending' AND wake_at <= ?",
                           (now, email, mid, now)).rowcount   # one winner; a cancel or edit that landed first wins
     if n != 1: return
+    want = tv_doc(c, email)["snoozes"].get(mid)   # the Mac changes the shared view only, never /snoozes: that view is the truth
+    if want is None: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
+    if want != r["wake_at"]:
+        with c: c.execute("UPDATE snoozes SET wake_at=?, status='pending', claimed_at=NULL, attempts=0, retry_at=0, note=NULL, updated=? WHERE email=? AND message_id=?", (want, now, email, mid))
+        return   # moved to the new time; the next pass wakes it then
+    off = False   # Gmail already took the label off: a retry must finish the shared view, not call it "skipped"
     try:
-        s, b = as_user(c, email, "GET", "/labels")
+        s, ids = 200, labels.get(email)
+        if ids is None:   # once per account per pass
+            s, b = as_user(c, email, "GET", "/labels")
+            if s == 200: ids = labels[email] = {l.get("name"): l.get("id") for l in b.get("labels", []) if isinstance(l, dict)}
         if s == 200:
-            ids = {l.get("name"): l.get("id") for l in b.get("labels", []) if isinstance(l, dict)}
             lid = next((ids[n] for n in SNOOZE_LABELS if n in ids), None)
             s, b = as_user(c, email, "GET", "/messages/" + mid + "?format=minimal")
             if s == 200:   # brought back or thrown away by hand in the meantime: leave it alone
                 have = set(b.get("labelIds") or [])
-                if not lid or lid not in have or {"TRASH", "SPAM"} & have: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
-                s, b = as_user(c, email, "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"], "removeLabelIds": [lid]})
-                if s == 200: return woke(c, email, mid, now)
+                labeled = bool(lid) and lid in have
+                if {"TRASH", "SPAM"} & have or not labeled and r["note"] != LABEL_OFF: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
+                if labeled:
+                    with c: c.execute("UPDATE snoozes SET note=? WHERE email=? AND message_id=?", (LABEL_OFF, email, mid))   # survives a crash before the view is written
+                    s, b = as_user(c, email, "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"], "removeLabelIds": [lid]})
+                if s == 200:
+                    off = True
+                    return woke(c, email, mid, now)
     except SignInGone:
         return sfinish(c, email, mid, "failed", now, "signin")
     except Exception: s, b = 599, {}
     if s == 404: return sfinish(c, email, mid, "gone", now, "email deleted")
     n = r["attempts"] + 1
     transient = s in (429, 599) or s >= 500 or (s == 403 and "imit" in reason_of(b))
-    if transient and n < 20: return sfinish(c, email, mid, "pending", now, None, now + min(60 * 2 ** n, 1800), n)
+    if transient and n < 20: return sfinish(c, email, mid, "pending", now, LABEL_OFF if off else None, now + min(60 * 2 ** n, 1800), n)
     sfinish(c, email, mid, "failed", now, "could not wake" if transient or s != 403 else "Google refused permission", attempts=n)
 
 def tick(now=None):
@@ -245,8 +259,9 @@ def _tick(c, now):
         process(c, j, now)
     for r in c.execute("SELECT * FROM reminders WHERE status='pending' AND remind_at + ? <= ? AND retry_at <= ? ORDER BY remind_at", (GRACE(), now, now)).fetchall():
         remind(c, r, now)
+    labels = {}
     for r in c.execute("SELECT * FROM snoozes WHERE status='pending' AND wake_at <= ? AND retry_at <= ? ORDER BY wake_at", (now, now)).fetchall():
-        wake(c, r, now)
+        wake(c, r, now, labels)
 
 def worker():
     while True:
