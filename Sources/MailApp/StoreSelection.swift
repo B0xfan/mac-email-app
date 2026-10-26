@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Select several emails at once (Inbox: Smart, Classic, Unread first).
 enum Picking {

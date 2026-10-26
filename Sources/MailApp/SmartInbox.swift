@@ -1,25 +1,11 @@
 import SwiftUI
 import AppKit
 import Foundation
+import MailCore
 
 enum InboxView: String, CaseIterable {
     case smart, classic, unreadFirst
     var title: String { switch self { case .smart: return "Smart"; case .classic: return "Classic"; case .unreadFirst: return "Unread first" } }
-}
-
-enum MailCategory: String, CaseIterable, Codable {
-    case people, notifications, newsletters
-    var title: String { switch self { case .people: return "People"; case .notifications: return "Notifications"; case .newsletters: return "Newsletters" } }
-    var symbol: String { switch self { case .people: return "person.crop.circle"; case .notifications: return "bell"; case .newsletters: return "newspaper" } }
-
-    // shortcut: simple sender and unsubscribe-header rules, not a trained model; John's own moves (CategoryBook) always win.
-    static func guess(_ m: Mail) -> MailCategory {
-        if m.unsubscribe != nil { return .newsletters }
-        let local = (m.from.email.split(separator: "@").first.map(String.init) ?? "").lowercased()
-        if local.hasPrefix("news") || local.contains("newsletter") { return .newsletters }
-        if ["noreply", "no-reply", "donotreply", "do-not-reply", "notification", "alert", "receipt", "billing", "statement", "mailer", "account"].contains(where: local.contains) { return .notifications }
-        return .people
-    }
 }
 
 /// What John taught Mail by moving emails between groups. One answer per sender, kept on this Mac (not secret).
@@ -39,43 +25,6 @@ final class CategoryBook {
     func learn(_ email: String, _ c: MailCategory) {
         map[email.lowercased()] = c.rawValue
         if let url, let d = try? JSONEncoder().encode(map) { try? d.write(to: url, options: .atomic) }
-    }
-}
-
-struct SmartGroup: Identifiable {
-    let id: String; let title: String; let symbol: String?; let mails: [Mail]
-    var unread: Int { mails.filter { $0.unread }.count }
-    /// Header number: unread emails, open or folded; nothing when there are none.
-    static func countText(unread: Int) -> String { unread > 0 ? "\(unread) new" : "" }
-    var countText: String { Self.countText(unread: unread) }
-}
-
-enum SmartInbox {
-    /// Newest first inside each group; empty groups are left out.
-    static func groups(_ mails: [Mail], category: (Mail) -> MailCategory) -> [SmartGroup] {
-        let sorted = mails.sorted { $0.date > $1.date }
-        return MailCategory.allCases.compactMap { c in
-            let ms = sorted.filter { category($0) == c }
-            return ms.isEmpty ? nil : SmartGroup(id: c.rawValue, title: c.title, symbol: c.symbol, mails: ms)
-        }
-    }
-    /// `holding`: the email just opened from Unread. It is read now but keeps its place until another email is selected.
-    static func unreadFirst(_ mails: [Mail], holding: String? = nil) -> [SmartGroup] {
-        let sorted = mails.sorted { $0.date > $1.date }
-        func isUnread(_ m: Mail) -> Bool { m.unread || m.id == holding }
-        return [SmartGroup(id: "unread", title: "Unread", symbol: nil, mails: sorted.filter(isUnread)),
-                SmartGroup(id: "rest", title: "Everything else", symbol: nil, mails: sorted.filter { !isUnread($0) })].filter { !$0.mails.isEmpty }
-    }
-}
-
-/// "Unread first" as one flat list: a header, then its rows, then the next header.
-enum UnreadFirstItem: Identifiable {
-    case header(SmartGroup), row(Mail)
-    var id: String { switch self { case .header(let g): return "header-" + g.id; case .row(let m): return "mail-" + m.id } }
-}
-extension SmartInbox {
-    static func unreadFirstItems(_ mails: [Mail], holding: String? = nil) -> [UnreadFirstItem] {
-        unreadFirst(mails, holding: holding).flatMap { g in [UnreadFirstItem.header(g)] + g.mails.map { UnreadFirstItem.row($0) } }
     }
 }
 

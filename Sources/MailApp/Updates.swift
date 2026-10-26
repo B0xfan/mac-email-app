@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import Sparkle
+import MailCore
 
 /// Self-update through Sparkle 2. The update list and the downloads live on GitHub Releases (scripts/release.sh publishes them);
 /// every download is checked against the public key in Info.plist before it is installed.

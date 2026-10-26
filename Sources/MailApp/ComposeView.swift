@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import MailCore
 
 struct ComposeView: View {
     @ObservedObject var store: MailStore

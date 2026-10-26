@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import WebKit
+import MailCore
 
 enum BtnKind { case primary, neutral, block, danger, warn }   // warn: amber outline (Clear stored mail)
 

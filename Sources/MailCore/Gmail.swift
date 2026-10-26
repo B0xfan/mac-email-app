@@ -3,56 +3,60 @@ import Foundation
 // MARK: - Wire types (Gmail REST)
 
 /// Addresses typed into a Gmail search are always quoted, so an odd address can never add search words of its own.
-enum GmailQuery {
-    static func term(_ s: String) -> String {
+public enum GmailQuery {
+    public static func term(_ s: String) -> String {
         let c = s.filter { !$0.isWhitespace && !"\"(){}".contains($0) }
         return c.hasPrefix("@") ? c : "\"\(c)\""   // a whole-company "@domain" is Gmail's own syntax and stays bare
     }
 }
 
-struct GHeader: Decodable { let name: String; let value: String }
-struct GBody: Decodable { let size: Int?; let data: String?; let attachmentId: String? }
-struct GPart: Decodable {
-    let mimeType: String?
-    let filename: String?
-    let headers: [GHeader]?
-    let body: GBody?
-    let parts: [GPart]?
+public struct GHeader: Decodable { public let name: String; public let value: String }
+public struct GBody: Decodable { public let size: Int?; public let data: String?; public let attachmentId: String? }
+public struct GPart: Decodable {
+    public let mimeType: String?
+    public let filename: String?
+    public let headers: [GHeader]?
+    public let body: GBody?
+    public let parts: [GPart]?
 }
-struct GMessage: Decodable {
-    let id: String
-    let threadId: String?
-    let historyId: String?
-    let labelIds: [String]?
-    let snippet: String?
-    let internalDate: String?
-    let payload: GPart?
+public struct GMessage: Decodable {
+    public let id: String
+    public let threadId: String?
+    public let historyId: String?
+    public let labelIds: [String]?
+    public let snippet: String?
+    public let internalDate: String?
+    public let payload: GPart?
 }
-struct GThread: Decodable { let id: String; let historyId: String?; let messages: [GMessage]? }
-struct ThreadRef: Sendable { let id: String; let historyID: String }
-struct GLabel: Decodable, Equatable { let id: String; let name: String; let type: String?; var labelListVisibility: String? = nil }
-struct GFilter: Decodable {
-    struct Criteria: Decodable { let from: String?; let to: String?; let subject: String?; let query: String?; let negatedQuery: String?; let hasAttachment: Bool?; let size: Int?; let sizeComparison: String?; let excludeChats: Bool? }
-    struct Action: Decodable { let addLabelIds: [String]?; let removeLabelIds: [String]?; let forward: String? }
-    let id: String
-    let criteria: Criteria?
-    let action: Action?
+public struct GThread: Decodable { public let id: String; public let historyId: String?; public let messages: [GMessage]? }
+public struct ThreadRef: Sendable { public let id: String; public let historyID: String }
+public struct GLabel: Decodable, Equatable { public let id: String; public let name: String; public let type: String?; public var labelListVisibility: String? = nil
+    public init(id: String, name: String, type: String?, labelListVisibility: String? = nil) { self.id = id; self.name = name; self.type = type; self.labelListVisibility = labelListVisibility } }
+public struct GFilter: Decodable {
+    public struct Criteria: Decodable { public let from: String?; public let to: String?; public let subject: String?; public let query: String?; public let negatedQuery: String?; public let hasAttachment: Bool?; public let size: Int?; public let sizeComparison: String?; public let excludeChats: Bool? }
+    public struct Action: Decodable { public let addLabelIds: [String]?; public let removeLabelIds: [String]?; public let forward: String? }
+    public let id: String
+    public let criteria: Criteria?
+    public let action: Action?
 }
-struct GSendAs: Decodable {
-    let sendAsEmail: String
-    let displayName: String?
-    let isDefault: Bool?
-    let signature: String?
+public struct GSendAs: Decodable {
+    public let sendAsEmail: String
+    public let displayName: String?
+    public let isDefault: Bool?
+    public let signature: String?
+    public init(sendAsEmail: String, displayName: String?, isDefault: Bool?, signature: String?) { self.sendAsEmail = sendAsEmail; self.displayName = displayName; self.isDefault = isDefault; self.signature = signature }
 }
 
-struct NotInInbox: Error {}
+public struct GThreadMessage: Equatable { public let id: String; public let labels: [String]; public let date: Date
+    public init(id: String, labels: [String], date: Date) { self.id = id; self.labels = labels; self.date = date } }
+public struct NotInInbox: Error {}
 
-enum GmailError: Error, LocalizedError {
+public enum GmailError: Error, LocalizedError {
     case http(Int, String)
     case signInAgain
     case slowDown      // Gmail kept answering "too many requests" after the waits
     case offline
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .http(let c, let m): return "Gmail said no (\(c)): \(m)"
         case .slowDown: return "Gmail is busy right now. Audrey Mail will try again by itself on the next check."
@@ -68,18 +72,18 @@ enum GmailError: Error, LocalizedError {
 /// minute is nearly used up, so a burst (opening Archive and scrolling) slows down instead of being refused. 4,500 leaves room for what runs beside it.
 /// Background work (the copy of the mailbox, the check for changes) may use only `backgroundCap` of that (about half of Gmail's allowance), so John's own clicks always have room.
 /// shortcut: foreground work is not put ahead of background work that is already waiting here, it only has more room; upgrade if a click is ever seen waiting.
-actor QuotaGate {
+public actor QuotaGate {
     private let cap: Int
     private let backgroundCap: Int
     private var spent: [(at: Date, units: Int)] = []
     private var pausedUntil = Date.distantPast
     private let now: @Sendable () -> Date
     private let sleep: @Sendable (Double) async -> Void
-    init(cap: Int = 4_500, backgroundCap: Int = 3_000, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
+    public init(cap: Int = 4_500, backgroundCap: Int = 3_000, now: @escaping @Sendable () -> Date = { Date() }, sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }) {
         self.cap = cap; self.backgroundCap = backgroundCap; self.now = now; self.sleep = sleep
     }
     /// Throws CancellationError when the caller gave up (scrolled away): the request must then not go out.
-    func acquire(_ units: Int, background: Bool = false) async throws {
+    public func acquire(_ units: Int, background: Bool = false) async throws {
         let limit = background ? min(backgroundCap, cap) : cap
         while true {
             try Task.checkCancellation()
@@ -91,10 +95,10 @@ actor QuotaGate {
         }
     }
     /// Gmail said "slow down": nothing else goes out until then.
-    func pause(_ seconds: Double) { pausedUntil = max(pausedUntil, now().addingTimeInterval(seconds)) }
+    public func pause(_ seconds: Double) { pausedUntil = max(pausedUntil, now().addingTimeInterval(seconds)) }
     /// Units per call, checked against Google's table on 2026-10-15, and the limit of 6,000 units per user per minute again on 2026-10-16 (messages.get 20, messages.list 5, messages.modify 5, messages.batchModify 50, messages.send 100,
     /// messages.trash 20, threads.get 40, threads.list 10, history.list 2): https://developers.google.com/workspace/gmail/api/reference/quota
-    static func units(method: String, path: String) -> Int {
+    public static func units(method: String, path: String) -> Int {
         if path.hasSuffix("/send") { return 100 }
         if path == "/history" { return 2 }
         if path == "/profile" { return 1 }
@@ -109,31 +113,35 @@ actor QuotaGate {
 
 // MARK: - Client
 
-final class GmailClient: @unchecked Sendable {
-    let auth: GoogleAuth
-    let session: URLSession
-    static let base = "https://gmail.googleapis.com/gmail/v1/users/me"
+public final class GmailClient: @unchecked Sendable {
+    public let auth: any AccessTokenProvider
+    public let session: URLSession
+    public static let base = "https://gmail.googleapis.com/gmail/v1/users/me"
 
     /// The self-test turns pacing off for its pretend Gmail (the pacing itself has its own check).
     nonisolated(unsafe) static var pacingOff = false
+    #if DEBUG
+    /// Debug builds only (the self-test); a release build has no way to switch the pacing off.
+    public static func turnPacingOffForTests() { pacingOff = true }
+    #endif
     /// True for work John did not ask for (copying the mailbox, checking for changes): it is paced to half of Gmail's allowance. Child tasks inherit it.
-    @TaskLocal static var background = false
-    let gate: QuotaGate
+    @TaskLocal public static var background = false
+    public let gate: QuotaGate
     /// How long to wait before asking again after "too many requests"; a check replaces it so it does not really wait.
-    var waitBeforeRetry: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }
-    static let quotaRetries = 5
+    public var waitBeforeRetry: @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) }
+    public static let quotaRetries = 5
     /// Counts every change made through Mail (archive, trash, mark read, pin, block, send ...). A saved list is trusted only if this has not moved since it was saved.
     private let writeLock = NSLock()
     private var writeCount = 0
-    var writes: Int { writeLock.lock(); defer { writeLock.unlock() }; return writeCount }
-    func noteWrite() { writeLock.lock(); writeCount += 1; writeLock.unlock() }
+    public var writes: Int { writeLock.lock(); defer { writeLock.unlock() }; return writeCount }
+    public func noteWrite() { writeLock.lock(); writeCount += 1; writeLock.unlock() }
 
-    init(auth: GoogleAuth, session: URLSession = .shared, gate: QuotaGate? = nil) {
+    public init(auth: any AccessTokenProvider, session: URLSession = .shared, gate: QuotaGate? = nil) {
         self.auth = auth; self.session = session; self.gate = gate ?? QuotaGate(cap: Self.pacingOff ? Int.max / 2 : 4_500, backgroundCap: Self.pacingOff ? Int.max / 2 : 3_000)
     }
 
     /// Gmail's per-minute quota answers: 429, or 403 with the reason rateLimitExceeded / userRateLimitExceeded. Any other 403 (no permission) is a real refusal.
-    static func isQuotaAnswer(_ code: Int, _ data: Data) -> Bool {
+    public static func isQuotaAnswer(_ code: Int, _ data: Data) -> Bool {
         if code == 429 { return true }
         guard code == 403, let e = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any] else { return false }
         let reasons = (e["errors"] as? [[String: Any]])?.compactMap { $0["reason"] as? String } ?? []
@@ -142,9 +150,9 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// False for sending and filter creation: after a timeout or 5xx the call may have gone through, so a retry would send twice / make a second filter. A 429 means Gmail did nothing, so send() retries that for every call regardless.
-    static func retriesAfterUncertainFailure(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
+    public static func retriesAfterUncertainFailure(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
 
-    func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
+    public func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
         var c = URLComponents(string: Self.base + path)!
         if !query.isEmpty { c.queryItems = query }
@@ -191,13 +199,13 @@ final class GmailClient: @unchecked Sendable {
 
     // MARK: Reading
 
-    func profileEmail() async throws -> String {
+    public func profileEmail() async throws -> String {
         json(try await send("/profile"))["emailAddress"] as? String ?? ""
     }
 
     /// The mailbox size and Gmail's current change number (1 unit): where a full copy starts, and the number the change list is followed from.
-    struct ProfileInfo: Sendable { let messagesTotal: Int; let historyID: String }
-    func profileInfo() async throws -> ProfileInfo {
+    public struct ProfileInfo: Sendable { public let messagesTotal: Int; public let historyID: String }
+    public func profileInfo() async throws -> ProfileInfo {
         let r = json(try await send("/profile"))
         let h = r["historyId"] as? String ?? (r["historyId"] as? Int).map(String.init) ?? ""
         guard !h.isEmpty else { throw GmailError.http(0, "no history id") }
@@ -205,7 +213,7 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// One page of message ids plus the token for the next page (nil = last page).
-    func listPage(q: String? = nil, labels: [String] = [], max: Int, pageToken: String? = nil) async throws -> (ids: [String], next: String?) {
+    public func listPage(q: String? = nil, labels: [String] = [], max: Int, pageToken: String? = nil) async throws -> (ids: [String], next: String?) {
         var items = [URLQueryItem(name: "maxResults", value: String(Swift.min(Swift.max(max, 1), 500)))]
         if let q, !q.isEmpty { items.append(.init(name: "q", value: q)) }
         for l in labels { items.append(.init(name: "labelIds", value: l)) }
@@ -215,8 +223,8 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// Up to `max` ids, following Gmail's page tokens. Pass `GmailClient.all` for "every match".
-    static let all = 20_000   // shortcut: a safety bound, not a real limit for a personal mailbox
-    func listIDs(q: String? = nil, labels: [String] = [], max: Int = 60) async throws -> [String] {
+    public static let all = 20_000   // shortcut: a safety bound, not a real limit for a personal mailbox
+    public func listIDs(q: String? = nil, labels: [String] = [], max: Int = 60) async throws -> [String] {
         var out: [String] = [], tok: String? = nil
         repeat {
             let p = try await listPage(q: q, labels: labels, max: max - out.count, pageToken: tok)
@@ -226,7 +234,7 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// One page of conversations (newest first) with the version tag Gmail changes whenever anything in them changes.
-    func threadPage(labels: [String], max: Int, pageToken: String? = nil) async throws -> (refs: [ThreadRef], next: String?) {
+    public func threadPage(labels: [String], max: Int, pageToken: String? = nil) async throws -> (refs: [ThreadRef], next: String?) {
         var items = [URLQueryItem(name: "maxResults", value: String(max))]
         for l in labels { items.append(.init(name: "labelIds", value: l)) }
         if let pageToken { items.append(.init(name: "pageToken", value: pageToken)) }
@@ -239,7 +247,7 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// One row for a whole conversation: its newest inbox message, unread if any inbox message is, plus the other inbox messages.
-    func thread(id: String) async throws -> Mail {
+    public func thread(id: String) async throws -> Mail {
         var q = [URLQueryItem(name: "format", value: "metadata")]
         for h in Self.metadataHeaders { q.append(.init(name: "metadataHeaders", value: h)) }
         let d = try await send("/threads/\(id)", query: q)
@@ -257,7 +265,7 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// Conversations fetched a few at a time; `failed` are the ids that could not be read.
-    func threads(_ ids: [String]) async -> (mails: [String: Mail], failed: [String], gone: Set<String>) {
+    public func threads(_ ids: [String]) async -> (mails: [String: Mail], failed: [String], gone: Set<String>) {
         let r = await mapLimited(ids, limit: 6) { id -> (String, Mail?, Bool) in
             do { return (id, try await self.thread(id: id), false) } catch is NotInInbox { return (id, nil, true) } catch { return (id, nil, false) }
         }
@@ -267,12 +275,12 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// One change Gmail reports, in the order it happened.
-    enum HistoryEvent: Equatable, Sendable { case added(String), deleted(String), labels(id: String, add: [String], remove: [String]) }
-    struct HistoryPage: Sendable { var events: [HistoryEvent]; var next: String?; var historyID: String? }
+    public enum HistoryEvent: Equatable, Sendable { case added(String), deleted(String), labels(id: String, add: [String], remove: [String]) }
+    public struct HistoryPage: Sendable { public var events: [HistoryEvent]; public var next: String?; public var historyID: String? }
 
     /// "What changed since this change number?" (2 units a page). Gmail answers 404 when the number is too old (it keeps changes a week or less):
     /// the caller then copies the mailbox again. Only the four kinds of change a stored copy needs are asked for.
-    func history(since: String, pageToken: String? = nil) async throws -> HistoryPage {
+    public func history(since: String, pageToken: String? = nil) async throws -> HistoryPage {
         var q = [URLQueryItem(name: "startHistoryId", value: since), URLQueryItem(name: "maxResults", value: "500")]
         for t in ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] { q.append(.init(name: "historyTypes", value: t)) }
         if let pageToken { q.append(.init(name: "pageToken", value: pageToken)) }
@@ -290,14 +298,14 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// Only tells none from some: asked for one email, Gmail answers 201 for any non-empty result (checked on a real mailbox 2026-10-24). Count with `listIDs`.
-    func countEstimate(q: String) async throws -> Int {
+    public func countEstimate(q: String) async throws -> Int {
         let r = json(try await send("/messages", query: [.init(name: "q", value: q), .init(name: "maxResults", value: "1")]))
         return r["resultSizeEstimate"] as? Int ?? 0
     }
 
-    static let metadataHeaders = ["From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post", "Authentication-Results"]
+    public static let metadataHeaders = ["From", "To", "Cc", "Bcc", "Reply-To", "Subject", "Date", "Message-ID", "References", "In-Reply-To", "List-Unsubscribe", "List-Unsubscribe-Post", "Authentication-Results"]
 
-    func message(id: String, full: Bool) async throws -> Mail {
+    public func message(id: String, full: Bool) async throws -> Mail {
         var q = [URLQueryItem(name: "format", value: full ? "full" : "metadata")]
         if !full {
             for h in Self.metadataHeaders {
@@ -310,21 +318,21 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// Metadata for many messages, a few at a time (paced to the Gmail quota). `failed` are the ids that could not be read.
-    func messagesChecked(ids: [String], full: Bool = false) async -> (mails: [Mail], failed: [String]) {
+    public func messagesChecked(ids: [String], full: Bool = false) async -> (mails: [Mail], failed: [String]) {
         let r = await mapLimited(ids, limit: 6) { id in (id, try? await self.message(id: id, full: full)) }
         return (r.compactMap { $0.1 }, r.filter { $0.1 == nil }.map(\.0))
     }
 
-    func messages(ids: [String], full: Bool = false) async -> [Mail] { await messagesChecked(ids: ids, full: full).mails }
+    public func messages(ids: [String], full: Bool = false) async -> [Mail] { await messagesChecked(ids: ids, full: full).mails }
 
-    func attachment(messageID: String, attachmentID: String) async throws -> Data {
+    public func attachment(messageID: String, attachmentID: String) async throws -> Data {
         let r = json(try await send("/messages/\(messageID)/attachments/\(attachmentID)"))
         return Base64URL.decode(r["data"] as? String ?? "") ?? Data()
     }
 
     // MARK: Changing labels
 
-    func modify(ids: [String], add: [String] = [], remove: [String] = []) async throws {
+    public func modify(ids: [String], add: [String] = [], remove: [String] = []) async throws {
         guard !ids.isEmpty else { return }
         var i = 0
         while i < ids.count {
@@ -335,59 +343,59 @@ final class GmailClient: @unchecked Sendable {
         }
     }
 
-    func trash(id: String) async throws { _ = try await send("/messages/\(id)/trash", method: "POST") }
-    func untrash(id: String) async throws { _ = try await send("/messages/\(id)/untrash", method: "POST") }
+    public func trash(id: String) async throws { _ = try await send("/messages/\(id)/trash", method: "POST") }
+    public func untrash(id: String) async throws { _ = try await send("/messages/\(id)/untrash", method: "POST") }
 
     // MARK: Labels and filters
 
-    func labels() async throws -> [GLabel] {
+    public func labels() async throws -> [GLabel] {
         let d = try await send("/labels")
         struct R: Decodable { let labels: [GLabel]? }
         return (try? JSONDecoder().decode(R.self, from: d))?.labels ?? []
     }
 
     /// For safety checks: an answer that cannot be read is an error, never an empty list. (No labels at all is still a valid, empty answer.)
-    func labelsStrict() async throws -> [GLabel] {
+    public func labelsStrict() async throws -> [GLabel] {
         struct R: Decodable { let labels: [GLabel]? }
         guard let r = try? JSONDecoder().decode(R.self, from: try await send("/labels")) else { throw GmailError.http(0, "unreadable labels") }
         return r.labels ?? []
     }
-    func filtersStrict() async throws -> [GFilter] {
+    public func filtersStrict() async throws -> [GFilter] {
         struct R: Decodable { let filter: [GFilter]? }
         guard let r = try? JSONDecoder().decode(R.self, from: try await send("/settings/filters")) else { throw GmailError.http(0, "unreadable filters") }
         return r.filter ?? []
     }
 
-    func createLabel(name: String) async throws -> GLabel {
+    public func createLabel(name: String) async throws -> GLabel {
         let d = try await send("/labels", method: "POST", body: body([
             "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"]))
         return try JSONDecoder().decode(GLabel.self, from: d)
     }
 
-    func renameLabel(id: String, to name: String) async throws {
+    public func renameLabel(id: String, to name: String) async throws {
         _ = try await send("/labels/\(id)", method: "PATCH", body: body(["name": name]))
     }
 
-    func deleteLabel(id: String) async throws { _ = try await send("/labels/\(id)", method: "DELETE") }
+    public func deleteLabel(id: String) async throws { _ = try await send("/labels/\(id)", method: "DELETE") }
 
-    func filters() async throws -> [GFilter] {
+    public func filters() async throws -> [GFilter] {
         let d = try await send("/settings/filters")
         struct R: Decodable { let filter: [GFilter]? }
         return (try? JSONDecoder().decode(R.self, from: d))?.filter ?? []
     }
 
     @discardableResult
-    func createFilter(_ filter: [String: Any]) async throws -> GFilter {
+    public func createFilter(_ filter: [String: Any]) async throws -> GFilter {
         try JSONDecoder().decode(GFilter.self, from: try await send("/settings/filters", method: "POST", body: body(filter)))
     }
 
-    func createFilter(from: String, addLabel: String, removeInbox: Bool = true) async throws -> GFilter {
+    public func createFilter(from: String, addLabel: String, removeInbox: Bool = true) async throws -> GFilter {
         try await createFilter(["criteria": ["from": from], "action": ["addLabelIds": [addLabel], "removeLabelIds": removeInbox ? ["INBOX"] : []]])
     }
 
-    func deleteFilter(id: String) async throws { _ = try await send("/settings/filters/\(id)", method: "DELETE") }
+    public func deleteFilter(id: String) async throws { _ = try await send("/settings/filters/\(id)", method: "DELETE") }
 
-    func sendAs() async throws -> [GSendAs] {
+    public func sendAs() async throws -> [GSendAs] {
         let d = try await send("/settings/sendAs")
         struct R: Decodable { let sendAs: [GSendAs]? }
         return (try? JSONDecoder().decode(R.self, from: d))?.sendAs ?? []
@@ -396,7 +404,7 @@ final class GmailClient: @unchecked Sendable {
     // MARK: Sending and drafts
 
     @discardableResult
-    func sendRaw(_ raw: Data, threadID: String?) async throws -> (id: String, threadID: String) {
+    public func sendRaw(_ raw: Data, threadID: String?) async throws -> (id: String, threadID: String) {
         var o: [String: Any] = ["raw": Base64URL.encode(raw)]
         if let threadID { o["threadId"] = threadID }
         let r = json(try await send("/messages/send", method: "POST", body: body(o)))
@@ -404,19 +412,19 @@ final class GmailClient: @unchecked Sendable {
     }
 
     /// drafts.send: sends an existing draft (Send Later). Returns the sent message.
-    func sendDraft(id: String) async throws -> (id: String, threadID: String) {
+    public func sendDraft(id: String) async throws -> (id: String, threadID: String) {
         let r = json(try await send("/drafts/send", method: "POST", body: body(["id": id])))
         return (r["id"] as? String ?? "", r["threadId"] as? String ?? "")
     }
 
     /// false only when Gmail says the draft is gone (sent or deleted elsewhere); other problems throw.
-    func draftExists(id: String) async throws -> Bool {
+    public func draftExists(id: String) async throws -> Bool {
         do { _ = try await send("/drafts/\(id)", query: [.init(name: "format", value: "minimal")]); return true }
         catch GmailError.http(404, _) { return false }
     }
 
     /// The messages of a conversation, for "did anyone reply?".
-    func threadMessages(id: String) async throws -> [GThreadMessage] {
+    public func threadMessages(id: String) async throws -> [GThreadMessage] {
         let r = json(try await send("/threads/\(id)", query: [.init(name: "format", value: "minimal")]))
         return (r["messages"] as? [[String: Any]])?.compactMap {
             guard let mid = $0["id"] as? String else { return nil }
@@ -426,7 +434,7 @@ final class GmailClient: @unchecked Sendable {
     }
 
     @discardableResult
-    func saveDraft(_ raw: Data, threadID: String?, replacing draftID: String?) async throws -> String {
+    public func saveDraft(_ raw: Data, threadID: String?, replacing draftID: String?) async throws -> String {
         var m: [String: Any] = ["raw": Base64URL.encode(raw)]
         if let threadID { m["threadId"] = threadID }
         let path = draftID.map { "/drafts/\($0)" } ?? "/drafts"
@@ -434,9 +442,9 @@ final class GmailClient: @unchecked Sendable {
         return json(d)["id"] as? String ?? ""
     }
 
-    func deleteDraft(id: String) async throws { _ = try await send("/drafts/\(id)", method: "DELETE") }
+    public func deleteDraft(id: String) async throws { _ = try await send("/drafts/\(id)", method: "DELETE") }
 
-    func drafts() async throws -> [(draftID: String, messageID: String)] {
+    public func drafts() async throws -> [(draftID: String, messageID: String)] {
         let r = json(try await send("/drafts", query: [.init(name: "maxResults", value: "40")]))
         return (r["drafts"] as? [[String: Any]])?.compactMap {
             guard let id = $0["id"] as? String, let m = ($0["message"] as? [String: Any])?["id"] as? String else { return nil }
@@ -445,12 +453,12 @@ final class GmailClient: @unchecked Sendable {
     }
 }
 
-enum Base64URL {
-    static func encode(_ d: Data) -> String {
+public enum Base64URL {
+    public static func encode(_ d: Data) -> String {
         d.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
     }
-    static func decode(_ s: String) -> Data? {
+    public static func decode(_ s: String) -> Data? {
         var t = s.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         while t.count % 4 != 0 { t += "=" }
         return Data(base64Encoded: t)
@@ -458,7 +466,7 @@ enum Base64URL {
 }
 
 /// Runs `f` over `items` with at most `limit` at once; results come back in the order of `items`.
-func mapLimited<T: Sendable, R: Sendable>(_ items: [T], limit: Int = 4, _ f: @escaping @Sendable (T) async -> R) async -> [R] {
+public func mapLimited<T: Sendable, R: Sendable>(_ items: [T], limit: Int = 4, _ f: @escaping @Sendable (T) async -> R) async -> [R] {
     var out = [R?](repeating: nil, count: items.count)
     await withTaskGroup(of: (Int, R).self) { g in
         var next = 0

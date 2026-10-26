@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Who and what is hidden from Claude: the Blocked label, and every sender (or whole company) on the block list, whatever label their mail carries now.
 struct ClaudeBlockList: Equatable {

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 extension NSColor {
     convenience init(hex: String) {

@@ -1,6 +1,7 @@
 import SwiftUI
 import NaturalLanguage
 import Translation
+import MailCore
 
 /// Pure helpers for Translate: which emails are foreign, how text is cut for the translator and put back together.
 enum TranslateText {

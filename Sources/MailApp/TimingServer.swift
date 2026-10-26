@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// The timing service on the droplet (server/mail-timing/README.md): it sends a scheduled email when this Mac is off.
 /// It holds only the Gmail draft id and the time; the email stays in Gmail. Gmail's own draft send is the lock:
@@ -95,4 +96,38 @@ struct TimingServer: Sendable {
     }
 
     func forgetKey() async { await auth.setTimingKey(nil) }
+}
+
+/// Smart Folders and saved searches on the server (server/mail-timing/README.md, GET and PUT /organizer).
+extension TimingServer: OrganizerLink {
+    func read() async throws -> (version: Int, organizer: Organizer) {
+        let (c, o) = try await call("GET", "organizer")
+        guard c == 200 else { throw TimingServerError.refused(c) }
+        let r = OrganizerWire.decode(o)
+        return (r.version, r.organizer)
+    }
+
+    func write(base: Int, _ organizer: Organizer) async throws -> OrganizerWrite {
+        let (c, o) = try await call("PUT", "organizer", OrganizerWire.body(base: base, organizer))
+        if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
+        if c == 409 { let r = OrganizerWire.decode(o); return .conflict(version: r.version, r.organizer) }   // someone saved after we read: merge onto theirs
+        throw TimingServerError.refused(c)
+    }
+}
+
+/// The snooze state the phone also shows (server/mail-timing/README.md, GET and PUT /timing-view). The Mac writes it, the phone reads it.
+extension TimingServer: TimingViewLink {
+    func readTiming() async throws -> (version: Int, view: TimingView) {
+        let (c, o) = try await call("GET", "timing-view")
+        guard c == 200 else { throw TimingServerError.refused(c) }
+        guard let r = TimingViewWire.decode(o) else { throw TimingServerError.refused(c) }   // an odd answer is not "empty"
+        return (r.version, r.view)
+    }
+
+    func writeTiming(base: Int, _ view: TimingView) async throws -> TimingViewWrite {
+        let (c, o) = try await call("PUT", "timing-view", TimingViewWire.body(base: base, view))
+        if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
+        if c == 409, let r = TimingViewWire.decode(o) { return .conflict(version: r.version, r.view) }   // someone saved after we read: merge onto theirs
+        throw TimingServerError.refused(c)
+    }
 }

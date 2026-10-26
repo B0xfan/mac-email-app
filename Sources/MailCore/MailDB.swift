@@ -10,15 +10,20 @@ import SQLite3
 ///  - removing an account also deletes its stored mail (`wipe()`, called by `MailStore.removeAccount`).
 
 /// A list picked from stored mail: has every label in `all`, none of `none`, newest first.
-struct DBListSpec: Equatable { var all: [String]; var none: [String] = [] }
+public struct DBListSpec: Equatable { public var all: [String]; public var none: [String] = []
+    public init(all: [String], none: [String] = []) { self.all = all; self.none = none } }
 
-final class MailDB: @unchecked Sendable {
-    static let schemaVersion = 3
-    static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-    let url: URL
+public final class MailDB: @unchecked Sendable {
+    public static let schemaVersion = 3
+    public static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    public let url: URL
     private var handle: OpaquePointer?
     /// Recursive: the public calls below call each other.
     let lock = NSRecursiveLock()
+    #if DEBUG
+    /// Debug builds only (the self-test): runs `body` while holding the database lock.
+    public func holdingLock<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
+    #endif
     private var depth = 0
     /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
     private var errors = 0
@@ -40,7 +45,7 @@ final class MailDB: @unchecked Sendable {
 
     /// Opens or creates the file. A file SQLite calls corrupt or not a database is put aside as ".damaged" and a fresh one is started.
     /// nil when the file cannot be used right now (busy, no permission, written by a newer Mail, or not even a fresh file can be made): the file is left as it is and the app works without stored mail.
-    init?(url: URL) {
+    public init?(url: URL) {
         self.url = url
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -54,8 +59,6 @@ final class MailDB: @unchecked Sendable {
         }
     }
     deinit { closeHandle() }
-
-    static var defaultURL: URL { JSONStore.url("mail.sqlite") }
 
     // MARK: - File
 
@@ -149,7 +152,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// What a search looks in for a message that has no stored text: sender, recipients, subject and preview, lower case.
-    static func head(_ m: Mail) -> String { "\(m.from.display) \(m.from.email) \(m.to) \(m.cc) \(m.subject) \(m.snippet)".lowercased() }
+    public static func head(_ m: Mail) -> String { "\(m.from.display) \(m.from.email) \(m.to) \(m.cc) \(m.subject) \(m.snippet)".lowercased() }
 
     /// A file from schema 1 (an early build of this work, never released) has other columns. It is only a copy of Gmail, so its tables are dropped and started again.
     /// Changes still waiting for Gmail (the outbox) are kept when that file has the same columns as now: they are John's, not a copy.
@@ -162,7 +165,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Settings > Accounts "Remove" (John's decision): the file and everything in it is deleted, then a fresh empty one starts.
-    func wipe() {
+    public func wipe() {
         lock.lock(); defer { lock.unlock() }
         hotLock.lock(); hot = [:]; hotLock.unlock()   // a failed reopen must not leave the old sync place cached
         closeHandle()
@@ -174,7 +177,7 @@ final class MailDB: @unchecked Sendable {
     // MARK: - SQL plumbing
 
     @discardableResult
-    func run(_ sql: String, _ args: [Any?] = [], _ row: ((OpaquePointer) -> Void)? = nil) -> Bool {
+    public func run(_ sql: String, _ args: [Any?] = [], _ row: ((OpaquePointer) -> Void)? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let h = handle else { errors += 1; lastCode = SQLITE_MISUSE; return false }
         var st: OpaquePointer?
@@ -197,19 +200,19 @@ final class MailDB: @unchecked Sendable {
         return rc == SQLITE_DONE
     }
 
-    static func text(_ st: OpaquePointer, _ i: Int32) -> String { sqlite3_column_text(st, i).map { String(cString: $0) } ?? "" }
-    static func blob(_ st: OpaquePointer, _ i: Int32) -> Data {
+    public static func text(_ st: OpaquePointer, _ i: Int32) -> String { sqlite3_column_text(st, i).map { String(cString: $0) } ?? "" }
+    public static func blob(_ st: OpaquePointer, _ i: Int32) -> Data {
         let n = sqlite3_column_bytes(st, i)
         guard n > 0, let p = sqlite3_column_blob(st, i) else { return Data() }
         return Data(bytes: p, count: Int(n))
     }
-    static func ms(_ d: Date) -> Int64 { Int64(d.timeIntervalSince1970 * 1000) }
+    public static func ms(_ d: Date) -> Int64 { Int64(d.timeIntervalSince1970 * 1000) }
 
     /// All the work inside happens together or not at all: nil when a statement failed (everything inside is then undone). A call inside a running transaction is a
     /// savepoint: a failure there is undone at once and that call gives nil, but the failure also counts against the outer transaction, so the outer one fails as a whole too
     /// and nothing of it is kept (the caller of the outer one learns of it from its nil).
     @discardableResult
-    func transaction<T>(_ body: () -> T) -> T? {
+    public func transaction<T>(_ body: () -> T) -> T? {
         lock.lock(); defer { lock.unlock() }
         let before = errors
         if depth == 0 {
@@ -229,11 +232,11 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// The same for work that gives nothing back: true when all of it went through.
-    func atomically(_ body: () -> Void) -> Bool { transaction(body) != nil }
+    public func atomically(_ body: () -> Void) -> Bool { transaction(body) != nil }
 
     // MARK: - State (account, history id, sync place ...)
 
-    func state(_ key: String) -> String? {
+    public func state(_ key: String) -> String? {
         if Self.hotKeys.contains(key) { hotLock.lock(); defer { hotLock.unlock() }; return hot[key] }
         var v: String?
         run("SELECT value FROM sync_state WHERE key=?", [key], { v = Self.text($0, 0) })
@@ -241,18 +244,18 @@ final class MailDB: @unchecked Sendable {
     }
     /// false when the database refused: the caller must not go on as if the place were written down.
     @discardableResult
-    func setState(_ key: String, _ value: String?) -> Bool {
+    public func setState(_ key: String, _ value: String?) -> Bool {
         let done = value.map { run("INSERT INTO sync_state(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, $0]) } ?? run("DELETE FROM sync_state WHERE key=?", [key])
         if done, Self.hotKeys.contains(key) { hotLock.lock(); hot[key] = value; hotLock.unlock() }
         return done
     }
     /// Every message has been copied down once: lists may be read from here.
-    var isComplete: Bool { state("backfill_done") == "1" }
+    public var isComplete: Bool { state("backfill_done") == "1" }
     /// A full copy has started and Gmail's change list is followed from then on, so rows read from Gmail stay current.
-    var isTracking: Bool { state("history_id") != nil }
+    public var isTracking: Bool { state("history_id") != nil }
 
     /// A different account than the stored mail belongs to: everything is dropped first.
-    func useAccount(_ email: String) {
+    public func useAccount(_ email: String) {
         let e = email.lowercased()
         guard !e.isEmpty else { return }
         if let old = state("account"), old != e { wipe() }
@@ -282,7 +285,7 @@ final class MailDB: @unchecked Sendable {
     /// A read older than the row (its version tag is lower: it was slow, and a newer change landed meanwhile) is skipped, unless the row is not confirmed or `force`.
     /// false when the database refused: nothing of this call is kept.
     @discardableResult
-    func upsert(_ mails: [Mail], verified: Bool, seen: Int = 0, force: Bool = false) -> Bool {
+    public func upsert(_ mails: [Mail], verified: Bool, seen: Int = 0, force: Bool = false) -> Bool {
         atomically {
             for m in mails {
                 guard let d = Self.slim(m) else { continue }
@@ -299,7 +302,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Verified rows by id.
-    func messages(ids: [String]) -> [String: Mail] {
+    public func messages(ids: [String]) -> [String: Mail] {
         var out: [String: Mail] = [:]
         for c in Self.chunks(ids) {
             run(Self.selectRows + " WHERE m.verified=1 AND m.id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }, { if let m = Self.mail($0) { out[m.id] = m } })
@@ -308,7 +311,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Which of these ids are stored (`verifiedOnly`: and confirmed).
-    func stored(_ ids: [String], verifiedOnly: Bool) -> Set<String> {
+    public func stored(_ ids: [String], verifiedOnly: Bool) -> Set<String> {
         var out = Set<String>()
         for c in Self.chunks(ids) {
             run("SELECT id FROM messages WHERE \(verifiedOnly ? "verified=1 AND " : "")id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }, { out.insert(Self.text($0, 0)) })
@@ -317,7 +320,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Newest first. Only confirmed rows.
-    func list(_ spec: DBListSpec, limit: Int, offset: Int = 0) -> [Mail] {
+    public func list(_ spec: DBListSpec, limit: Int, offset: Int = 0) -> [Mail] {
         var sql = Self.selectRows + " WHERE m.verified=1"
         var args: [Any?] = []
         for l in spec.all { sql += " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"; args.append(l) }
@@ -335,8 +338,8 @@ final class MailDB: @unchecked Sendable {
     /// shortcut: a scan of the table, not an index (FTS5); fine to tens of thousands of messages, upgrade if a search over a very large mailbox is felt to be slow.
     /// The head (sender, subject ...) is looked through first, which does not touch the long text; the text is looked through too only when the head finds fewer than `headEnough` messages
     /// (the same choice for every page of one search, so the pages fit together).
-    static let headEnough = 200
-    func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
+    public static let headEnough = 200
+    public func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
         let w = words.filter { !$0.isEmpty }
         var n = 0
         let (hs, ha) = Self.searchWhere(w, withText: false)
@@ -360,16 +363,16 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// The word as a LIKE pattern body: % and _ mean themselves.
-    static func likeEscaped(_ s: String) -> String {
+    public static func likeEscaped(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
     }
 
     /// The kept text of a message: what is shown when it is opened.
-    struct StoredBody: Codable { var html: String?; var text: String?; var attachments: [Attachment] }
+    public struct StoredBody: Codable { public var html: String?; public var text: String?; public var attachments: [Attachment] }
 
     /// The words a search looks in for a message's text (lower case; tags, styles and scripts left out of HTML).
     /// shortcut: HTML entities are not decoded and the text is cut at 200,000 characters; fine for searching, upgrade if odd matches show up.
-    static func bodyWords(_ m: Mail) -> String {
+    public static func bodyWords(_ m: Mail) -> String {
         var t = m.text ?? ""
         if t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let h = m.html {
             t = h.replacingOccurrences(of: "(?s)<(style|script|head)[^>]*>.*?</\\1>", with: " ", options: [.regularExpression, .caseInsensitive])
@@ -381,7 +384,7 @@ final class MailDB: @unchecked Sendable {
     /// Keeps the text of a message as it was read from Gmail. `kept`: John opened it, so the text stays however old the message gets.
     /// An email with pictures inside it (their data is not stored) or with no text at all keeps only its words for searching: it is read from Gmail when opened.
     @discardableResult
-    func setBody(_ m: Mail, kept: Bool, words: String? = nil) -> Bool {   // `words`: already worked out by a caller that does not want to hold the database while it does the slow part
+    public func setBody(_ m: Mail, kept: Bool, words: String? = nil) -> Bool {   // `words`: already worked out by a caller that does not want to hold the database while it does the slow part
         // the words are always kept (a search finds the email); the text itself only when it can be shown again as it was
         var d: Data?
         if (m.cidParts?.isEmpty ?? true) && (m.html != nil || m.text != nil) { d = try? JSONEncoder().encode(StoredBody(html: m.html, text: m.text, attachments: m.attachments)) }
@@ -391,7 +394,7 @@ final class MailDB: @unchecked Sendable {
     /// John opened this email in full: its row is stored (a message found by a Gmail search is stored now) and its text kept. A draft is not kept (Gmail rewrites it on every save).
     /// false when the database refused: nothing of this call is kept.
     @discardableResult
-    func keepOpened(_ m: Mail, seen: Int) -> Bool {
+    public func keepOpened(_ m: Mail, seen: Int) -> Bool {
         guard !m.labels.contains("DRAFT") else { return true }
         return atomically {
             upsert([m], verified: true, seen: seen)
@@ -401,7 +404,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// An email with its kept text, as it was read from Gmail, or nil when its text is not kept (or the row is not confirmed, or it is a draft).
-    func openedMail(_ id: String) -> Mail? {
+    public func openedMail(_ id: String) -> Mail? {
         var out: Mail?
         run("SELECT m.payload, (SELECT group_concat(label, char(31)) FROM message_labels l WHERE l.msg = m.id), m.body FROM messages m WHERE m.id=? AND m.verified=1 AND m.body IS NOT NULL", [id], {
             guard var m = Self.mail($0), !m.labels.contains("DRAFT"), let b = try? JSONDecoder().decode(StoredBody.self, from: Self.blob($0, 2)) else { return }
@@ -413,12 +416,12 @@ final class MailDB: @unchecked Sendable {
 
     /// The full text of messages older than `date` is dropped, except for mail John opened. Their sender, subject and preview stay.
     @discardableResult
-    func pruneText(before date: Date) -> Bool {
+    public func pruneText(before date: Date) -> Bool {
         run("UPDATE messages SET body=NULL, search_body=NULL WHERE body_kept=0 AND (body IS NOT NULL OR search_body IS NOT NULL) AND date < ?", [Self.ms(date)])
     }
 
     /// Confirmed messages newer than `date` whose full text has not been read yet (newest first): the background copy reads them. Drafts are left out (Gmail rewrites them).
-    func idsNeedingText(since date: Date, limit: Int) -> [String] {
+    public func idsNeedingText(since date: Date, limit: Int) -> [String] {
         var out: [String] = []
         run("""
             SELECT m.id FROM messages m WHERE m.verified=1 AND m.date >= ? AND m.search_body IS NULL
@@ -431,7 +434,7 @@ final class MailDB: @unchecked Sendable {
     /// Settings > Storage "Clear stored mail": the copy of the mailbox is emptied and the file made small again. The account and the changes still waiting for Gmail stay.
     /// false when the database refused (nothing is cleared then).
     @discardableResult
-    func clearMail() -> Bool {
+    public func clearMail() -> Bool {
         guard atomically({
             run("DELETE FROM message_labels"); run("DELETE FROM messages")
             run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
@@ -442,7 +445,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// Bytes the copy takes on disk (the file and its write-ahead file).
-    func diskBytes() -> Int64 {
+    public func diskBytes() -> Int64 {
         var n: Int64 = 0
         for s in ["", "-wal"] { if let a = try? FileManager.default.attributesOfItem(atPath: url.path + s), let size = a[.size] as? NSNumber { n += size.int64Value } }
         return n
@@ -451,7 +454,7 @@ final class MailDB: @unchecked Sendable {
     /// The Inbox as conversation rows, newest first: the same rows Gmail's conversation list gives (the newest Inbox message stands for the conversation, the other Inbox
     /// messages are its siblings, every message is in `convo`), built from the stored messages with no request. Unconfirmed rows count too, with the labels kept here (the background check
     /// confirms them soon). `limit` conversations after `offset`. nil when the database failed: the caller keeps what it shows.
-    func inboxThreads(limit: Int, offset: Int = 0) -> [Mail]? {
+    public func inboxThreads(limit: Int, offset: Int = 0) -> [Mail]? {
         var threads: [String] = []
         let before = failures
         run("""
@@ -468,7 +471,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     /// One conversation row from all the stored messages of the conversation (nil when none of them is in the Inbox).
-    static func threadRow(_ all: [Mail]) -> Mail? {
+    public static func threadRow(_ all: [Mail]) -> Mail? {
         let gone: Set<String> = ["TRASH", "SPAM"]
         let mine = all.filter { $0.labels.contains("INBOX") && gone.isDisjoint(with: $0.labels) }
         guard let rep = mine.max(by: { ($0.date, $0.id) < ($1.date, $1.id) }) else { return nil }
@@ -480,7 +483,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     @discardableResult
-    func applyLabels(ids: [String], add: [String], remove: [String]) -> Bool {
+    public func applyLabels(ids: [String], add: [String], remove: [String]) -> Bool {
         atomically {
             for id in ids {
                 for l in remove { run("DELETE FROM message_labels WHERE msg=? AND label=?", [id, l]) }
@@ -490,7 +493,7 @@ final class MailDB: @unchecked Sendable {
     }
 
     @discardableResult
-    func delete(ids: [String]) -> Bool {
+    public func delete(ids: [String]) -> Bool {
         atomically {
             for c in Self.chunks(ids) {
                 run("DELETE FROM message_labels WHERE msg IN (\(Self.marks(c.count)))", c.map { $0 as Any? })
@@ -502,13 +505,13 @@ final class MailDB: @unchecked Sendable {
     /// Gmail has these messages now: a full sync listed them in round `epoch`, or the change list was applied to them up to its number `history`
     /// (so a read that began before that, and ends after, cannot overwrite them).
     @discardableResult
-    func touch(_ ids: [String], epoch: Int, history: Int64 = 0) -> Bool {
+    public func touch(_ ids: [String], epoch: Int, history: Int64 = 0) -> Bool {
         atomically { for c in Self.chunks(ids) { run("UPDATE messages SET seen=MAX(seen, ?), history_id=MAX(history_id, ?) WHERE id IN (\(Self.marks(c.count)))", [epoch as Any?, history as Any?] + c.map { $0 as Any? }) } }
     }
 
     /// The end of a full sync: whatever the round did not list is no longer in Gmail's mailbox. nil when the database refused (nothing is removed then).
     @discardableResult
-    func sweep(below epoch: Int) -> Int? {
+    public func sweep(below epoch: Int) -> Int? {
         transaction { () -> Int in
             var n = 0
             run("SELECT COUNT(*) FROM messages WHERE seen < ?", [epoch], { n = Int(sqlite3_column_int64($0, 0)) })
@@ -519,23 +522,23 @@ final class MailDB: @unchecked Sendable {
     }
 
     @discardableResult
-    func markUnverified(_ ids: [String]) -> Bool {
+    public func markUnverified(_ ids: [String]) -> Bool {
         atomically { for c in Self.chunks(ids) { run("UPDATE messages SET verified=0 WHERE id IN (\(Self.marks(c.count)))", c.map { $0 as Any? }) } }
     }
     @discardableResult
-    func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }
+    public func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }
     /// Makes "which rows are unconfirmed" instant. Built once (a few seconds on a big mailbox, so not at launch); later calls cost nothing.
     @discardableResult
-    func ensureFastLookups() -> Bool { run("CREATE INDEX IF NOT EXISTS messages_unverified ON messages(date) WHERE verified=0") }
+    public func ensureFastLookups() -> Bool { run("CREATE INDEX IF NOT EXISTS messages_unverified ON messages(date) WHERE verified=0") }
 
-    func unverifiedIDs(limit: Int) -> [String] {
+    public func unverifiedIDs(limit: Int) -> [String] {
         var out: [String] = []
         run("SELECT id FROM messages WHERE verified=0 ORDER BY date DESC LIMIT ?", [limit], { out.append(Self.text($0, 0)) })
         return out
     }
 
     /// Confirmed messages (all minus the few unconfirmed ones, which `messages_unverified` finds without reading the table: a scan of the whole table holds the one database lock for seconds).
-    func storedCount() -> Int {
+    public func storedCount() -> Int {
         var n = 0
         run("SELECT (SELECT COUNT(*) FROM messages) - (SELECT COUNT(*) FROM messages WHERE verified=0)", [], { n = Int(sqlite3_column_int64($0, 0)) })
         return n
@@ -548,7 +551,7 @@ final class MailDB: @unchecked Sendable {
     /// Once: the newest inbox rows the app already kept in inbox-cache.json become unconfirmed rows here (the full sync reads them again and confirms or drops them).
     /// A missing, unreadable or other-account file is ignored.
     @discardableResult
-    func importInboxCache(at url: URL?, account: String) -> Int {
+    public func importInboxCache(at url: URL?, account: String) -> Int {
         guard let url, state("cache_imported") != "1",
               let d = try? Data(contentsOf: url), let c = try? JSONDecoder().decode(CachedInbox.self, from: d),
               c.account.lowercased() == account.lowercased() else { return 0 }

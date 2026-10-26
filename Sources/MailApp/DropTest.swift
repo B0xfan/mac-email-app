@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import MailCore
 
 /// Stand-in for the information AppKit passes to a drop target at the end of a drag.
 final class FakeDrag: NSObject, NSDraggingInfo {

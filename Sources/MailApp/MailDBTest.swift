@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import Foundation
 import SQLite3
+import MailCore
 
 extension MailDB {
     /// All rows, confirmed or not (checks only).

@@ -2,6 +2,7 @@
 import Foundation
 import ImageIO
 import AppKit
+import MailCore
 
 /// Headless checks: `MailApp --selftest` and `MailApp --print-auth-url`. Prints no secrets.
 final class StubProtocol: URLProtocol, @unchecked Sendable {
@@ -240,6 +241,8 @@ enum SelfTest {
         if !(await partSync()) { ok = false }
         if !(await partHistory()) { ok = false }
         if !(await partLocalLists()) { ok = false }
+        if !(await partOrganizerSync()) { ok = false }
+        if !(await partTimingView()) { ok = false }
         if !(await partOutbox()) { ok = false }
         if !(await partStoredFixes()) { ok = false }
         if !(await partStoredInbox()) { ok = false }
@@ -845,7 +848,7 @@ enum SelfTest {
         func dayPlus(_ n: Int, _ h: Int) -> Date { TimeParser.at(h, 0, on: cal.date(byAdding: .day, value: n, to: now0)!, cal) }
         let inWeek = { (d: Date?) in d.map { $0 > now0 && $0 < now0.addingTimeInterval(8 * 86400) } ?? false }
         check("time: \"Tuesday 3pm\" is the coming Tuesday at 3:00 PM", Array(hm(tp("Tuesday 3pm")).prefix(2)) == [3, 15] && inWeek(tp("Tuesday 3pm")))
-        // a date ten days ahead, written like "oct 20": a fixed date went stale once it was in the past (same fix as on the iPhone branches)
+        // a date ten days ahead, written like "oct 20": a fixed date went stale once it was in the past
         let soonText: String = { let f = DateFormatter(); f.locale = Locale(identifier: "en_US"); f.dateFormat = "MMM d"; return f.string(from: now0.addingTimeInterval(10 * 86400)).lowercased() }()
         check("time: a day alone (\"friday\", \"Oct 20\") means 8:00 AM", hm(tp("friday")) == [6, 8, 0] && Array(hm(tp(soonText)).suffix(2)) == [8, 0])
         check("time: \"tomorrow\" is 8:00 AM, \"tomorrow 5pm\" is 5:00 PM", tp("tomorrow") == dayPlus(1, 8) && tp("tomorrow 5pm") == dayPlus(1, 17))

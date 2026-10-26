@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MailCore
 
 // Phase 4, section 6: private notes on an email. Gmail has no place for them, so they stay on this Mac (notes.json).
 

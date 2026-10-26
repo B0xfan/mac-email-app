@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Gmail's per-minute allowance: requests are paced, "too many requests" answers are waited out and repeated, and lists already read are not read again by themselves.
 extension SelfTest {

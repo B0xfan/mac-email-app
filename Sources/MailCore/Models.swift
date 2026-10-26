@@ -1,17 +1,18 @@
 import Foundation
 
-struct Address: Hashable, Codable {
+public struct Address: Hashable, Codable {
     /// Every address written anywhere in a header (also inside quoted names and comments), lower case. For safety checks, where more is better.
-    static func allEmails(in raw: String) -> [String] {
+    public static func allEmails(in raw: String) -> [String] {
         guard let re = try? NSRegularExpression(pattern: "[A-Za-z0-9._%+'\\-]+@[A-Za-z0-9.\\-]+") else { return [] }
         let ns = raw as NSString
         return re.matches(in: raw, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range).lowercased() }
     }
-    var name: String
-    var email: String
-    var domain: String { email.split(separator: "@").last.map(String.init)?.lowercased() ?? "" }
-    var display: String { name.isEmpty ? email : name }
-    var initials: String {
+    public var name: String
+    public var email: String
+    public init(name: String, email: String) { self.name = name; self.email = email }
+    public var domain: String { email.split(separator: "@").last.map(String.init)?.lowercased() ?? "" }
+    public var display: String { name.isEmpty ? email : name }
+    public var initials: String {
         let parts = display.split(whereSeparator: { " .-_@".contains($0) }).prefix(2)
         let s = parts.compactMap { $0.first }.map { String($0).uppercased() }.joined()
         return s.isEmpty ? "?" : s
@@ -20,7 +21,7 @@ struct Address: Hashable, Codable {
     /// "Name <a@b.c>", "<a@b.c>" or "a@b.c"
     /// Per character: inside a "quoted name" or a (comment)? A quote or bracket that never closes is plain text,
     /// so names like  Dell 24" Monitors  or  Sad :(  still give their address.
-    static func marks(_ s: String) -> [(ch: Character, quoted: Bool, comment: Bool)] {
+    public static func marks(_ s: String) -> [(ch: Character, quoted: Bool, comment: Bool)] {
         func pass(_ quotes: Bool, _ parens: Bool) -> (out: [(ch: Character, quoted: Bool, comment: Bool)], ok: Bool) {
             var out: [(ch: Character, quoted: Bool, comment: Bool)] = [], q = false, depth = 0, esc = false
             for ch in s {
@@ -38,7 +39,7 @@ struct Address: Hashable, Codable {
         return pass(false, false).out
     }
 
-    static func parse(_ raw: String) -> Address {
+    public static func parse(_ raw: String) -> Address {
         let s = raw.trimmingCharacters(in: .whitespaces)
         let m = marks(s), chars = m.map(\.ch)
         var lt: Int?, gt: Int?
@@ -61,7 +62,7 @@ struct Address: Hashable, Codable {
         return Address(name: MIME.decodeWords(name), email: rawEmail.trimmingCharacters(in: .whitespaces).lowercased())
     }
 
-    static func parseList(_ raw: String) -> [Address] {
+    public static func parseList(_ raw: String) -> [Address] {
         var parts: [String] = [], cur = "", inAngle = false
         for x in marks(raw) {
             if !x.quoted && !x.comment {
@@ -75,22 +76,25 @@ struct Address: Hashable, Codable {
     }
 }
 
-struct Attachment: Hashable, Identifiable, Codable {
-    var id: String { attachmentID }
-    let name: String
-    let attachmentID: String
-    let size: Int
+public struct Attachment: Hashable, Identifiable, Codable {
+    public var id: String { attachmentID }
+    public let name: String
+    public let attachmentID: String
+    public let size: Int
+    public init(name: String, attachmentID: String, size: Int) { self.name = name; self.attachmentID = attachmentID; self.size = size }
 }
 
 /// A picture inside an email that the message text refers to as cid:name.
-struct CIDPart: Hashable, Codable { var mime: String; var data: Data?; var attachmentID: String? }
+public struct CIDPart: Hashable, Codable { public var mime: String; public var data: Data?; public var attachmentID: String?
+    public init(mime: String, data: Data? = nil, attachmentID: String? = nil) { self.mime = mime; self.data = data; self.attachmentID = attachmentID } }
 
-struct UnsubscribeInfo: Hashable, Codable {
-    var https: URL?
-    var mailto: URL?
-    var oneClick: Bool
+public struct UnsubscribeInfo: Hashable, Codable {
+    public var https: URL?
+    public var mailto: URL?
+    public var oneClick: Bool
+    public init(https: URL? = nil, mailto: URL? = nil, oneClick: Bool) { self.https = https; self.mailto = mailto; self.oneClick = oneClick }
 
-    static func parse(header: String?, post: String?) -> UnsubscribeInfo? {
+    public static func parse(header: String?, post: String?) -> UnsubscribeInfo? {
         guard let header, !header.isEmpty else { return nil }
         var https: URL?, mailto: URL?
         for piece in header.split(separator: ",") {
@@ -106,60 +110,60 @@ struct UnsubscribeInfo: Hashable, Codable {
 }
 
 /// One message inside a conversation: enough for the count, the folded lines of the reading pane and "who wrote last".
-struct ConvMsg: Hashable, Codable, Identifiable {
-    let id: String
-    let from: Address
-    let subject: String
-    let snippet: String
-    let date: Date
-    var labels: [String]
-    var mine: Bool { labels.contains("SENT") }
-    var unread: Bool { labels.contains("UNREAD") }
-    var who: String { mine ? "You" : from.display }
-    init(_ m: Mail) { id = m.id; from = m.from; subject = m.subject; snippet = m.snippet; date = m.date; labels = m.labels }
+public struct ConvMsg: Hashable, Codable, Identifiable {
+    public let id: String
+    public let from: Address
+    public let subject: String
+    public let snippet: String
+    public let date: Date
+    public var labels: [String]
+    public var mine: Bool { labels.contains("SENT") }
+    public var unread: Bool { labels.contains("UNREAD") }
+    public var who: String { mine ? "You" : from.display }
+    public init(_ m: Mail) { id = m.id; from = m.from; subject = m.subject; snippet = m.snippet; date = m.date; labels = m.labels }
 }
 
-struct Mail: Identifiable, Hashable, Codable {
-    let id: String
-    let threadID: String
-    var labels: [String]
-    var from: Address
-    let to: String
-    let cc: String
-    var bcc: String?            // the Bcc header (only present on John's own drafts)
-    var subject: String
-    var arrived: Date?   // a snoozed email that came back: when it really arrived (date shows the time it came back)
-    var date: Date   // a snoozed or reminded email shows the time it came back
-    var snippet: String
-    let messageIDHeader: String
-    let references: String
-    let unsubscribe: UnsubscribeInfo?
-    var html: String?
-    var text: String?
-    var attachments: [Attachment]
-    var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
-    var convo: [ConvMsg]?       // every message of the conversation, oldest first (Trash, Spam and drafts left out); nil = not fetched by conversation (older cache, Sent, search)
-    var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
-    var msgHistory: Int64?      // Gmail's version tag for this one message (stored mail keeps the newest read; never saved in the row's copy)
-    var replyTo: String?        // the Reply-To header, when the sender set one
-    var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
-    var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
-    var fromAll: [String]?      // every address found anywhere in the From header(s), for the "hidden from Claude" check
+public struct Mail: Identifiable, Hashable, Codable {
+    public let id: String
+    public let threadID: String
+    public var labels: [String]
+    public var from: Address
+    public let to: String
+    public let cc: String
+    public var bcc: String?            // the Bcc header (only present on John's own drafts)
+    public var subject: String
+    public var arrived: Date?   // a snoozed email that came back: when it really arrived (date shows the time it came back)
+    public var date: Date   // a snoozed or reminded email shows the time it came back
+    public var snippet: String
+    public let messageIDHeader: String
+    public let references: String
+    public let unsubscribe: UnsubscribeInfo?
+    public var html: String?
+    public var text: String?
+    public var attachments: [Attachment]
+    public var siblings: [String]?     // other inbox emails of the same conversation (the row stands for all of them)
+    public var convo: [ConvMsg]?       // every message of the conversation, oldest first (Trash, Spam and drafts left out); nil = not fetched by conversation (older cache, Sent, search)
+    public var historyID: String?      // Gmail's version tag for the conversation when this row was fetched
+    public var msgHistory: Int64?      // Gmail's version tag for this one message (stored mail keeps the newest read; never saved in the row's copy)
+    public var replyTo: String?        // the Reply-To header, when the sender set one
+    public var authResults: String?    // the topmost Authentication-Results; "" = fetched and there is none; nil = not fetched (older cache)
+    public var cidParts: [String: CIDPart]?   // inline pictures of the message, by Content-ID (dropped from the saved list)
+    public var fromAll: [String]?      // every address found anywhere in the From header(s), for the "hidden from Claude" check
 
-    var unread: Bool { labels.contains("UNREAD") }
-    var inInbox: Bool { labels.contains("INBOX") }
+    public var unread: Bool { labels.contains("UNREAD") }
+    public var inInbox: Bool { labels.contains("INBOX") }
 
     /// How many messages the conversation holds (1 for a single email).
-    var convoCount: Int { max(convo?.count ?? 1, 1) }
+    public var convoCount: Int { max(convo?.count ?? 1, 1) }
     /// The row as it reads with "Group emails into conversations" on: whoever wrote last, with that message's subject, preview and time.
     /// Same id and labels, so selecting, unread and every action still work on the row itself.
-    var conversationFace: Mail {
+    public var conversationFace: Mail {
         guard let l = convo?.last else { return self }
         var x = self; x.from = l.from; x.subject = l.subject; x.snippet = l.snippet; x.date = max(date, l.date)   // max: a snoozed email that came back keeps its return time
         return x
     }
 
-    init(_ g: GMessage) {
+    public init(_ g: GMessage) {
         id = g.id
         msgHistory = Int64(g.historyId ?? "")
         threadID = g.threadId ?? g.id
@@ -203,7 +207,7 @@ struct Mail: Identifiable, Hashable, Codable {
     }
 
     // Test / sample construction
-    init(id: String, from: Address, subject: String, snippet: String, date: Date, labels: [String] = ["INBOX"],
+    public init(id: String, from: Address, subject: String, snippet: String, date: Date, labels: [String] = ["INBOX"],
          text: String? = nil, unsubscribe: UnsubscribeInfo? = nil, to: String = "me") {
         self.id = id; threadID = id; self.labels = labels; self.from = from; self.to = to; cc = ""
         self.subject = subject; self.date = date; self.snippet = snippet
@@ -213,7 +217,7 @@ struct Mail: Identifiable, Hashable, Codable {
 }
 
 extension String {
-    var htmlUnescaped: String {
+    public var htmlUnescaped: String {
         var s = self
         for (a, b) in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " ")] {
             s = s.replacingOccurrences(of: a, with: b)
@@ -224,18 +228,19 @@ extension String {
 
 // MARK: - HTML safety
 
-enum HTMLSafety {
-    struct Report { var trackers: Int; var remoteImages: Int
-        var line: String { "\(trackers) tracker\(trackers == 1 ? "" : "s") blocked" }
+public enum HTMLSafety {
+    public struct Report { public var trackers: Int; public var remoteImages: Int
+        public init(trackers: Int, remoteImages: Int) { self.trackers = trackers; self.remoteImages = remoteImages }
+        public var line: String { "\(trackers) tracker\(trackers == 1 ? "" : "s") blocked" }
     }
 
     // shortcut: a short built-in list, not a full tracker database; extend the lists when a new one slips through.
-    static let trackerHosts = ["doubleclick.net", "google-analytics.com", "googleadservices.com", "sendgrid.net", "mandrillapp.com", "list-manage.com",
+    public static let trackerHosts = ["doubleclick.net", "google-analytics.com", "googleadservices.com", "sendgrid.net", "mandrillapp.com", "list-manage.com",
         "hubspotemail.net", "hs-analytics.net", "mixpanel.com", "pixel.wp.com", "customeriomail.com", "mailtrack.io", "yesware.com", "getnotify.com",
         "createsend.com", "cmail19.com", "cmail20.com", "rs6.net", "returnpath.net", "ymlp.com", "mkt.com", "exct.net", "bounceexchange.com", "facebook.com/tr"]
-    static let trackerPaths = ["/track/open", "/wf/open", "/open.php", "/open.gif", "/pixel.", "/pixel?", "pixel.gif", "beacon", "/e/o/", "/e/open", "email-open", "/tracking/", "/trk?", "/o.gif"]
+    public static let trackerPaths = ["/track/open", "/wf/open", "/open.php", "/open.gif", "/pixel.", "/pixel?", "pixel.gif", "beacon", "/e/o/", "/e/open", "email-open", "/tracking/", "/trk?", "/o.gif"]
 
-    static func isTracker(tag: String, src: String) -> Bool {
+    public static func isTracker(tag: String, src: String) -> Bool {
         let t = tag.lowercased(), u = src.lowercased()
         if trackerHosts.contains(where: { u.contains($0) }) || trackerPaths.contains(where: { u.contains($0) }) { return true }
         let hidden = #"\b(width|height)\s*=\s*["']?[01](px)?(["'\s/>])|(width|height)\s*:\s*[01]px|display\s*:\s*none|visibility\s*:\s*hidden"#
@@ -243,7 +248,7 @@ enum HTMLSafety {
     }
 
     /// Splits remote images into trackers (removed from the returned HTML) and normal images (left alone, counted).
-    static func process(_ html: String?, blockTrackers: Bool = true) -> (html: String?, report: Report) {
+    public static func process(_ html: String?, blockTrackers: Bool = true) -> (html: String?, report: Report) {
         guard let html, let re = try? NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive]),
               let srcRe = try? NSRegularExpression(pattern: #"\bsrc\s*=\s*["']?(https?://[^"'\s>]+)"#, options: [.caseInsensitive])
         else { return (html, Report(trackers: 0, remoteImages: 0)) }
@@ -261,10 +266,10 @@ enum HTMLSafety {
     }
 
     /// Normal images show when the setting is on, or John loaded them for this email, or the sender is on his list.
-    static func shouldLoadImages(auto: Bool, senderAllowed: Bool, loadedThisEmail: Bool) -> Bool { auto || senderAllowed || loadedThisEmail }
+    public static func shouldLoadImages(auto: Bool, senderAllowed: Bool, loadedThisEmail: Bool) -> Bool { auto || senderAllowed || loadedThisEmail }
 
     /// Wraps message HTML in a locked-down page. Scripts are off in the web view as well.
-    static func page(_ body: String, allowRemote: Bool) -> String {
+    public static func page(_ body: String, allowRemote: Bool) -> String {
         """
         <!doctype html><html><head><meta charset="utf-8">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid:\(allowRemote ? " https: http:" : ""); style-src 'unsafe-inline'; font-src data:;">
@@ -277,13 +282,13 @@ enum HTMLSafety {
 
 // MARK: - MIME
 
-enum MIME {
-    static func encodeHeader(_ s: String) -> String {
+public enum MIME {
+    public static func encodeHeader(_ s: String) -> String {
         if s.unicodeScalars.allSatisfy({ $0.isASCII }) { return s }
         return "=?UTF-8?B?" + Data(s.utf8).base64EncodedString() + "?="
     }
 
-    static func decodeWords(_ s: String) -> String {
+    public static func decodeWords(_ s: String) -> String {
         guard s.contains("=?"), let re = try? NSRegularExpression(pattern: "=\\?([^?]+)\\?([bBqQ])\\?([^?]*)\\?=") else { return s }
         var out = s
         let ns = s as NSString
@@ -310,24 +315,29 @@ enum MIME {
         return out
     }
 
-    struct Outgoing {
-        var from: String
-        var to: String
-        var cc: String = ""
-        var bcc: String = ""
-        var subject: String
-        var html: String
-        var text: String
-        var inReplyTo: String = ""
-        var references: String = ""
-        var attachments: [(name: String, data: Data, mime: String)] = []
-        var extraHeaders: [String: String] = [:]
+    public struct Outgoing {
+        public var from: String
+        public var to: String
+        public var cc: String = ""
+        public var bcc: String = ""
+        public var subject: String
+        public var html: String
+        public var text: String
+        public var inReplyTo: String = ""
+        public var references: String = ""
+        public var attachments: [(name: String, data: Data, mime: String)] = []
+        public var extraHeaders: [String: String] = [:]
+        public init(from: String, to: String, cc: String = "", bcc: String = "", subject: String, html: String, text: String, inReplyTo: String = "", references: String = "",
+                    attachments: [(name: String, data: Data, mime: String)] = [], extraHeaders: [String: String] = [:]) {
+            self.from = from; self.to = to; self.cc = cc; self.bcc = bcc; self.subject = subject; self.html = html; self.text = text
+            self.inReplyTo = inReplyTo; self.references = references; self.attachments = attachments; self.extraHeaders = extraHeaders
+        }
     }
 
     /// A header value can never carry a line break, whatever the caller passes.
-    static func oneLine(_ s: String) -> String { s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ") }
+    public static func oneLine(_ s: String) -> String { s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ") }
 
-    static func build(_ o: Outgoing) -> Data {
+    public static func build(_ o: Outgoing) -> Data {
         let boundaryMixed = "mixed-" + UUID().uuidString
         let boundaryAlt = "alt-" + UUID().uuidString
         var h = ["MIME-Version: 1.0",
@@ -366,7 +376,7 @@ enum MIME {
         return Data((h.joined(separator: "\r\n") + "\r\n\r\n" + body).utf8)
     }
 
-    static func rfc2822(_ d: Date) -> String {
+    public static func rfc2822(_ d: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
@@ -376,12 +386,12 @@ enum MIME {
 
 // MARK: - Plain/HTML helpers for compose
 
-enum TextTools {
-    static func htmlEscape(_ s: String) -> String {
+public enum TextTools {
+    public static func htmlEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
     }
-    static func plainToHTML(_ s: String) -> String { htmlEscape(s).replacingOccurrences(of: "\n", with: "<br>") }
-    static func htmlToPlain(_ h: String) -> String {
+    public static func plainToHTML(_ s: String) -> String { htmlEscape(s).replacingOccurrences(of: "\n", with: "<br>") }
+    public static func htmlToPlain(_ h: String) -> String {
         var s = h.replacingOccurrences(of: "<br>", with: "\n").replacingOccurrences(of: "<br/>", with: "\n")
             .replacingOccurrences(of: "</div>", with: "\n").replacingOccurrences(of: "</p>", with: "\n").replacingOccurrences(of: "</li>", with: "\n")
         s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)

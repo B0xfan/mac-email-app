@@ -3,6 +3,35 @@
 name: build
 on: workflow_dispatch
 jobs:
+  # The shared MailCore package must keep compiling for the iPhone. Same manual trigger as the build job; no signing, nothing uploaded.
+  ios-core:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build MailCore for iOS
+        run: |
+          xcodebuild build -scheme MailCore -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+  # The iPhone app: builds for the simulator (no signing), runs its own checks on a pretend Gmail, and keeps a picture of every screen.
+  ios-app:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the iPhone app
+        run: |
+          xcodebuild build -project iPhone/AudreyMail.xcodeproj -scheme AudreyMail -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath dd CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Checks and screen pictures
+        run: scripts/ios-check.sh "$(find dd/Build/Products -maxdepth 3 -name AudreyMail.app | head -1)" ios-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-shots
+          path: ios-shots
+          retention-days: 3
+          if-no-files-found: ignore
   build:
     runs-on: macos-15
     timeout-minutes: 75

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import MailCore
 
 /// New senders, blocking (always a Gmail filter plus label) and one-click unsubscribe.
 extension MailStore {
@@ -21,34 +22,9 @@ extension MailStore {
         objectWillChange.send()
     }
 
-    private func ensureBlockedLabel() async throws -> String {
-        if let id = blockedLabelID { return id }
-        let labels = try await gmail.labels()
-        if let l = labels.first(where: { $0.name == blockLabelName }) { blockedLabelID = l.id; return l.id }
-        let l = try await gmail.createLabel(name: blockLabelName)
-        blockedLabelID = l.id
-        return l.id
-    }
-
-    /// Why this block must not happen, or nil. Never John's own address or company, never a whole free-mail service (a filter on @gmail.com would hide mail from millions of people).
+    /// Why this block must not happen, or nil (the rules live in MailCore so the iPhone app applies the same ones).
     func blockRefusal(_ a: Address, wholeCompany: Bool) -> String? {
-        let own = "That is your own address, so it was not blocked."
-        let mine = myAddresses.filter { !$0.isEmpty }
-        if accountEmail.isEmpty { return "Your own address is not known yet, so nothing was blocked." }   // cannot tell what is John's
-        let email = a.email.lowercased()
-        // exactly one clean address: a filter built from anything else (a list, "OR", no @) could match far more than one sender
-        if email.range(of: "^[a-z0-9._%+'\\-]+@[a-z0-9.\\-]+$", options: .regularExpression) == nil { return "That sender's address is not one clean address, so it was not blocked." }
-        func canon(_ e: String) -> String {   // gmail ignores dots and +tags
-            let p = e.split(separator: "@", maxSplits: 1).map(String.init)
-            guard p.count == 2, p[1] == "gmail.com" || p[1] == "googlemail.com" else { return e }
-            return p[0].split(separator: "+", maxSplits: 1, omittingEmptySubsequences: false)[0].replacingOccurrences(of: ".", with: "") + "@gmail.com"
-        }
-        if mine.contains(email) || mine.contains(where: { canon($0) == canon(email) }) { return own }
-        guard wholeCompany else { return nil }
-        let d = a.domain
-        if mine.contains(where: { $0.hasSuffix("@" + d) || $0.hasSuffix("." + d) }) { return "That is your own company, so it was not blocked." }
-        if FreeMail.has(a.domain) { return "\(a.domain) is a free email service used by millions of people, so it was not blocked. Block the address instead." }
-        return nil
+        BlockRules.refusal(a, wholeCompany: wholeCompany, myAddresses: myAddresses, accountEmail: accountEmail)
     }
 
     /// The addresses (or companies) a group block would really block: one each, without "No reply yet" rows (their sender is John) and anything `blockRefusal` stops.
@@ -62,13 +38,9 @@ extension MailStore {
     /// `wholeCompany` blocks every address at the domain. Existing mail is moved as a second step.
     @discardableResult
     func block(_ addr: Address, wholeCompany: Bool, reload: Bool = true) async -> Bool {
-        if let why = blockRefusal(addr, wholeCompany: wholeCompany) { self.error = why; return false }
-        do {
-            let label = try await ensureBlockedLabel()
-            let from = wholeCompany ? "@\(addr.domain)" : addr.email
-            _ = try await gmail.createFilter(from: from, addLabel: label)
-            var moveFailed = false
-            do { try await moveExisting(from: from, label: label) } catch { moveFailed = true }
+        do {   // the shared rules refuse an own address, a free-mail service and so on (BlockRefused carries the plain words)
+            let moveFailed = try await blockFlow.block(addr, wholeCompany: wholeCompany, myAddresses: myAddresses, accountEmail: accountEmail)
+            let from = BlockFlow.target(addr, wholeCompany: wholeCompany)
             blockMenuFor = nil
             status = wholeCompany ? "Blocked everyone at \(addr.domain). They were not told." : "Blocked \(addr.email). They were not told."
             if openMail?.from.email == addr.email { openMail = nil; selectedID = nil }
@@ -82,47 +54,18 @@ extension MailStore {
         }
     }
 
-    private func moveExisting(from: String, label: String) async throws {
-        let ids = try await gmail.listIDs(q: "from:\(GmailQuery.term(from)) in:inbox", max: GmailClient.all)
-        try await change(ids: ids, add: [label], remove: ["INBOX"])
-    }
-
     func blockAllNewSenders() async {
         confirmBlockAll = false
         let rows = newSenderRows
-        _ = try? await ensureBlockedLabel()   // once, so the parallel blocks do not each try to create it
+        _ = try? await blockFlow.ensureLabel()   // once, so the parallel blocks do not each try to create it
         _ = await mapLimited(rows, limit: 3) { m in await self.block(m.from, wholeCompany: false, reload: false) }
         await loadBlocked()
         status = "Blocked everyone. They were not told."
     }
 
     func loadBlocked() async {
-        do {
-            let labelID = try await ensureLabelIfExists()
-            let all = try await gmail.filters()
-            let fs = all.filter { labelID != nil && ($0.action?.addLabelIds ?? []).contains(labelID!) && $0.criteria?.from != nil }
-            // Spark's blocks are plain "from X, send to Trash" filters; list them too so John manages every block in one place
-            // only filters whose sole criterion is "from"; anything narrower (attachment, size, not-words, chats) is a rule, not a block
-            let old = all.filter { f in
-                guard let c = f.criteria else { return false }
-                return (f.action?.addLabelIds ?? []).contains("TRASH") && c.from != nil && c.subject == nil && c.query == nil && c.to == nil
-                    && c.negatedQuery == nil && c.hasAttachment == nil && c.size == nil && c.sizeComparison == nil && c.excludeChats == nil && f.action?.forward == nil
-            }
-            let g = gmail, name = blockLabelName
-            let mine = await mapLimited(fs, limit: 4) { f in
-                let from = f.criteria!.from!
-                let n = (try? await g.listIDs(q: "label:\"\(name)\" from:\(GmailQuery.term(from))", max: GmailClient.all).count) ?? 0   // counted, not estimated: asked for one email, Gmail answers 201 for any non-empty result
-                return BlockedEntry(id: f.id, from: from, count: n)
-            }
-            // no per-sender count for these: one call each would be hundreds of calls
-            blocked = mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }
-        } catch { self.error = (error as? LocalizedError)?.errorDescription }
-    }
-
-    private func ensureLabelIfExists() async throws -> String? {
-        if let id = blockedLabelID { return id }
-        if let l = try await gmail.labels().first(where: { $0.name == blockLabelName }) { blockedLabelID = l.id; return l.id }
-        return nil
+        do { blocked = try await blockFlow.list() }
+        catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
     /// Click a blocked sender: all their emails, in the same search list John already knows ("from:" is Gmail's own search word, and Gmail searches the Blocked label too).
@@ -143,17 +86,13 @@ extension MailStore {
     func unblock(_ e: BlockedEntry) async {
         var lifted = false
         // another block (a different filter, same sender) keeps them blocked, so nothing is moved back or approved
-        let covered = blocked.contains { $0.id != e.id && $0.from.lowercased() == e.from.lowercased() }
+        let covered = BlockFlow.isCovered(e, among: blocked)
         do {
-            do { try await gmail.deleteFilter(id: e.id) }
-            catch GmailError.http(404, _) {}   // already gone (an earlier try): carry on
+            let result = try await blockFlow.unblock(e, covered: covered)   // old Spark blocks: just the filter goes; their emails stay where they are
             lifted = true
-            if !covered, !e.toTrash, let label = try await ensureLabelIfExists() {   // old Spark blocks: just the filter goes; their emails stay where they are
-                let ids = try await gmail.listIDs(q: "label:\"\(blockLabelName)\" from:\(GmailQuery.term(e.from))", max: GmailClient.all)
-                try await change(ids: ids, add: ["INBOX"], remove: [label])
-            }
+            if let failure = result.moveBackFailure { throw failure }
             if !e.isCompany && !covered { book.approve(e.from) }
-            status = covered ? "Removed that block, but \(e.title) is still blocked by another rule, so their emails stay blocked." : e.toTrash ? "Unblocked \(e.title). New emails from them reach your inbox again; old ones stay in Trash." : "Unblocked \(e.title). Their old emails went back to your inbox."
+            status = BlockFlow.unblockedText(e, covered: covered)
             await loadBlocked()
             await refresh()
         } catch {
@@ -196,22 +135,5 @@ extension MailStore {
         } else {
             unsubStage = .done("Done. Their old emails stay where they are.")
         }
-    }
-}
-
-
-/// Free email services: a block on the whole domain would hide mail from millions of people, so only single addresses can be blocked there.
-enum FreeMail {
-    static let domains: Set<String> = ["gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
-        "yahoo.com", "ymail.com", "aol.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "mail.com", "zoho.com", "fastmail.com",
-        "hey.com", "web.de", "yandex.com", "mail.ru", "qq.com", "163.com", "126.com",
-        "comcast.net", "att.net", "sbcglobal.net", "verizon.net", "bellsouth.net", "cox.net", "charter.net", "earthlink.net", "rocketmail.com", "duck.com",
-        "tuta.com", "protonmail.ch", "gmx.at", "gmx.ch", "foxmail.com", "naver.com", "hanmail.net", "rediffmail.com", "btinternet.com", "t-online.de",
-        "orange.fr", "free.fr", "libero.it"]
-    /// Country versions (hotmail.co.uk, yahoo.com.br, outlook.es).
-    static let brands: Set<String> = ["gmail", "hotmail", "outlook", "live", "yahoo", "icloud", "aol", "msn"]
-    static func has(_ domain: String) -> Bool {
-        let d = domain.lowercased(), parts = d.split(separator: ".")
-        return domains.contains(d) || (parts.count <= 3 && parts.first.map { brands.contains(String($0)) } == true)
     }
 }

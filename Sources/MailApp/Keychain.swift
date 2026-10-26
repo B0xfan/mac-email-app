@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import MailCore
 
 /// The Keychain is used for one thing only: reading, once, the Google sign-in that older versions of the app kept
 /// there, so it can move into the private sign-in file. Nothing in the app writes to or deletes from the Keychain.

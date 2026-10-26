@@ -21,3 +21,9 @@ client_secret*.json
 Application Support/
 .build-safe.lock/
 .safe-budget.json*
+
+# iPhone app build output
+iPhone/dd/
+*.xcuserstate
+xcuserdata/
+!iPhone/AudreyMail.xcodeproj

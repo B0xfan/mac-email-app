@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// Lists read from the mail kept on this Mac (plan step 5), and the one place every change to Gmail goes through (step 5: written to both; step 6: local first).
 extension MailStore {

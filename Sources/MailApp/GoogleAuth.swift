@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Network
 import CryptoKit
+import MailCore
 
 enum GoogleConfig {
     static let scopes = [
@@ -22,6 +23,9 @@ enum GoogleConfig {
     }
 }
 
+/// The Google sign-in file is missing from this Mac (Mac only; the shared AuthError has no such case).
+struct MissingClientFile: Error, LocalizedError { var errorDescription: String? { "The Google sign-in file is missing from this Mac." } }
+
 struct ClientCredentials: Sendable {
     let clientID: String
     let clientSecret: String
@@ -32,22 +36,8 @@ struct ClientCredentials: Sendable {
               let inner = (root["installed"] ?? root["web"]) as? [String: Any],
               let id = inner["client_id"] as? String,
               let secret = inner["client_secret"] as? String
-        else { throw AuthError.missingClientFile }
+        else { throw MissingClientFile() }
         return ClientCredentials(clientID: id, clientSecret: secret)
-    }
-}
-
-enum AuthError: Error, LocalizedError {
-    case missingClientFile, denied(String), stateMismatch, noRefreshToken, signInAgain, network(String)
-    var errorDescription: String? {
-        switch self {
-        case .missingClientFile: return "The Google sign-in file is missing from this Mac."
-        case .denied(let r): return "Google did not allow the sign-in (\(r))."
-        case .stateMismatch: return "The sign-in reply did not match. Please try again."
-        case .noRefreshToken: return "Google did not return a lasting sign-in. Please try again."
-        case .signInAgain: return "Your Google sign-in expired. Please sign in again."
-        case .network(let m): return "Could not reach Google (\(m))."
-        }
     }
 }
 
@@ -153,7 +143,7 @@ final class LoopbackListener: @unchecked Sendable {
 struct StoredSignIn: Codable { var refreshToken: String; var email: String?; var timingKey: String? }   // timingKey: the timing service's key, kept with the sign-in
 
 /// Owns the sign-in lifecycle. Refresh token in the private sign-in file (see SignInFile); access token in memory only.
-actor GoogleAuth {
+actor GoogleAuth: AccessTokenProvider {
     private let session: URLSession
     private let credentials: () throws -> ClientCredentials
     private let file: URL

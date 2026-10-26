@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import MailCore
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
@@ -92,7 +93,7 @@ struct SettingsView: View {
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text("Undo Send delay").font(Theme.bodyStrong)
                 Picker("Undo Send delay", selection: $settings.undoDelay) {
-                    ForEach([5, 10, 20, 30], id: \.self) { Text("\($0) seconds").tag($0) }
+                    ForEach(UndoSend.choices, id: \.self) { Text("\($0) seconds").tag($0) }
                 }.pickerStyle(.radioGroup).labelsHidden()
             } }
             Text("After you send, an Undo button shows for \(settings.undoDelay) seconds.").font(Theme.small).foregroundStyle(Theme.sub)

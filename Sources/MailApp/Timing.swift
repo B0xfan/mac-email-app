@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import MailCore
 
 // Phase 3, timing. Gmail gives other apps no snooze and no scheduled send, so Mail keeps the times itself,
 // on this Mac (timing.json), and acts while it is open. A time missed while Mail was closed or the Mac slept
@@ -53,7 +54,7 @@ enum TimeParser {
     }
 
     /// "Sun 8:00 AM" for the preset list.
-    static func short(_ d: Date) -> String { fmt("EEE h:mm a").string(from: d) }
+    static func short(_ d: Date) -> String { TimingView.short(d) }   // the phone says the same words
     /// "Tue 13 Oct, 3:00 PM" for the line under the typing box.
     static func long(_ d: Date) -> String { fmt("EEE d MMM, h:mm a").string(from: d) }
     private static func fmt(_ f: String) -> DateFormatter { let x = DateFormatter(); x.dateFormat = f; return x }
@@ -65,15 +66,7 @@ struct TimePreset: Identifiable, Equatable { let label: String; let date: Date; 
 
 enum TimePresets {
     static func snooze(now: Date = Date(), cal: Calendar = .current) -> [TimePreset] {
-        var out: [TimePreset] = []
-        let h = cal.component(.hour, from: now)
-        let later = cal.date(byAdding: .hour, value: 3, to: now).map { roundUpToHour($0, cal) } ?? now
-        if cal.isDate(later, inSameDayAs: now), cal.component(.hour, from: later) < 20 { out.append(.init(label: "Later today", date: later)) }
-        if h < 18 { out.append(.init(label: "This evening", date: TimeParser.at(19, 0, on: now, cal))) }
-        out.append(.init(label: "Tomorrow morning", date: tomorrow(8, now, cal)))
-        out.append(.init(label: "This weekend", date: weekend(now, cal)))
-        out.append(.init(label: "Next week", date: TimeParser.at(8, 0, on: TimeParser.nextMonday(after: now, cal), cal)))
-        return out
+        SnoozeTimes.presets(now: now, cal: cal).map { TimePreset(label: $0.label, date: $0.date) }   // one copy, shared with the phone (MailCore)
     }
     static func sendLater(now: Date = Date(), cal: Calendar = .current) -> [TimePreset] {
         [.init(label: "Tomorrow morning", date: tomorrow(8, now, cal)),
@@ -87,17 +80,6 @@ enum TimePresets {
     }
     private static func tomorrow(_ h: Int, _ now: Date, _ cal: Calendar) -> Date {
         TimeParser.at(h, 0, on: cal.date(byAdding: .day, value: 1, to: now) ?? now, cal)
-    }
-    private static func roundUpToHour(_ d: Date, _ cal: Calendar) -> Date {
-        let s = cal.dateInterval(of: .hour, for: d)?.start ?? d
-        return s == d ? d : s.addingTimeInterval(3600)
-    }
-    /// Saturday 9:00 AM; on a Saturday (or a Sunday) that has started, the next weekend morning.
-    private static func weekend(_ now: Date, _ cal: Calendar) -> Date {
-        let wd = cal.component(.weekday, from: now)   // 1 Sun ... 7 Sat
-        if wd == 7 { return tomorrow(9, now, cal) }
-        let sat = cal.nextDate(after: now, matching: DateComponents(weekday: 7), matchingPolicy: .nextTime) ?? now
-        return TimeParser.at(9, 0, on: sat, cal)
     }
 }
 
@@ -132,6 +114,25 @@ struct TimingData: Codable, Equatable {
     var backTag: [String]?                     // snoozed emails that came back and are not opened yet: the row says "Back from snooze" (optional so older files still load)
     var noReply: [String] = []                 // came back because nobody answered: "No reply yet"
     var bigFiles: [DriveFile]?                 // big files on Drive that Mail deletes at their time (optional so older files still load)
+    var sharedView: TimingView?                // what this Mac and the Mail server last agreed on for the snooze state (optional so older files still load); nil = never shared yet
+}
+
+/// The snooze state the phone also shows, kept on the Mail server (MailCore/TimingView.swift).
+extension TimingData {
+    var view: TimingView {
+        func secs(_ d: [String: Date]) -> [String: Int] { d.mapValues { Int($0.timeIntervalSince1970) } }
+        return TimingView(snoozes: secs(snoozes), surfaced: secs(surfaced), backTag: backTag ?? [], noReply: noReply)
+    }
+    /// The server and this Mac now agree on `v`. A time that did not change keeps its exact value here.
+    mutating func adopt(_ v: TimingView) {
+        let sent = view   // what the shared copy could hold; anything this Mac has beyond that (over the size cap, an odd id) is kept here, never deleted
+        func dates(_ old: [String: Date], _ new: [String: Int]) -> [String: Date] {
+            new.reduce(into: [:]) { out, e in out[e.key] = old[e.key].flatMap { Int($0.timeIntervalSince1970) == e.value ? $0 : nil } ?? Date(timeIntervalSince1970: TimeInterval(e.value)) }
+        }
+        snoozes = dates(snoozes, v.snoozes).merging(snoozes.filter { sent.snoozes[$0.key] == nil }) { a, _ in a}
+        surfaced = dates(surfaced, v.surfaced).merging(surfaced.filter { sent.surfaced[$0.key] == nil }) { a, _ in a }
+        backTag = v.backTag + (backTag ?? []).filter { !sent.backTag.contains($0) }; noReply = v.noReply + noReply.filter { !sent.noReply.contains($0) }; sharedView = v
+    }
 }
 
 final class TimingBook {
@@ -161,8 +162,6 @@ enum TimingRules {
         thread.contains { $0.id != sentID && $0.date > sent && !$0.labels.contains("SENT") && !$0.labels.contains("DRAFT") }
     }
 }
-
-struct GThreadMessage: Equatable { let id: String; let labels: [String]; let date: Date }
 
 // MARK: - The time picker (used by Snooze, Send Later, reminders and Change time)
 

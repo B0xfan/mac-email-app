@@ -1,5 +1,6 @@
 #if TESTHARNESS
 import Foundation
+import MailCore
 
 /// Lists read from the mail kept on this Mac (plan step 5): Archive, Sent, folders, Recent, Set Aside, Snoozed and Drafts open with no request to Gmail.
 extension SelfTest {

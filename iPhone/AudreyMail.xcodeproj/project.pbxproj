@@ -1,0 +1,367 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A00000000000000000000002 /* AudreyMailApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000001 /* AudreyMailApp.swift */; };
+		A00000000000000000000004 /* BlockSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000003 /* BlockSheet.swift */; };
+		A00000000000000000000006 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000005 /* Components.swift */; };
+		A00000000000000000000008 /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007 /* ComposeView.swift */; };
+		A0000000000000000000000A /* DemoGmail.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000009 /* DemoGmail.swift */; };
+		A0000000000000000000000C /* DemoSelfTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000000B /* DemoSelfTest.swift */; };
+		A0000000000000000000000E /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000000D /* InboxView.swift */; };
+		A00000000000000000000010 /* NewSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000000F /* NewSendersView.swift */; };
+		A00000000000000000000012 /* PhoneAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* PhoneAuth.swift */; };
+		A00000000000000000000014 /* PhoneStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* PhoneStore.swift */; };
+		A00000000000000000000016 /* ReadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000015 /* ReadView.swift */; };
+		A00000000000000000000018 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000017 /* RootView.swift */; };
+		A0000000000000000000001A /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* SearchView.swift */; };
+		A0000000000000000000001C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001B /* SettingsView.swift */; };
+		A0000000000000000000001E /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001D /* SignInView.swift */; };
+		A00000000000000000000020 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001F /* Theme.swift */; };
+		A00000000000000000000022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000021 /* Assets.xcassets */; };
+		A0000000000000000000002F /* MailCore in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000002E /* MailCore */; };
+		A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */; };
+		A100000000000000001AC2DB /* MailboxesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000001AC2DA /* MailboxesView.swift */; };
+		A274955014B5C867A4523019 /* PhoneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25D6674FD218785770FFA4E /* PhoneServer.swift */; };
+		A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */ = {isa = PBXBuildFile; fileRef = A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */; };
+		A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */ = {isa = PBXBuildFile; fileRef = A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */; };
+		B1A0C0DE0000000000000002 /* PhoneStoreNotify.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1A0C0DE0000000000000001 /* PhoneStoreNotify.swift */; };
+		B5A000000000000000005002 /* PhoneStoreSnooze.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A000000000000000005001 /* PhoneStoreSnooze.swift */; };
+		B5A000000000000000005004 /* SnoozeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A000000000000000005003 /* SnoozeSheet.swift */; };
+		A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */; };
+		BF73913514DA707F79FA0074 /* PhoneSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15D27AC830309096B0FE59C /* PhoneSettings.swift */; };
+		B3EAF47A6FF1B6DB5AF81453 /* PhoneFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B4554C9EF108323808DA97 /* PhoneFiles.swift */; };
+		B3E7F53ABE19FFB946F9B202 /* PhoneStoreSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDF43F854FF3ADD817B546ED /* PhoneStoreSettings.swift */; };
+		B08D580637A330CFA6D58862 /* SettingsParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0198C57EC6951EA881692D3 /* SettingsParts.swift */; };
+		B61F74FCBD14B5DEC5F55450 /* SettingsPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDC809FD7A2B9E00C8EA57A7 /* SettingsPages.swift */; };
+		B4B2ED05FE7F1B151BE75916 /* SettingsGmailPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64DCBEF794B7048EF489BC5 /* SettingsGmailPages.swift */; };
+		BEE920E64E6412BCE02B91E1 /* SettingsTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B39DD5E57F0DB3B7FF7AECB6 /* SettingsTodo.swift */; };
+		B185C6BE4C5C0BC87DF5FDCA /* PhonePictures.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5FB66A857488E1718D9FB7 /* PhonePictures.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A00000000000000000000001 /* AudreyMailApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudreyMailApp.swift; sourceTree = "<group>"; };
+		A00000000000000000000003 /* BlockSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockSheet.swift; sourceTree = "<group>"; };
+		A00000000000000000000005 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		A00000000000000000000007 /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
+		A00000000000000000000009 /* DemoGmail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoGmail.swift; sourceTree = "<group>"; };
+		A0000000000000000000000B /* DemoSelfTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoSelfTest.swift; sourceTree = "<group>"; };
+		A0000000000000000000000D /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
+		A0000000000000000000000F /* NewSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSendersView.swift; sourceTree = "<group>"; };
+		A00000000000000000000011 /* PhoneAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAuth.swift; sourceTree = "<group>"; };
+		A00000000000000000000013 /* PhoneStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStore.swift; sourceTree = "<group>"; };
+		A00000000000000000000015 /* ReadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadView.swift; sourceTree = "<group>"; };
+		A00000000000000000000017 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A00000000000000000000019 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		A0000000000000000000001B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A0000000000000000000001D /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		A0000000000000000000001F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A00000000000000000000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A00000000000000000000023 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A00000000000000000000024 /* AudreyMail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AudreyMail.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreMailboxes.swift; sourceTree = "<group>"; };
+		A100000000000000001AC2DA /* MailboxesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxesView.swift; sourceTree = "<group>"; };
+		A25D6674FD218785770FFA4E /* PhoneServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneServer.swift; sourceTree = "<group>"; };
+		A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreShared.swift; sourceTree = "<group>"; };
+		A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreHeld.swift; sourceTree = "<group>"; };
+		B1A0C0DE0000000000000001 /* PhoneStoreNotify.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreNotify.swift; sourceTree = "<group>"; };
+		B5A000000000000000005001 /* PhoneStoreSnooze.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreSnooze.swift; sourceTree = "<group>"; };
+		B5A000000000000000005003 /* SnoozeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnoozeSheet.swift; sourceTree = "<group>"; };
+		A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartFolderViews.swift; sourceTree = "<group>"; };
+		B15D27AC830309096B0FE59C /* PhoneSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneSettings.swift; sourceTree = "<group>"; };
+		B0B4554C9EF108323808DA97 /* PhoneFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneFiles.swift; sourceTree = "<group>"; };
+		BDF43F854FF3ADD817B546ED /* PhoneStoreSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneStoreSettings.swift; sourceTree = "<group>"; };
+		B0198C57EC6951EA881692D3 /* SettingsParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsParts.swift; sourceTree = "<group>"; };
+		BDC809FD7A2B9E00C8EA57A7 /* SettingsPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPages.swift; sourceTree = "<group>"; };
+		B64DCBEF794B7048EF489BC5 /* SettingsGmailPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsGmailPages.swift; sourceTree = "<group>"; };
+		B39DD5E57F0DB3B7FF7AECB6 /* SettingsTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTodo.swift; sourceTree = "<group>"; };
+		BE5FB66A857488E1718D9FB7 /* PhonePictures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePictures.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A0000000000000000000002B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0000000000000000000002F /* MailCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000025 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000026 /* AudreyMail */,
+				A00000000000000000000027 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000026 /* AudreyMail */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000001 /* AudreyMailApp.swift */,
+				A00000000000000000000003 /* BlockSheet.swift */,
+				A00000000000000000000005 /* Components.swift */,
+				A00000000000000000000007 /* ComposeView.swift */,
+				A00000000000000000000009 /* DemoGmail.swift */,
+				A0000000000000000000000B /* DemoSelfTest.swift */,
+				A0000000000000000000000D /* InboxView.swift */,
+				A0000000000000000000000F /* NewSendersView.swift */,
+				A00000000000000000000011 /* PhoneAuth.swift */,
+				A00000000000000000000013 /* PhoneStore.swift */,
+				A00000000000000000000015 /* ReadView.swift */,
+				A00000000000000000000017 /* RootView.swift */,
+				A00000000000000000000019 /* SearchView.swift */,
+				A0000000000000000000001B /* SettingsView.swift */,
+				A0000000000000000000001D /* SignInView.swift */,
+				A0000000000000000000001F /* Theme.swift */,
+				A1000000000000000000D0E8 /* PhoneStoreMailboxes.swift */,
+				A100000000000000001AC2DA /* MailboxesView.swift */,
+				A2BCAD71A6B440901C48427E /* SmartFolderViews.swift */,
+				A27DDA3E26B8CDF92AAE3A63 /* PhoneStoreHeld.swift */,
+				B1A0C0DE0000000000000001 /* PhoneStoreNotify.swift */,
+				B5A000000000000000005001 /* PhoneStoreSnooze.swift */,
+				B5A000000000000000005003 /* SnoozeSheet.swift */,
+				A211A2AA195BAD24163F2010 /* PhoneStoreShared.swift */,
+				A25D6674FD218785770FFA4E /* PhoneServer.swift */,
+				BE5FB66A857488E1718D9FB7 /* PhonePictures.swift */,
+				B39DD5E57F0DB3B7FF7AECB6 /* SettingsTodo.swift */,
+				B64DCBEF794B7048EF489BC5 /* SettingsGmailPages.swift */,
+				BDC809FD7A2B9E00C8EA57A7 /* SettingsPages.swift */,
+				B0198C57EC6951EA881692D3 /* SettingsParts.swift */,
+				BDF43F854FF3ADD817B546ED /* PhoneStoreSettings.swift */,
+				B0B4554C9EF108323808DA97 /* PhoneFiles.swift */,
+				B15D27AC830309096B0FE59C /* PhoneSettings.swift */,
+				A00000000000000000000021 /* Assets.xcassets */,
+				A00000000000000000000023 /* Info.plist */,
+			);
+			path = AudreyMail;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000027 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000024 /* AudreyMail.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000028 /* AudreyMail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000034 /* Build configuration list for PBXNativeTarget "AudreyMail" */;
+			buildPhases = (
+				A0000000000000000000002A /* Sources */,
+				A0000000000000000000002B /* Frameworks */,
+				A0000000000000000000002C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AudreyMail;
+			packageProductDependencies = (
+				A0000000000000000000002E /* MailCore */,
+			);
+			productName = AudreyMail;
+			productReference = A00000000000000000000024 /* AudreyMail.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000029 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = A00000000000000000000035 /* Build configuration list for PBXProject "AudreyMail" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000025;
+			packageReferences = (
+				A0000000000000000000002D /* XCLocalSwiftPackageReference ".." */,
+			);
+			productRefGroup = A00000000000000000000027 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000028 /* AudreyMail */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A0000000000000000000002C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000022 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A0000000000000000000002A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A00000000000000000000002 /* AudreyMailApp.swift in Sources */,
+				A00000000000000000000004 /* BlockSheet.swift in Sources */,
+				A00000000000000000000006 /* Components.swift in Sources */,
+				A00000000000000000000008 /* ComposeView.swift in Sources */,
+				A0000000000000000000000A /* DemoGmail.swift in Sources */,
+				A0000000000000000000000C /* DemoSelfTest.swift in Sources */,
+				A0000000000000000000000E /* InboxView.swift in Sources */,
+				A00000000000000000000010 /* NewSendersView.swift in Sources */,
+				A00000000000000000000012 /* PhoneAuth.swift in Sources */,
+				A00000000000000000000014 /* PhoneStore.swift in Sources */,
+				A00000000000000000000016 /* ReadView.swift in Sources */,
+				A00000000000000000000018 /* RootView.swift in Sources */,
+				A0000000000000000000001A /* SearchView.swift in Sources */,
+				A0000000000000000000001C /* SettingsView.swift in Sources */,
+				A0000000000000000000001E /* SignInView.swift in Sources */,
+				A00000000000000000000020 /* Theme.swift in Sources */,
+				A100000000000000001AC2DB /* MailboxesView.swift in Sources */,
+				A2538C8F6EB5C683563B5829 /* SmartFolderViews.swift in Sources */,
+				A22635FEF7ABC9E2C8706D9D /* PhoneStoreHeld.swift in Sources */,
+				B1A0C0DE0000000000000002 /* PhoneStoreNotify.swift in Sources */,
+				B5A000000000000000005002 /* PhoneStoreSnooze.swift in Sources */,
+				B5A000000000000000005004 /* SnoozeSheet.swift in Sources */,
+				A28B16793A3A1B8FDE23FC88 /* PhoneStoreShared.swift in Sources */,
+				B185C6BE4C5C0BC87DF5FDCA /* PhonePictures.swift in Sources */,
+				BEE920E64E6412BCE02B91E1 /* SettingsTodo.swift in Sources */,
+				B4B2ED05FE7F1B151BE75916 /* SettingsGmailPages.swift in Sources */,
+				B61F74FCBD14B5DEC5F55450 /* SettingsPages.swift in Sources */,
+				B08D580637A330CFA6D58862 /* SettingsParts.swift in Sources */,
+				B3E7F53ABE19FFB946F9B202 /* PhoneStoreSettings.swift in Sources */,
+				B3EAF47A6FF1B6DB5AF81453 /* PhoneFiles.swift in Sources */,
+				BF73913514DA707F79FA0074 /* PhoneSettings.swift in Sources */,
+				A274955014B5C867A4523019 /* PhoneServer.swift in Sources */,
+				A1000000000000000000D0E9 /* PhoneStoreMailboxes.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000030 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = LJZ32VB25F;
+				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_IOS_CLIENT_PREFIX = "NOT-SET";
+				INFOPLIST_FILE = AudreyMail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Audrey Mail";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.johnhesch.audreymail;
+				PRODUCT_NAME = AudreyMail;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A00000000000000000000031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = LJZ32VB25F;
+				GENERATE_INFOPLIST_FILE = YES;
+				GOOGLE_IOS_CLIENT_PREFIX = "NOT-SET";
+				INFOPLIST_FILE = AudreyMail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Audrey Mail";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.johnhesch.audreymail;
+				PRODUCT_NAME = AudreyMail;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		A00000000000000000000032 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A00000000000000000000033 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000034 /* Build configuration list for PBXNativeTarget "AudreyMail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000030 /* Debug */,
+				A00000000000000000000031 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000035 /* Build configuration list for PBXProject "AudreyMail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000032 /* Debug */,
+				A00000000000000000000033 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A0000000000000000000002D /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "..";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A0000000000000000000002E /* MailCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MailCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A00000000000000000000029 /* Project object */;
+}

@@ -1,124 +1,25 @@
 import SwiftUI
 import AppKit
+import MailCore
 
-// Rules = Gmail's own filters (settings.basic scope, already requested), so they also work on the phone and with the Mac off.
-// Gmail cannot update a filter in place: Edit creates the new one first, then deletes the old one.
-
-struct MailRule: Equatable {
-    enum Importance { case asIs, important, notImportant }
-    var id = ""                      // Gmail filter id; empty = not saved yet
-    var from = "", to = "", subject = "", has = "", not = ""
-    var att = false, skip = false, read = false, star = false, trash = false, noSpam = false
-    var folder: String?              // label id; "Move to folder" = add the label and skip the inbox
-    var imp = Importance.asIs
-
-    private static func t(_ s: String) -> String? { let x = s.trimmingCharacters(in: .whitespacesAndNewlines); return x.isEmpty ? nil : x }
-
-    var conditions: [String] {
-        [Self.t(from).map { "from \($0)" }, Self.t(to).map { "sent to \($0)" }, Self.t(subject).map { "with \"\($0)\" in the subject" },
-         Self.t(has).map { "with the words \"\($0)\"" }, Self.t(not).map { "without the words \"\($0)\"" }, att ? "with an attachment" : nil].compactMap { $0 }
-    }
-    func actions(_ names: [String: String]) -> [String] {
-        [skip && folder == nil ? "skip the inbox" : nil, read ? "mark as read" : nil, star ? "star it" : nil,
-         folder.map { "move to folder \(names[$0] ?? "(unknown)")" }, trash ? "move to Trash" : nil, noSpam ? "never send to Spam" : nil,
-         imp == .important ? "mark important" : imp == .notImportant ? "mark not important" : nil].compactMap { $0 }
-    }
-    func summary(_ names: [String: String]) -> String {
-        let c = conditions, a = actions(names).joined(separator: ", ")
-        return (c.isEmpty ? "Any email" : "Emails " + c.joined(separator: " and ")) + " \u{2192} " + (a.isEmpty ? "do nothing yet" : a.prefix(1).uppercased() + String(a.dropFirst()))
-    }
-    /// Gmail refuses a filter with no condition or no action.
-    var problem: String? {
-        if conditions.isEmpty { return "Add at least one thing to look for." }
-        if actions([:]).isEmpty { return "Pick at least one thing to do." }
-        return nil
-    }
-
-    func json() -> [String: Any] {
-        var c: [String: Any] = [:]
-        if let v = Self.t(from) { c["from"] = v }
-        if let v = Self.t(to) { c["to"] = v }
-        if let v = Self.t(subject) { c["subject"] = v }
-        if let v = Self.t(has) { c["query"] = v }
-        if let v = Self.t(not) { c["negatedQuery"] = v }
-        if att { c["hasAttachment"] = true }
-        var add: [String] = [], rem: [String] = []
-        if star { add.append("STARRED") }
-        if trash { add.append("TRASH") }
-        if let folder { add.append(folder) }
-        if imp == .important { add.append("IMPORTANT") }
-        if skip || folder != nil { rem.append("INBOX") }
-        if read { rem.append("UNREAD") }
-        if noSpam { rem.append("SPAM") }
-        if imp == .notImportant { rem.append("IMPORTANT") }
-        return ["criteria": c, "action": ["addLabelIds": add, "removeLabelIds": rem]]
-    }
-
-    init() {}
-    init(from address: String) { from = address }
-    /// nil = Mail cannot say this filter in plain words (size, forwarding, categories, a folder that keeps the inbox...): shown read-only, never touched.
-    init?(_ f: GFilter, userLabels: Set<String>) {
-        guard let a = f.action, f.criteria?.size == nil, f.criteria?.sizeComparison == nil, f.criteria?.excludeChats == nil, a.forward == nil else { return nil }
-        let c = f.criteria
-        id = f.id; from = c?.from ?? ""; to = c?.to ?? ""; subject = c?.subject ?? ""; has = c?.query ?? ""; not = c?.negatedQuery ?? ""; att = c?.hasAttachment ?? false
-        var add = Set(a.addLabelIds ?? []), rem = Set(a.removeLabelIds ?? [])
-        star = add.remove("STARRED") != nil; trash = add.remove("TRASH") != nil
-        let up = add.remove("IMPORTANT") != nil, down = rem.remove("IMPORTANT") != nil
-        if up && down { return nil }
-        imp = up ? .important : down ? .notImportant : .asIs
-        read = rem.remove("UNREAD") != nil; noSpam = rem.remove("SPAM") != nil; skip = rem.remove("INBOX") != nil
-        if add.count == 1, let l = add.first, userLabels.contains(l) { if !skip { return nil }; folder = l; skip = false; add = [] }
-        if !add.isEmpty || !rem.isEmpty { return nil }
-    }
-}
-
-struct RuleRow: Identifiable {
-    let id: String
-    let rule: MailRule?      // nil = read-only
-    let text: String
-    let fromBlock: Bool
-}
-
-extension GFilter {
-    /// What a filter Mail cannot express says, in the little we can: its search words.
-    var plain: String {
-        let c = criteria
-        let bits = [(c?.from).map { "from \($0)" }, (c?.to).map { "to \($0)" }, (c?.subject).map { "subject \($0)" }, c?.query, (c?.negatedQuery).map { "not \($0)" }].compactMap { $0 }
-        return "A Gmail filter" + (bits.isEmpty ? "" : " (" + bits.joined(separator: ", ") + ")") + " that Audrey Mail cannot show in plain words. Change it in Gmail."
-    }
-}
+// Rules = Gmail's own filters; the rule type and the read/save steps are shared with the iPhone (MailCore/Rules.swift).
 
 extension MailStore {
     func loadRules() async {
         do {
-            let labels = try await gmail.labels(), fs = try await gmail.filters()
-            let names = Dictionary(labels.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-            let user = Set(labels.filter { $0.type != "system" }.map(\.id)), blockID = labels.first { $0.name == blockLabelName }?.id
-            rules = fs.map { f in
-                guard let r = MailRule(f, userLabels: user) else { return RuleRow(id: f.id, rule: nil, text: f.plain, fromBlock: false) }
-                return RuleRow(id: f.id, rule: r, text: r.summary(names), fromBlock: r.folder != nil && r.folder == blockID && !r.from.isEmpty)
-            }
-            ruleNames = names; rulesError = nil
+            let l = try await RuleBook.load(gmail: gmail, blockLabel: blockLabelName)
+            rules = l.rows; ruleNames = l.names; rulesError = nil
         } catch { rulesError = "Could not read your rules from Gmail: \(error.localizedDescription)" }
     }
 
     /// Returns the error text to show (or nil) and, when the new filter exists, its id. The new filter is made first, so a failure never leaves John with neither.
     func saveRule(_ r: MailRule) async -> (error: String?, newID: String?) {
-        if let p = r.problem { return (p, nil) }
-        let old = rules.first { $0.id == r.id }
-        if let o = old?.rule, o == r { return (nil, nil) }
-        var same = r; same.id = ""
-        if rules.contains(where: { if var x = $0.rule { x.id = ""; return x == same } else { return false } }) { return ("You already have this rule.", nil) }
-        let made: GFilter
-        do { made = try await gmail.createFilter(r.json()) } catch { return (error.localizedDescription, nil) }
-        let blockish = old?.fromBlock == true || r.folder.flatMap { ruleNames[$0] } == blockLabelName
-        var problem: String?
-        if !r.id.isEmpty {
-            do { try await gmail.deleteFilter(id: r.id) } catch { problem = "Saved, but the old copy could not be removed. Delete it from the list." }
+        let s = await RuleBook.save(r, rows: rules, names: ruleNames, blockLabel: blockLabelName, gmail: gmail)
+        if s.reload {
+            await loadRules()
+            if s.blockish { await loadBlocked() }
         }
-        await loadRules()
-        if blockish { await loadBlocked() }
-        return (problem, problem == nil ? nil : made.id)
+        return (s.error, s.newID)
     }
 
     /// A rule made when blocking a sender is deleted exactly like Unblock: old emails go back to the inbox.

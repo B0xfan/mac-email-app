@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// Send Later while the Mac is off: Mail tells the timing service about each scheduled draft and asks it for the result.
 /// Every call here is optional help: with the server unreachable, Mail sends on time as it always did.
@@ -77,6 +78,27 @@ extension MailStore {
         catch TimingServerError.refused(let c) where c == 400 || c == 403 { registerDone = true }   // not on the list: do not ask again this launch
         catch TimingServerError.unreachable { markOffline() }
         catch {}   // no sign-in yet: the next check tries again
+    }
+
+    /// First pass after launch, and whenever the snooze state here differs from what the server has.
+    var timingViewDue: Bool { Date() >= timingViewRetryAt && (!timingViewSynced || timing.data.view != (timing.data.sharedView ?? TimingView())) }
+
+    /// Moves the snooze times, came-back times and the "Back from snooze" / "No reply yet" lists to the Mail server so the phone shows them.
+    /// The first time, what this Mac already has is merged into the server's (nothing is lost); after that each change here is written. Without the server the Mac works as before.
+    func syncTimingView() async {
+        guard let srv = timingServer, !timingViewBusy else { return }
+        timingViewBusy = true; defer { timingViewBusy = false }
+        for _ in 0..<3 {
+            let before = timing.data.view
+            do {
+                let r = try await TimingViewSync.run(base: timing.data.sharedView ?? TimingView(), local: before, link: srv)
+                timingViewSynced = true
+                if timing.data.view != before { continue }   // changed meanwhile: merge again so the change is not overwritten
+                if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) }; objectWillChange.send() }
+                return
+            } catch TimingServerError.unreachable { markOffline(); return }
+            catch { timingViewRetryAt = Date().addingTimeInterval(600); return }   // refused (an older server, too big) or busy: the Mac works on its own; tries again in 10 minutes
+        }
     }
 
     private func markFollow(_ id: String, _ f: (inout FollowUp) -> Void) {

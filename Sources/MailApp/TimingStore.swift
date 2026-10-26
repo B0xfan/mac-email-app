@@ -1,4 +1,5 @@
 import Foundation
+import MailCore
 
 /// Phase 3: Snooze, Send Later, follow-up reminders and Quick Replies.
 extension MailStore {
@@ -19,6 +20,7 @@ extension MailStore {
         case .changeSnooze(let id):
             timing.change { $0.snoozes[id] = d }; objectWillChange.send()
             showToast("Snoozed until \(TimeParser.short(d)).")
+            Task { await syncTimingView() }
         case .changeScheduled(let id):
             guard await serverAgrees(id, newTime: d) else { return }   // an old time still held by the service could send it early
             timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; t.scheduled[i].server = (t.scheduled[i].server == "on" || t.scheduled[i].server == "maybe") ? "on" : nil } }; objectWillChange.send()
@@ -49,6 +51,7 @@ extension MailStore {
                 var x = m; x.labels.removeAll { $0 == "INBOX" }; if !x.labels.contains(l) { x.labels.append(l) }
                 snoozed.removeAll { $0.id == m.id }; snoozed.append(x)
             }
+            Task { await syncTimingView() }
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
@@ -82,6 +85,7 @@ extension MailStore {
             snoozed.removeAll { ids.contains($0.id) }
             inbox.sort { $0.date > $1.date }
             saveCache()
+            Task { await syncTimingView() }
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
@@ -97,9 +101,7 @@ extension MailStore {
     /// The row's "Back from snooze" line; it goes once the email is opened (the row keeps its place).
     // shortcut: keyed by message, so a newer reply in the conversation hides the tag; fine for newsletters, key by thread if it matters.
     func backTagText(_ m: Mail) -> String? {
-        guard timing.data.backTag?.contains(m.id) == true else { return nil }
-        let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"
-        return "\u{263E} Back from snooze" + (m.arrived.map { " \u{00B7} arrived " + f.string(from: $0) } ?? "")
+        timing.data.backTag?.contains(m.id) == true ? TimingView.backLine(arrived: m.arrived) : nil
     }
     func clearBackTag(_ id: String) {
         if timing.data.backTag?.contains(id) == true { timing.change { $0.backTag?.removeAll { $0 == id } } }
@@ -158,14 +160,14 @@ extension MailStore {
         } catch { return }   // offline: try again on the next check
         await releaseServer(s.draftID)   // before touching the draft; Undo then needs nothing from the service
         let delay = settings.undoDelay
-        toast = ToastInfo(text: MailStore.sendingText(delay), action: "Undo")
+        toast = ToastInfo(text: UndoSend.sendingText(delay), action: "Undo")
         let tid = toast!.id
         pendingScheduled = (s.draftID, tid)
         scheduledTask = Task { [weak self] in
             for left in stride(from: delay - 1, to: 0, by: -1) {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 if Task.isCancelled { return }
-                if self?.toast?.id == tid { self?.toast?.text = MailStore.sendingText(left) }
+                if self?.toast?.id == tid { self?.toast?.text = UndoSend.sendingText(left) }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard let self, !Task.isCancelled, let mark = self.claim(s.draftID) else { return }   // a quit already took it
@@ -262,6 +264,8 @@ extension MailStore {
         timersBusy = true; offline = false   // the first "unreachable" in this pass skips the other service calls
         defer { timersBusy = false; offline = false }
         await registerWithServer()   // first thing after launch, with the existing sign-in
+        if !offline, lastOrganizerAt.map({ Date().timeIntervalSince($0) > 120 }) ?? true { await syncOrganizer() }   // phone changes show here within a couple of minutes
+        if !offline, timingViewDue { await syncTimingView() }   // the phone reads the snooze state from the server
         await syncServer()
         await syncReminders()
         let wakeIDs = TimingRules.due(timing.data.snoozes, now: now).filter { id in snoozed.contains { $0.id == id } }
