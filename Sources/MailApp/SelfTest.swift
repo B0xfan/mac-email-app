@@ -1654,7 +1654,7 @@ enum SelfTest {
                 if qv(u, "q")?.hasSuffix("in:inbox") == true { return tok == "B2" ? (200, "{\"messages\":[{\"id\":\"b3\"}]}") : (200, "{\"messages\":[{\"id\":\"b1\"},{\"id\":\"b2\"}],\"nextPageToken\":\"B2\"}") }
                 return (200, "{}")
             }
-            if path.contains("/messages/") { let id = u.lastPathComponent; return (200, msgJSON(id, id, ["Label_S"], 1_700_000_000_000)) }
+            if path.contains("/messages/") { let id = u.lastPathComponent; return (200, msgJSON(id, id, id == "gone" ? ["INBOX"] : ["Label_S"], 1_700_000_000_000)) }
             if path.hasSuffix("/labels") && req.httpMethod == "GET" { return (200, "{\"labels\":[{\"id\":\"Label_S\",\"name\":\"Snoozed\"},{\"id\":\"Label_B\",\"name\":\"Blocked\"}]}") }
             if path.hasSuffix("/settings/filters") && req.httpMethod == "POST" { return (200, "{\"id\":\"F1\"}") }
             return (200, "{}")
@@ -1731,10 +1731,11 @@ enum SelfTest {
               GmailQuery.term("a@x.example") == "\"a@x.example\"" && GmailQuery.term("@x.example") == "@x.example" && !GmailQuery.term("x@y.example OR in:anywhere").contains(" ")
               && r2calls.contains { ($0.removingPercentEncoding ?? $0).contains("from:\"newbie@x.example\" before:") })
         // Snoozed list pages; the saved time of an email on page 2 survives
-        let ss2 = await MainActor.run { let st = r2store(); st.snoozeLabelID = "Label_S"; st.timing.change { $0.snoozes["s3"] = Date().addingTimeInterval(3600); $0.snoozes["gone"] = Date().addingTimeInterval(3600) }; return st }
+        let ss2 = await MainActor.run { let st = r2store(); st.snoozeLabelID = "Label_S"; st.timing.change { $0.snoozes["s3"] = Date().addingTimeInterval(3600); $0.snoozes["gone"] = Date().addingTimeInterval(3600); $0.snoozes["phone1"] = Date().addingTimeInterval(3600) }; return st }   // phone1: a phone snooze the stored list does not show yet, Gmail still has the label
         await ss2.loadSnoozed()
         let sz = await MainActor.run { (ss2.snoozed.map(\.id), ss2.timing.data.snoozes.keys.sorted()) }
-        check("snoozed paging: all 3 listed across pages; time kept for s3 (on page 2), dropped only for the one truly gone", sz.0 == ["s1", "s2", "s3"] && sz.1 == ["s3"])
+        check("snoozed paging: all 3 listed across pages; time kept for s3 (on page 2), dropped only for the one Gmail says is truly gone", sz.0 == ["s1", "s2", "s3"] && sz.1 == ["phone1", "s3"])
+        check("snoozed list: a phone snooze the stored mail does not show yet keeps its time while Gmail has the label on it (the server would skip it otherwise)", sz.1.contains("phone1") && !sz.1.contains("gone"))
         // blocking moves every existing email from the sender, across pages
         r2calls = []
         let bs = await MainActor.run { let st = r2store(); st.accountEmail = "john@mine.example"; return st }
