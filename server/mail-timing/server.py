@@ -13,6 +13,7 @@ DEVICE_RE = re.compile(r"^[a-z0-9-]{1,20}\Z")   # "mac" (what an app that sends 
 MAX_DEVICES = 5; MAX_ORGANIZER_BODY = 65536; MAX_TIMING = 2000
 GRACE = lambda: int(E("GRACE_SECONDS", "120"))   # the Mac, if awake, goes first; this is the backstop
 MAX_PENDING = 200
+SIGNIN_OFF = "signin label off"   # a sign-in failure that must not forget LABEL_OFF; signing in again restores it
 LABEL_OFF = "label off"   # snooze note: Gmail already took the snooze label off, only the shared view is left to write
 SNOOZE_LABELS = ("Snoozed", "Mail Snoozed")   # the Gmail label the Mac and phone put on a snoozed email (Mail's own fallback name second)
 _tokens = {}   # email -> (access token, expiry); memory only
@@ -211,7 +212,7 @@ def wake(c, r, now, labels):
     if want != r["wake_at"]:
         with c: c.execute("UPDATE snoozes SET wake_at=?, status='pending', claimed_at=NULL, attempts=0, retry_at=0, note=NULL, updated=? WHERE email=? AND message_id=?", (want, now, email, mid))
         return   # moved to the new time; the next pass wakes it then
-    off = False   # Gmail already took the label off: a retry must finish the shared view, not call it "skipped"
+    off = r["note"] == LABEL_OFF   # Gmail may already have the label off (set right before the POST, since a timed-out reply still changed it): a retry must finish the shared view, not call it "skipped"
     try:
         s, ids = 200, labels.get(email)
         if ids is None:   # once per account per pass
@@ -226,12 +227,11 @@ def wake(c, r, now, labels):
                 if {"TRASH", "SPAM"} & have or not labeled and r["note"] != LABEL_OFF: return sfinish(c, email, mid, "skipped", now, "no longer snoozed")
                 if labeled:
                     with c: c.execute("UPDATE snoozes SET note=? WHERE email=? AND message_id=?", (LABEL_OFF, email, mid))   # survives a crash before the view is written
+                    off = True   # right before the POST: if its reply times out, Gmail may still have made the change
                     s, b = as_user(c, email, "POST", "/messages/" + mid + "/modify", {"addLabelIds": ["INBOX", "UNREAD"], "removeLabelIds": [lid]})
-                if s == 200:
-                    off = True
-                    return woke(c, email, mid, now)
+                if s == 200: return woke(c, email, mid, now)
     except SignInGone:
-        return sfinish(c, email, mid, "failed", now, "signin")
+        return sfinish(c, email, mid, "failed", now, SIGNIN_OFF if off else "signin")
     except Exception: s, b = 599, {}
     if s == 404: return sfinish(c, email, mid, "gone", now, "email deleted")
     n = r["attempts"] + 1
@@ -367,7 +367,7 @@ class H(BaseHTTPRequestHandler):
                       (email, dev, hashlib.sha256(key.encode()).hexdigest(), rt, cid, now))
             c.execute("UPDATE jobs SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
             c.execute("UPDATE reminders SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
-            c.execute("UPDATE snoozes SET status='pending', note=NULL, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note='signin'", (email,))
+            c.execute("UPDATE snoozes SET status='pending', note=CASE note WHEN ? THEN ? END, attempts=0, retry_at=0 WHERE email=? AND status='failed' AND note IN ('signin', ?)", (SIGNIN_OFF, LABEL_OFF, email, SIGNIN_OFF))
         with _lock: _tokens.pop(email + "/" + dev, None)
         self.out(200, {"api_key": key, "email": email, "device": dev})
 

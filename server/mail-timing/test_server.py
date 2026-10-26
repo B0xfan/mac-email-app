@@ -17,10 +17,10 @@ class G(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0); raw = self.rfile.read(n)
         if self.path.startswith("/messages/") and self.path.endswith("/modify"):
-            if mode["modify"] != 200: return self.reply(mode["modify"], {})
+            if mode["modify"] != 200 and not mode.get("apply"): return self.reply(mode["modify"], {})   # "apply": Gmail makes the change, the reply is an error
             j = json.loads(raw); modify_log.append((self.path[10:-7], j["addLabelIds"])); rm_log.append(j.get("removeLabelIds"))
             if self.path[10:-7] in msg_labels: msg_labels[self.path[10:-7]] = (msg_labels[self.path[10:-7]] - set(j.get("removeLabelIds") or [])) | set(j["addLabelIds"])
-            return self.reply(200, {})
+            return self.reply(mode["modify"] if mode.get("apply") else 200, {})
         if self.path == "/token":
             form = dict(x.split("=") for x in raw.decode().split("&")); forms.append(form)
             if form["refresh_token"] in bad_rt: return self.reply(400, {"error": "invalid_grant"})
@@ -457,6 +457,19 @@ server.tick(now + 149999); check("snooze: still waiting just before the new time
 server.tick(now + 150000); check("snooze: woken at the new time", snz()["s11"]["status"] == "woken" and msg_labels["s11"] == {"INBOX", "UNREAD"})
 msg_labels["s12"] = msg_labels["s13"] = {"L1"}; put_snz("s12", now - 60); put_snz("s13", now - 50); label_calls.clear(); server.tick(now + 160000)
 check("snooze: label list fetched once per account per pass, both woken", len(label_calls) == 1 and snz()["s12"]["status"] == "woken" and snz()["s13"]["status"] == "woken")
+# review fixes round 2 (2026-10-26)
+msg_labels["s14"] = {"L1"}; put_snz("s14", now - 60); mark = len(modify_log); mode["modify"] = 503; mode["apply"] = True; server.tick(now + 105000)
+mode["modify"] = 200; mode["apply"] = False
+check("snooze: Gmail made the change but its reply failed: the 'label off' note is kept", snz()["s14"]["status"] == "pending" and snz()["s14"]["note"] == "label off" and msg_labels["s14"] == {"INBOX", "UNREAD"})
+server.tick(now + 106000); tv = req("GET", "/timing-view", key=K2)[1]
+check("snooze: ...and the retry finishes the view (not 'skipped'), Gmail touched once", snz()["s14"]["status"] == "woken" and "s14" not in tv["snoozes"] and "s14" in tv["back_tag"] and [m for m, _ in modify_log[mark:]] == ["s14"])
+msg_labels["s15"] = {"L1"}; put_snz("s15", now - 60); server.woke = flaky; server.tick(now + 110000); server.woke = real_woke
+mode["token"] = 400; server._tokens.clear(); server.tick(now + 111000)
+check("snooze: sign-in revoked while 'label off' is pending: still flagged for sign-in, label-off kept in the note", snz()["s15"]["status"] == "failed" and snz()["s15"]["note"].startswith("signin") and msg_labels["s15"] == {"INBOX", "UNREAD"})
+mode["token"] = 200; K2 = req("POST", "/register", {"refresh_token": "r" * 20})[1]["api_key"]
+check("snooze: signing in again restores 'label off'", snz()["s15"]["status"] == "pending" and snz()["s15"]["note"] == "label off")
+server.tick(now + 112000); tv = req("GET", "/timing-view", key=K2)[1]
+check("snooze: ...and the view is finished (not 'skipped'), Gmail touched once", snz()["s15"]["status"] == "woken" and "s15" not in tv["snoozes"] and "s15" in tv["back_tag"] and [m for m, _ in modify_log].count("s15") == 1)
 for i in range(server.MAX_PENDING): c.execute("INSERT INTO snoozes(email,message_id,wake_at,status,updated) VALUES('me@example.com',?,?, 'pending', 1)", ("f%d" % i, now + 99999))
 c.commit(); check("snooze: 201st pending refused, but an edit of an existing one still works", put_snz("new", now + 60)[0] == 429 and put_snz("f0", now + 70)[0] == 200)
 c.execute("DELETE FROM snoozes WHERE message_id LIKE 'f%'"); c.commit()
