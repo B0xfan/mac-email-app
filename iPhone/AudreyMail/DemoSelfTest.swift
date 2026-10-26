@@ -754,8 +754,9 @@ enum DemoSelfTest {
             b.msgs.append(DemoMailbox.Msg(id: "n1", thread: "Tn1", labels: ["INBOX", "UNREAD"], from: person, subject: "Lunch on Friday?", body: "Are you around?", date: Date()))
             b.msgs.append(DemoMailbox.Msg(id: "n3", thread: "Tn3", labels: ["INBOX", "UNREAD"], from: "Daily Deals <deals@shop.example>", subject: "Big sale", body: "Buy now", date: Date(), unsub: true))
         }
-        await store.refresh()
+        await idle(); await store.refresh()
         await store.announceNewMail()
+        print("INFO banners told: \(told.lists)")
         check("a new unread email from a person gets one banner, and a newsletter gets none", told.lists == [["n1"]])
         await store.announceNewMail()
         check("the same email is not announced twice", told.lists == [["n1"]])
@@ -765,7 +766,7 @@ enum DemoSelfTest {
               Set(store.defaults.stringArray(forKey: PhoneStore.seenMailKey) ?? []) == Set(store.inbox.map(\.id)))
         store.prefs.notifyNewMail = false
         box.with { $0.msgs.append(DemoMailbox.Msg(id: "n2", thread: "Tn2", labels: ["INBOX", "UNREAD"], from: person, subject: "One more thing", body: "Also", date: Date())) }
-        await store.refresh()
+        await idle(); await store.refresh()
         await store.announceNewMail()
         store.prefs.notifyNewMail = true
         await store.announceNewMail()
