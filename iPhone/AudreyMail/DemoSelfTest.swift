@@ -608,7 +608,7 @@ enum DemoSelfTest {
         PhoneServer.snoozeGap = 0; PhoneServer.busyPause = 0.01
         func until(_ ok: () -> Bool) async -> Bool { for _ in 0..<160 { if ok() { return true }; try? await Task.sleep(nanoseconds: 50_000_000) }; return ok() }
         func idle() async { for _ in 0..<2 { try? await Task.sleep(nanoseconds: 300_000_000); _ = await until { !store.refreshing && !store.snoozeBusy && !store.timingBusy } } }   // background work started by the last step has ended
-        func fetched(_ id: String) async -> Mail? { for _ in 0..<10 { if let m = row(id) { return m }; await idle(); await store.refresh() }; return row(id) }
+        func appears(_ id: String) async -> Mail? { for _ in 0..<10 { if let m = row(id) { return m }; await idle(); await store.refresh() }; return row(id) }
         let monday = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 14, minute: 10))!
         func dayHour(_ d: Date) -> String { let c = Calendar.current.dateComponents([.weekday, .day, .hour, .minute], from: d); return "\(c.weekday!)/\(c.day!)/\(c.hour!):\(c.minute!)" }
         check("the time picker offers the Mac's times: Later today 6 PM, This evening 7 PM, Tomorrow morning, Saturday 9 AM, Next Monday 8 AM",
@@ -670,7 +670,7 @@ enum DemoSelfTest {
             b.srvLog = []
         }
         await idle(); await store.refresh()
-        let convo = await fetched("k1b")
+        let convo = await appears("k1b")
         check("a conversation with two inbox emails is one row that stands for both", convo?.id == "k1b" && convo?.siblings == ["k1a"])
         if let convo {
             await store.snooze(convo, until: Date().addingTimeInterval(4 * 3600)).value; await store.settle()
@@ -688,7 +688,7 @@ enum DemoSelfTest {
             for n in ["a", "b", "c"] { b.msgs.append(DemoMailbox.Msg(id: "k3" + n, thread: "Tk3" + n, labels: ["INBOX", "UNREAD"], from: "Sam Roe <sam.roe@example.com>", subject: "Item " + n, body: "Hello", date: Date().addingTimeInterval(-900))) }
         }
         await idle(); await store.refresh()
-        let k3 = [await fetched("k3a"), await fetched("k3b"), await fetched("k3c")].compactMap { $0 }
+        let k3 = [await appears("k3a"), await appears("k3b"), await appears("k3c")].compactMap { $0 }
         box.with { $0.srvDown = true }
         for (n, m) in k3.enumerated() { await store.snooze(m, until: Date().addingTimeInterval(Double(6 + n) * 3600)).value }
         await store.settle()
