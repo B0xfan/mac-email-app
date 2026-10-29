@@ -270,6 +270,8 @@ enum ListTest {
         await s.open(jb)
         s.openMail = jb   // the pretend Gmail has no body for it: keep the one with the link
         await LiveTest.pump(1.5)
+        check("creator email: the reading pane's Unsubscribe and Block are drawn (not a new sender, the email's link is found)",
+              !s.selectedIsNewSender && UnsubscribeInfo.bodyLink(html: s.openMail?.html)?.host == "track.gumroad.example")
         let shot = "\(dir)/list-14-creator-email.png"
         try? FileManager.default.removeItem(atPath: shot)
         LiveTest.grab(w, shot)
