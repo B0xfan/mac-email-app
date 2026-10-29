@@ -9,19 +9,19 @@ extension MailStore {
 
     func approve(_ m: Mail) async {
         book.approve(m.from.email); knownCache[m.from.email] = true
-        Task { await shareApprovals([m.from.email]) }   // in the background: the approval shows at once, even offline
         status = "Approved \(m.from.display). Their emails now reach your inbox."
         blockMenuFor = nil
         objectWillChange.send()
         if mailbox == .newSenders, openMail?.id == m.id { await select(.inbox); await open(m) }
+        await shareApprovals([m.from.email])   // last: the approval shows at once, even offline
     }
 
     func approveAll() async {
         let emails = newSenderRows.map { $0.from.email }
         book.approve(all: emails); emails.forEach { knownCache[$0] = true }
-        Task { await shareApprovals(emails) }
         status = "Approved everyone. Their emails now reach your inbox."
         objectWillChange.send()
+        await shareApprovals(emails)
     }
 
     /// Puts the hidden "Approved senders" label on these senders' inbox emails, so the iPhone approves them too. Quiet: a failure is tried again by the next sender check.
