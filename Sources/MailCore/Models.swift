@@ -107,6 +107,20 @@ public struct UnsubscribeInfo: Hashable, Codable {
         let one = (post ?? "").lowercased().contains("list-unsubscribe=one-click")
         return UnsubscribeInfo(https: https, mailto: mailto, oneClick: one && https != nil)
     }
+
+    /// An email with no unsubscribe header: the first https link whose text says Unsubscribe. Only ever opened in the browser on a click.
+    public static func bodyLink(html: String?) -> URL? {
+        guard let html, html.range(of: "unsubscribe", options: .caseInsensitive) != nil,
+              let re = try? NSRegularExpression(pattern: #"<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>(.{0,400}?)</a>"#, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { return nil }
+        for m in re.matches(in: html, range: NSRange(html.startIndex..., in: html)) {
+            guard let hr = Range(m.range(at: 1), in: html), let tr = Range(m.range(at: 2), in: html) else { continue }
+            let text = html[tr].replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            guard text.range(of: "unsubscribe", options: .caseInsensitive) != nil,
+                  let u = URL(string: String(html[hr]).htmlUnescaped), u.scheme?.lowercased() == "https" else { continue }
+            return u
+        }
+        return nil
+    }
 }
 
 /// One message inside a conversation: enough for the count, the folded lines of the reading pane and "who wrote last".

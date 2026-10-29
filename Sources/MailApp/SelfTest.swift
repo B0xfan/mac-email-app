@@ -207,6 +207,12 @@ enum SelfTest {
         let pm = mk("p", "priya@x.example", unread: true, h: 1), nm = mk("n", "noreply@bank.example", unread: true, h: 2), lm = mk("l", "digest@x.example", unsub: true, h: 3)
         check("smart inbox: guesses People, Notifications, Newsletters",
               MailCategory.guess(pm) == .people && MailCategory.guess(nm) == .notifications && MailCategory.guess(lm) == .newsletters)
+        check("unsubscribe link in the email: the https link whose text says Unsubscribe, entities decoded; http, mailto and other links refused",
+              UnsubscribeInfo.bodyLink(html: "<a href=\"https://x.example/a\">Shop</a> <a class=\"f\" href=\"https://x.example/u?a=1&amp;b=2\"><span>Unsubscribe</span></a>")?.absoluteString == "https://x.example/u?a=1&b=2"
+              && UnsubscribeInfo.bodyLink(html: "<a href=\"http://x.example/u\">Unsubscribe</a>") == nil
+              && UnsubscribeInfo.bodyLink(html: "<a href=\"mailto:u@x.example\">unsubscribe</a>") == nil
+              && UnsubscribeInfo.bodyLink(html: "<a href=\"https://x.example/a\">Read more</a> to unsubscribe reply STOP") == nil
+              && UnsubscribeInfo.bodyLink(html: nil) == nil)
         let gs = SmartInbox.groups([lm, pm, nm], category: { cb.learned($0.from.email) ?? .guess($0) })
         check("smart inbox: groups in fixed order, newest first, empty groups left out",
               gs.map(\.id) == ["people", "notifications", "newsletters"] && SmartInbox.groups([pm], category: MailCategory.guess).count == 1 && gs[0].unread == 1)

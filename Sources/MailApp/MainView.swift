@@ -872,10 +872,15 @@ struct ReadingContent: View {
                 }
                 Spacer()
                 NoteButton(store: store, mail: mail).fixedSize()
-                if mail.unsubscribe != nil, !store.selectedIsNewSender, store.unsubStage == .idle {
+                if !store.selectedIsNewSender, store.unsubStage == .idle {
                     HStack(spacing: 8) {
-                        Button("Unsubscribe") { Task { await store.unsubscribe(mail) } }
-                            .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Unsubscribe from \(mail.from.display)")
+                        if mail.unsubscribe != nil {
+                            Button("Unsubscribe") { Task { await store.unsubscribe(mail) } }
+                                .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Unsubscribe from \(mail.from.display)")
+                        } else if let link = UnsubscribeInfo.bodyLink(html: mail.html) {   // no header: the email's own link, opened in the browser
+                            Button("Unsubscribe") { NSWorkspace.shared.open(link) }
+                                .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Unsubscribe from \(mail.from.display)")
+                        }
                         Button("Block") { store.blockMenuFor = store.blockMenuFor == "read" ? nil : "read" }
                             .buttonStyle(MailButtonStyle(kind: .neutral, compact: true)).accessibilityLabel("Block \(mail.from.display)")
                             .popover(isPresented: Binding(get: { store.blockMenuFor == "read" }, set: { if !$0 { store.blockMenuFor = nil } })) { BlockMenu(store: store, addr: mail.from) }
