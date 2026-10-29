@@ -300,7 +300,7 @@ enum DemoSelfTest {
         await store.loadFolders()
         check("folders are the Gmail labels, nested ones included, without the Blocked label", store.folders.map(\.name) == ["Receipts", "Taxes", "Travel", "Travel/Italy"] && store.folders.last?.depth == 1 && store.folders.last?.leaf == "Italy")
         let bad1 = await store.createFolder("Inbox"), bad2 = await store.createFolder("receipts"), bad3 = await store.createFolder("/x")
-        check("names Gmail or Audrey Mail use, repeats and bad slashes are refused with a sentence", bad1 != nil && bad2 != nil && bad3 != nil && box.with { $0.labels.count } == 7)
+        check("names Gmail or Audrey Mail use, repeats and bad slashes are refused with a sentence", bad1 != nil && bad2 != nil && bad3 != nil && box.with { $0.labels.count } == 8)   // 8: the hidden Approved senders label the approve check made
         let made = await store.createFolder("Receipts/2026")
         check("a new folder is made in Gmail and can sit inside another", made == nil && box.with { b in b.labels.contains { $0.name == "Receipts/2026" } } && store.folders.contains { $0.name == "Receipts/2026" })
         let receipts = store.folders.first { $0.name == "Receipts" }!

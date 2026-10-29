@@ -1761,7 +1761,7 @@ enum SelfTest {
         let apA = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("ap1", "macnew@x.example", h: 0)]; return st }
         countKnown = false; r2calls = []
         await apA.classifySenders()
-        let apRow = await MainActor.run { apA.newSenderRows.first }
+        let apRow: Mail? = await MainActor.run { apA.newSenderRows.first }
         if let apRow { await apA.approve(apRow) }
         let apMade = r2calls.contains { $0.hasPrefix("POST") && $0.contains("/labels") && $0.contains("labelHide") }, apMod = r2calls.contains { $0.contains("batchModify") && $0.contains("ap1") && $0.contains("Label_A") }
         check("approved senders: approving on the Mac puts the hidden Approved senders label on their emails in Gmail", apRow != nil && apMade && apMod)
