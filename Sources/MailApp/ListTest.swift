@@ -210,6 +210,79 @@ enum ListTest {
         sw.close()
         check("13-storage page: the Storage settings page draws (picture is not blank)", ((try? FileManager.default.attributesOfItem(atPath: sp)[.size] as? Int) ?? 0) > 5_000)
         win.close()
+        if await !creatorEmail(into: dir) { ok = false }
+        return ok
+    }
+
+    /// John 2026-10-29: a creator email (no unsubscribe header, an Unsubscribe link in the body) showed no Unsubscribe and
+    /// no Block button, and right-click > Move to category > Newsletters left it in People.
+    static func creatorEmail(into dir: String) async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        let st = AppSettings.shared
+        let (wasView, wasTab, wasScreen) = (st.inboxView, st.smartTab, st.screenNewSenders)
+        defer { st.inboxView = wasView; st.smartTab = wasTab; st.screenNewSenders = wasScreen }
+        st.inboxView = .smart; st.smartTab = MailCategory.people.rawValue; st.screenNewSenders = false
+        let tmp = FileManager.default.temporaryDirectory
+        let catURL = tmp.appendingPathComponent("listtest-cat-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: catURL) }
+        let m = SignInModel()
+        let s = MailStore(auth: m, gmail: GmailClient(auth: m.auth), book: SenderBook(url: tmp.appendingPathComponent("listtest-senders-\(UUID().uuidString).json")),
+                          seen: SeenBook(url: tmp.appendingPathComponent("listtest-seen-\(UUID().uuidString).json")), categories: CategoryBook(url: catURL),
+                          asides: AsideBook(url: nil), organizer: OrganizerBook(url: nil))
+        s.accountEmail = "marta@harborlane.example"
+        var jb = Mail(id: "jb", from: Address(name: "Jordi Bruin", email: "goodsnooze@creators.gumroad.example"), subject: "Wider - Full Screen Safari", snippet: "Hi, Jordi here", date: Date(), labels: ["INBOX", "UNREAD"])
+        jb.html = "<p>Hi, Jordi here</p><p><a href=\"https://track.gumroad.example/CL0/https:%2F%2Fgumroad.example%2Funsub\">Unsubscribe</a></p>"
+        s.book.approve(jb.from.email)
+        s.inbox = [jb]; s.mailbox = .inbox; s.homeShown = false
+        check("creator email: the guess puts it in People (no unsubscribe header)", MailCategory.guess(jb) == .people)
+
+        let w = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.borderless], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.appearance = NSAppearance(named: .aqua)
+        let host = NSHostingView(rootView: MailRoot(store: s))
+        w.contentView = host
+        w.orderFront(nil)
+        await LiveTest.pump(1.0)
+
+        // right-click the row: find the point whose menu holds "Move to category", then pick Newsletters in it
+        var menu: NSMenu?
+        for y in stride(from: 40.0, through: 600, by: 10) where menu == nil {
+            let p = CGPoint(x: 450, y: 900 - y)
+            let e = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: w.windowNumber, context: nil, eventNumber: 500, clickCount: 1, pressure: 1)!
+            if let mm = host.hitTest(host.convert(p, from: nil))?.menu(for: e) ?? host.menu(for: e), mm.items.contains(where: { $0.title == "Move to category" }) { menu = mm }
+        }
+        print("creator email: right-click menu items \(menu?.items.map(\.title) ?? [])")
+        check("creator email: the row's right-click menu has Move to category", menu != nil)
+        if let menu, let i = menu.items.firstIndex(where: { $0.title == "Move to category" }), let sub = menu.items[i].submenu {
+            sub.delegate?.menuNeedsUpdate?(sub); sub.delegate?.menuWillOpen?(sub)
+            print("creator email: Move to category items \(sub.items.map(\.title))")
+            if let j = sub.items.firstIndex(where: { $0.title == "Newsletters" }) { sub.performActionForItem(at: j) }
+            sub.delegate?.menuDidClose?(sub)
+            await LiveTest.pump(0.8)
+        }
+        check("creator email: Move to category > Newsletters moves it to Newsletters", s.category(of: jb) == .newsletters)
+        check("creator email: the move is saved for next time", CategoryBook(url: catURL).learned(jb.from.email) == .newsletters)
+
+        // open it: the reading pane must offer Unsubscribe (the body link) and Block
+        s.categories.learn(jb.from.email, .people); st.smartTab = MailCategory.people.rawValue
+        await s.open(jb)
+        await LiveTest.pump(1.5)
+        var labels: [String] = []
+        func walk(_ o: Any, _ depth: Int) {
+            guard depth < 40 else { return }
+            if let l = (o as AnyObject).accessibilityLabel?(), !l.isEmpty { labels.append(l) }
+            for c in (o as AnyObject).accessibilityChildren?() ?? [] { walk(c, depth + 1) }
+        }
+        walk(host, 0)
+        print("creator email: \(labels.count) labels, header ones \(labels.filter { $0.contains("Jordi") })")
+        check("creator email: the reading pane has a Block button", labels.contains("Block Jordi Bruin"))
+        check("creator email: the reading pane has an Unsubscribe button (from the link in the email)", labels.contains("Unsubscribe from Jordi Bruin"))
+        let shot = "\(dir)/list-14-creator-email.png"
+        try? FileManager.default.removeItem(atPath: shot)
+        LiveTest.grab(w, shot)
+        w.close()
         return ok
     }
 
