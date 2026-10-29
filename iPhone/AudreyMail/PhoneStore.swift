@@ -342,6 +342,11 @@ final class PhoneStore: ObservableObject {
 
     /// Known = they wrote before screening began, or John wrote to them. A lookup that fails is skipped and asked again next time.
     func classifySenders() async {
+        let shared = labelList.first { $0.name == Approvals.labelName }?.id
+        let elsewhere = Approvals.approvedElsewhere(inbox, labelID: shared).filter { !book.isApproved($0) }   // approved on the Mac
+        if !elsewhere.isEmpty { book.approve(all: Array(elsewhere)); elsewhere.forEach { knownCache[$0] = true }; pics.recheck() }
+        let unshared = Set(inbox.filter { $0.date > book.screeningStart && book.isApproved($0.from.email) && !$0.labels.contains(shared ?? "") }.map(\.from.email))
+        if shared != nil, !unshared.isEmpty { await shareApprovals(Array(unshared)) }   // approvals made here before the label existed, and new mail from approved senders (once the label exists, so a background check never shows a label error)
         let unknown = Array(Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil })
         guard !unknown.isEmpty else { return }
         let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy/MM/dd"   // Gmail reads Western digits and years only
@@ -359,12 +364,25 @@ final class PhoneStore: ObservableObject {
 
     func approve(_ m: Mail) {
         book.approve(all: [m.from.email]); knownCache[m.from.email] = true; pics.recheck()
+        Task { await shareApprovals([m.from.email]) }
         show("Approved \(m.from.display). Their emails now reach your inbox.")
     }
     func approveAll() {
         let es = newSenderRows.map { $0.from.email }
         book.approve(all: es); es.forEach { knownCache[$0] = true }; pics.recheck()
+        Task { await shareApprovals(es) }
         show("Approved everyone. Their emails now reach your inbox.")
+    }
+
+    /// Puts the hidden "Approved senders" label on these senders' inbox emails, so the Mac approves them too (the same label the Mac uses).
+    func shareApprovals(_ senders: [String]) async {
+        guard let id = await ensureLabel(Approvals.labelName, hidden: true) else { return }
+        let ids = Approvals.unlabeled(inbox, from: Set(senders.map { $0.lowercased() }), labelID: id)
+        guard !ids.isEmpty else { return }
+        enqueue { [weak self] in   // quiet; the rows change only once Gmail has it, so a refused change is tried again by the next sender check
+            guard (try? await self?.gmail.modify(ids: ids, add: [id])) != nil else { return }
+            self?.applyLabels(ids, add: [id], remove: [])
+        }
     }
 
     // MARK: - Blocking (always a Gmail filter plus the Blocked label, so it holds on the Mac and in Gmail)

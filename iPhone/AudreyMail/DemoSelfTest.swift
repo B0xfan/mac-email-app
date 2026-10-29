@@ -152,6 +152,14 @@ enum DemoSelfTest {
         // approve
         store.approve(store.newSenderRows.first { $0.from.email.hasPrefix("rentals@") }!)
         check("approving lets a sender into the inbox", store.newSenderRows.count == 3 && store.inboxMails.contains { $0.id == "n1" })
+        try? await Task.sleep(nanoseconds: 300_000_000); await store.settle()
+        let shareID = box.with { b in b.labels.first { $0.name == "Approved senders" }?.id }
+        check("approving puts the hidden Approved senders label on their emails in Gmail, so the Mac approves them too", shareID != nil && box.with { b in b.msgs.first { $0.id == "n1" }!.labels.contains(shareID ?? "-") })
+        box.with { b in b.msgs.append(.init(id: "ap1", thread: "Tap1", labels: ["INBOX", "UNREAD", shareID ?? "-"], from: "Mac Friend <macfriend@elsewhere.example>", subject: "Hello from a sender approved on the Mac", body: "Hi", date: Date())) }
+        await store.refresh()
+        check("a sender approved on the Mac (their email carries the label) is approved on the phone too", row("ap1") != nil && !store.newSenderRows.contains { $0.id == "ap1" } && store.book.isApproved("macfriend@elsewhere.example"))
+        box.with { b in b.msgs.removeAll { $0.id == "ap1" } }
+        await store.refresh()
 
         // block: label, filter, existing mail moved
         let brightside = store.newSenderRows.first { $0.id == "n2" }!

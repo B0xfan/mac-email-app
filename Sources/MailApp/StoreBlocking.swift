@@ -9,6 +9,7 @@ extension MailStore {
 
     func approve(_ m: Mail) async {
         book.approve(m.from.email); knownCache[m.from.email] = true
+        Task { await shareApprovals([m.from.email]) }   // in the background: the approval shows at once, even offline
         status = "Approved \(m.from.display). Their emails now reach your inbox."
         blockMenuFor = nil
         objectWillChange.send()
@@ -18,8 +19,20 @@ extension MailStore {
     func approveAll() async {
         let emails = newSenderRows.map { $0.from.email }
         book.approve(all: emails); emails.forEach { knownCache[$0] = true }
+        Task { await shareApprovals(emails) }
         status = "Approved everyone. Their emails now reach your inbox."
         objectWillChange.send()
+    }
+
+    /// Puts the hidden "Approved senders" label on these senders' inbox emails, so the iPhone approves them too. Quiet: a failure is tried again by the next sender check.
+    func shareApprovals(_ senders: [String]) async {
+        var id = approvedLabelID
+        if id == nil { id = try? await labelID(named: Approvals.labelName, hidden: true) }
+        guard let id else { return }
+        approvedLabelID = id
+        let ids = Approvals.unlabeled(inbox, from: Set(senders.map { $0.lowercased() }), labelID: id)
+        guard !ids.isEmpty, (try? await change(ids: ids, add: [id])) != nil else { return }
+        for i in inbox.indices where ids.contains(inbox[i].id) { inbox[i].labels.append(id) }
     }
 
     /// Why this block must not happen, or nil (the rules live in MailCore so the iPhone app applies the same ones).

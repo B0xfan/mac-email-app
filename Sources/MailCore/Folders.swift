@@ -18,7 +18,7 @@ public enum Folders {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    public static let reserved = ["inbox", "sent", "drafts", "trash", "spam", "starred", "important", "unread", "chat", "all mail", "archive", "pinned", "set aside", "blocked"]
+    public static let reserved = ["inbox", "sent", "drafts", "trash", "spam", "starred", "important", "unread", "chat", "all mail", "archive", "pinned", "set aside", "blocked", "approved senders"]
 
     /// nil = fine. Otherwise the sentence to show.
     public static func problem(_ raw: String, existing: [String], ignoring: String? = nil) -> String? {

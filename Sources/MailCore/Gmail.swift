@@ -366,9 +366,9 @@ public final class GmailClient: @unchecked Sendable {
         return r.filter ?? []
     }
 
-    public func createLabel(name: String) async throws -> GLabel {
+    public func createLabel(name: String, hidden: Bool = false) async throws -> GLabel {   // hidden: left out of Gmail's label list and email chips
         let d = try await send("/labels", method: "POST", body: body([
-            "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"]))
+            "name": name, "labelListVisibility": hidden ? "labelHide" : "labelShow", "messageListVisibility": hidden ? "hide" : "show"]))
         return try JSONDecoder().decode(GLabel.self, from: d)
     }
 

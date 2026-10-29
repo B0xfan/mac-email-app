@@ -59,7 +59,7 @@ enum OrganizerEditor: Equatable {
 extension MailStore {
     func setLabels(_ ls: [GLabel]) {
         labelList = ls
-        folders = Folders.build(ls, hiding: [MailStore.pinLabelName, MailStore.asideLabelName, blockLabelName])
+        folders = Folders.build(ls, hiding: [MailStore.pinLabelName, MailStore.asideLabelName, blockLabelName, Approvals.labelName])
     }
 
     var title: String {

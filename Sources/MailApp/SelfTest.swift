@@ -1683,6 +1683,7 @@ enum SelfTest {
             if path.contains("/messages/") { let id = u.lastPathComponent; return (200, msgJSON(id, id, id == "gone" ? ["INBOX"] : ["Label_S"], 1_700_000_000_000)) }
             if path.hasSuffix("/labels") && req.httpMethod == "GET" { return (200, "{\"labels\":[{\"id\":\"Label_S\",\"name\":\"Snoozed\"},{\"id\":\"Label_B\",\"name\":\"Blocked\"}]}") }
             if path.hasSuffix("/settings/filters") && req.httpMethod == "POST" { return (200, "{\"id\":\"F1\"}") }
+            if path.hasSuffix("/labels") && req.httpMethod == "POST" && b.contains("Approved senders") { return (200, "{\"id\":\"Label_A\",\"name\":\"Approved senders\",\"type\":\"user\"}") }
             return (200, "{}")
         }
         @MainActor func r2store(screen: Bool = false, pending: URL? = nil) -> MailStore {
@@ -1756,6 +1757,19 @@ enum SelfTest {
         check("Gmail searches quote the address: odd characters cannot add search words; a whole company stays bare",
               GmailQuery.term("a@x.example") == "\"a@x.example\"" && GmailQuery.term("@x.example") == "@x.example" && !GmailQuery.term("x@y.example OR in:anywhere").contains(" ")
               && r2calls.contains { ($0.removingPercentEncoding ?? $0).contains("from:\"newbie@x.example\" before:") })
+        // approvals reach the iPhone and come back from it through the hidden "Approved senders" Gmail label (John 2026-10-29)
+        let apA = await MainActor.run { let st = r2store(screen: true); st.inbox = [mk("ap1", "macnew@x.example", h: 0)]; return st }
+        countKnown = false; r2calls = []
+        await apA.classifySenders()
+        let apRow = await MainActor.run { apA.newSenderRows.first }
+        if let apRow { await apA.approve(apRow) }
+        let apMade = r2calls.contains { $0.hasPrefix("POST") && $0.contains("/labels") && $0.contains("labelHide") }, apMod = r2calls.contains { $0.contains("batchModify") && $0.contains("ap1") && $0.contains("Label_A") }
+        check("approved senders: approving on the Mac puts the hidden Approved senders label on their emails in Gmail", apRow != nil && apMade && apMod)
+        let apB = await MainActor.run { let st = r2store(screen: true); st.approvedLabelID = "Label_A"; var m = mk("ap2", "phonefriend@x.example", h: 0); m.labels.append("Label_A"); st.inbox = [m]; return st }
+        await apB.classifySenders()
+        let apIn = await MainActor.run { (apB.book.isApproved("phonefriend@x.example"), apB.newSenderRows.count, apB.inboxMails.count) }
+        check("approved senders: a sender approved on the iPhone (their email carries the label) is approved here too", apIn == (true, 0, 1))
+        await MainActor.run { apB.settings.screenNewSenders = false }
         // Snoozed list pages; the saved time of an email on page 2 survives
         let ss2 = await MainActor.run { let st = r2store(); st.snoozeLabelID = "Label_S"; st.timing.change { $0.snoozes["s3"] = Date().addingTimeInterval(3600); $0.snoozes["gone"] = Date().addingTimeInterval(3600); $0.snoozes["phone1"] = Date().addingTimeInterval(3600) }; return st }   // phone1: a phone snooze the stored list does not show yet, Gmail still has the label
         await ss2.loadSnoozed()

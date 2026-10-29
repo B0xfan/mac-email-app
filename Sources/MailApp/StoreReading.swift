@@ -130,9 +130,9 @@ extension MailStore {
     }
 
     /// The Gmail label with this name; created the first time it is needed.
-    func labelID(named name: String) async throws -> String {
+    func labelID(named name: String, hidden: Bool = false) async throws -> String {
         if let l = try await gmail.labels().first(where: { $0.name == name }) { return l.id }
-        return try await gmail.createLabel(name: name).id
+        return try await gmail.createLabel(name: name, hidden: hidden).id
     }
 
     func loadAside() async {

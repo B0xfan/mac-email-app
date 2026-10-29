@@ -88,6 +88,7 @@ final class MailStore: ObservableObject {
     var keptOpen: Set<String> = []
     /// Gmail id of the "Pinned" label; nil until it exists. Pins are a Gmail label so they also show on the phone.
     @Published var pinLabelID: String?
+    var approvedLabelID: String?   // the hidden "Approved senders" label (MailCore Approvals), once it exists
     /// Set Aside is also a Gmail label (so it shows on the phone). `aside` holds the emails that carry it.
     @Published var asideLabelID: String?
     @Published var aside: [Mail] = []
@@ -365,6 +366,7 @@ final class MailStore: ObservableObject {
     func applyLabelList(_ ls: [GLabel]) {
         lastLabelsAt = Date()
         pinLabelID = ls.first { $0.name == MailStore.pinLabelName }?.id
+        approvedLabelID = ls.first { $0.name == Approvals.labelName }?.id
         asideLabelID = ls.first { $0.name == MailStore.asideLabelName }?.id
         snoozeLabelID = MailStore.snoozeLabelNames.lazy.compactMap { n in ls.first { $0.name == n }?.id }.first
         setLabels(ls)
@@ -408,6 +410,10 @@ final class MailStore: ObservableObject {
     /// A lookup that fails (offline, rate limit) is skipped and not remembered, so the sender is asked about again next time.
     func classifySenders() async {
         guard settings.screenNewSenders else { return }
+        let elsewhere = Approvals.approvedElsewhere(inbox, labelID: approvedLabelID).filter { !book.isApproved($0) }   // approved on the iPhone
+        if !elsewhere.isEmpty { book.approve(all: Array(elsewhere)); elsewhere.forEach { knownCache[$0] = true } }
+        let unshared = Set(inbox.filter { $0.date > book.screeningStart && book.isApproved($0.from.email) && !$0.labels.contains(approvedLabelID ?? "") }.map(\.from.email))
+        if !unshared.isEmpty { await shareApprovals(Array(unshared)) }   // approvals made here before the label existed, and new mail from approved senders
         let unknown = Array(Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil })
         let cutoff = DateFormatter.gmailDay.string(from: book.screeningStart)
         let g = gmail

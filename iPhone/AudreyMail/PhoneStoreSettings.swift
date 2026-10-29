@@ -9,13 +9,13 @@ extension PhoneStore {
     // MARK: - Labels the Mac also uses (Pinned, Set Aside)
 
     /// The Gmail label with this name; made the first time it is needed.
-    func ensureLabel(_ name: String) async -> String? {
+    func ensureLabel(_ name: String, hidden: Bool = false) async -> String? {
         if let l = labelList.first(where: { $0.name == name }) { return l.id }
         if let running = labelMaking[name] { return await running.value }
         let task = Task { () -> String? in
             do {
                 if let l = try await self.gmail.labelsStrict().first(where: { $0.name == name }) { self.labelList.append(l); return l.id }
-                let made = try await self.gmail.createLabel(name: name)
+                let made = try await self.gmail.createLabel(name: name, hidden: hidden)
                 self.labelList.append(made)
                 return made.id
             } catch { await self.fail(error, "Could not make the \(name) label."); return nil }

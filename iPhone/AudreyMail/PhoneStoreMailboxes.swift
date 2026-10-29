@@ -32,7 +32,7 @@ extension PhoneStore {
     // MARK: - Folders (Gmail labels)
 
     /// Gmail's own labels, labels hidden in Gmail, and Audrey Mail's own (Pinned, Set Aside, Blocked) are left out.
-    var folders: [FolderNode] { Folders.build(labelList, hiding: Set([Self.pinLabelName, "Set Aside", Self.blockLabelName] + Self.snoozeLabelNames)) }   // Snoozed has its own row in Mailboxes
+    var folders: [FolderNode] { Folders.build(labelList, hiding: Set([Self.pinLabelName, "Set Aside", Self.blockLabelName, Approvals.labelName] + Self.snoozeLabelNames)) }   // Snoozed has its own row in Mailboxes
 
     func loadFolders() async {
         do { labelList = try await gmail.labelsStrict() } catch { await fail(error, "Could not load your folders.") }
