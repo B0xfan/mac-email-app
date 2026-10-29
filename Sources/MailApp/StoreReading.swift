@@ -19,6 +19,7 @@ extension MailStore {
             }
             return
         }
+        if selectedID == m.id, let o = openMail, o.id == m.id, o.html != nil || o.text != nil { return }   // a second click on the loaded open email leaves it as it is (John 2026-10-29); one that failed to load can be clicked again
         if m.id != heldOpenID { heldUnreadID = m.unread ? m.id : nil }   // clicking the held email again keeps it held
         if unreadOnly && m.unread { keptOpen.insert(m.id) }   // opening marks it read; the "unread only" list keeps it
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
@@ -114,7 +115,7 @@ extension MailStore {
             let after = listMails
             if !wasOpen { return }
             if after.isEmpty { openMail = nil; selectedID = nil }
-            else if let n = ArchiveNext.index(mode: settings.afterArchive, unread: after.map { $0.unread }, archivedAt: idx ?? 0) { await open(after[n]) }
+            else if let n = ArchiveNext.index(mode: settings.afterArchive, unread: after.map { $0.unread }, archivedAt: idx ?? 0) { selectedID = nil; await open(after[n]) }   // a move from Sent/Archive/search keeps the same email: open it afresh so its new folder shows
             else { openMail = nil; selectedID = nil }
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }

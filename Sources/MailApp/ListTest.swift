@@ -2,7 +2,6 @@
 import SwiftUI
 import AppKit
 import MailCore
-import Combine
 
 /// `MailApp --listtest <folder>`: draws the real main window off-screen (invisible) in "Unread first" with made-up mail, the way
 /// James reported it: mail arrives, one is opened, more arrives. After every step it counts the teal "selected" row bands in the
@@ -78,6 +77,7 @@ enum ListTest {
         await store.open(mad)
         await step("2-open-the-unread-one", expectTeal: 1)
         // clicking the email that is already open again must not reload it (John 2026-10-29)
+        store.openMail?.text = "Full text of mad"   // stands in for the full email (this store has no Gmail to fetch it from)
         var reloads = 0
         let watch = store.$openMail.dropFirst().sink { _ in reloads += 1 }
         await store.open(store.inbox.first { $0.id == "mad" }!)

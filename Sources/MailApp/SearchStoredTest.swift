@@ -79,6 +79,7 @@ extension SelfTest {
         let storedNow = db.openedMail("gold1")
         check("search in the store: opening a Gmail result stores it with its text, so it stays on the Mac", storedNow?.text == "body of gold1" && db.stored(["gold1"], verifiedOnly: true) == ["gold1"] && f.fullGets["gold1"] == 1)
         let reqs = f.requests
+        await MainActor.run { st.closeReader() }   // a click on the open email does nothing now; close it so the second open reads it back
         await st.open(g!)
         check("search in the store: opening it again asks Gmail for nothing", f.fullGets["gold1"] == 1 && f.gets["gold1"] == 2 && f.requests == reqs)
 
