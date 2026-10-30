@@ -201,7 +201,7 @@ struct SettingsView: View {
                 RadioRow(label: "Read, and do things when I approve each one", tag: "Not available yet", on: false) {}.disabled(true).opacity(0.5)
                 Text("Claude can search and read your mail. It cannot send, delete, archive or change anything.").font(Theme.small).foregroundStyle(Theme.sub)
             }.frame(maxWidth: .infinity, alignment: .leading) }
-            switchCard("Never visible to Claude", "Blocked senders, Spam and Trash are always hidden from Claude.", $settings.claudeHideBlocked)
+            switchCard("Hide from Claude", "Keeps blocked senders, Spam and Trash away from Claude. Off: Claude is no longer kept away from them.", $settings.claudeHideBlocked)
             Card { VStack(alignment: .leading, spacing: 0) {
                 Text("Recent Claude activity").font(Theme.bodyStrong)
                 Text("What Claude looked at, newest first.").font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 6)
@@ -239,7 +239,7 @@ struct SettingsView: View {
             } }
         case .privacy:
             head("Privacy", "Control what emails can do when you open them.")
-            switchCard("Block trackers", "Hidden spy pictures that tell senders you opened their email. Always blocked.", $settings.blockTrackers)
+            switchCard("Block trackers", "Removes hidden spy pictures that tell senders you opened their email. Off: they load with the email's other pictures.", $settings.blockTrackers)
             switchCard("Load images automatically", "Show normal pictures in emails. Turn off to choose email by email.", $settings.loadImages)
         case .storage:
             head("Storage", "How much mail Audrey Mail keeps on this Mac.")

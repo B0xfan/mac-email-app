@@ -77,7 +77,7 @@ final class ClaudeRateLimit: @unchecked Sendable {
     func leave() { lock.lock(); active = Swift.max(0, active - 1); lock.unlock() }
 }
 
-/// Claude's view of the mailbox: search and read, newest first, minus whatever "Never visible to Claude" hides.
+/// Claude's view of the mailbox: search and read, newest first, minus whatever "Hide from Claude" hides.
 final class ClaudeBackend: MCPBackend, @unchecked Sendable {
     let source: ClaudeSource
     let blockLabelName: String

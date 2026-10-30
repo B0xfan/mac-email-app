@@ -272,7 +272,7 @@ To stop, turn the switch off. Claude can no longer see anything.
 What Claude can and cannot do:
 
 - **Read only.** Claude can search and read your mail. It cannot send, delete, archive or change anything. There is no other mode yet.
-- **Hidden from Claude.** Blocked senders, Spam and Trash stay hidden. This is the **Never visible to Claude** switch, which is on until you turn it off. It also hides everyone at a company you blocked, including that company's subdomains (for example, blocking everyone at shop.com also hides mail from news.shop.com). If Audrey Mail cannot check what is blocked at that moment, it shows Claude nothing.
+- **Hidden from Claude.** Blocked senders, Spam and Trash stay hidden. This is the **Hide from Claude** switch, which is on until you turn it off. It also hides everyone at a company you blocked, including that company's subdomains (for example, blocking everyone at shop.com also hides mail from news.shop.com). If Audrey Mail cannot check what is blocked at that moment, it shows Claude nothing. With the switch off, Claude is no longer kept away from any of this.
 - **Recent Claude activity.** The same page lists what Claude looked at, newest first, so you can see it.
 - **Audrey Mail must be open.** If Audrey Mail is closed, Claude says Audrey Mail is not open and cannot reach your mail.
 - **Limits.** Claude gets at most 25 results per search, and the number of requests per minute is capped.

@@ -218,7 +218,7 @@ struct PrivacyPage: View {
     var body: some View {
         SettingsPageList(title: "Privacy", intro: "What emails can do when you open them.") {
             Section {
-                SwitchRow(title: "Block trackers", detail: "Hidden spy pictures that tell senders you opened their email.", isOn: $prefs.blockTrackers)
+                SwitchRow(title: "Block trackers", detail: "Removes hidden spy pictures that tell senders you opened their email. Off: they load with the email's other pictures.", isOn: $prefs.blockTrackers)
                 SwitchRow(title: "Load images automatically", detail: "Show normal pictures in emails. Off: tap Show on each email.", isOn: $prefs.loadImages)
             }.setCard()
         }

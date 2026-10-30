@@ -399,7 +399,7 @@ extension SelfTest {
         check("claude: reading a hidden email is refused; a normal one reads", hiddenRead.isError && hiddenSpam.isError && !okRead.isError && okRead.text.contains("Body of a1"))
         let open = ClaudeBackend(source: src, blockLabelName: "Blocked", hideHidden: { false }, log: { _ in })
         let all = await open.search("hello", max: 10), openRead = await open.read("a2")
-        check("claude: with 'Never visible' switched off, those emails can be found and read", src.queries.last?.contains("-in:spam") == false && all.text.contains("id: a2") && all.text.contains("id: a4") && !openRead.isError)
+        check("claude: with 'Hide from Claude' switched off, those emails can be found and read", src.queries.last?.contains("-in:spam") == false && all.text.contains("id: a2") && all.text.contains("id: a4") && !openRead.isError)
         // archived mail from a blocked sender or company has no Blocked label, and is still hidden
         func from(_ id: String, _ email: String, _ labels: [String]) -> Mail { Mail(id: id, from: Address(name: "X", email: email), subject: "Old", snippet: "p", date: Date(), labels: labels, text: "Body of \(id)") }
         let arch = [from("c1", "Spam@Bad.example", []), from("c2", "anyone@evil.example", ["CATEGORY_UPDATES"]), from("c3", "fine@good.example", [])]
@@ -418,7 +418,7 @@ extension SelfTest {
               failS.isError && failR.isError && failS.text.contains("could not check") && failR.text.contains("could not check") && !failR.text.contains("Body of a1") && src.queries.count == qn && src.reads.count == rn)
         let openFail = await open.search("hello", max: 10)
         src.listFails = false
-        check("claude: with 'Never visible' switched off the block list is not needed", !openFail.isError)
+        check("claude: with 'Hide from Claude' switched off the block list is not needed", !openFail.isError)
 
         // untrusted content
         let evil = from("d1", "e@x.example", ["INBOX"])
