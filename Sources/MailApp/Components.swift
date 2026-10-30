@@ -255,7 +255,7 @@ struct EditorView: NSViewRepresentable {
         body{font:14px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;color:CanvasText}
         #ed{min-height:100%;outline:none;padding:12px 4px;box-sizing:border-box}
         #ed:empty:before{content:attr(data-ph);opacity:.55}
-        a{color:#0e6b73}</style></head><body><div id="ed" contenteditable="true" data-ph="\(placeholder)">\(initialHTML)</div></body></html>
+        a{color:#0e6b73}@media(prefers-color-scheme:dark){a{color:#5cc8d0}}</style></head><body><div id="ed" contenteditable="true" data-ph="\(placeholder)">\(initialHTML)</div></body></html>
         """
         wv.loadHTMLString(page, baseURL: nil)
         return wv

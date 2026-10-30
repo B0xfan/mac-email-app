@@ -222,6 +222,29 @@ enum ListTest {
         if await !asksFirst("clear stored mail", confirm: "Clear Stored Mail", picture: "list-15-clear-stored-mail", into: dir, { ClearStoredMailButton(clear: $0) }) { ok = false }
         if await !menuUndo() { ok = false }
         if await !commandKeys() { ok = false }
+        if await !composeLinks() { ok = false }
+        return ok
+    }
+
+    /// Design review finding 7: links typed in Compose kept the light mode teal in dark mode. The real writing area, asked which color it draws a link in.
+    static func composeLinks() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        for (look, want) in [(NSAppearance.Name.aqua, "rgb(14, 107, 115)"), (.darkAqua, "rgb(92, 200, 208)")] {
+            let editor = EditorController()
+            let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 300, height: 120), styleMask: [.borderless], backing: .buffered, defer: false)
+            win.isReleasedWhenClosed = false
+            win.appearance = NSAppearance(named: look)
+            win.contentView = NSHostingView(rootView: EditorView(controller: editor, initialHTML: "<a id=\"x\" href=\"https://example.com\">link</a>", placeholder: ""))
+            win.orderFront(nil)
+            await LiveTest.pump(1.5)
+            let color: String = await withCheckedContinuation { c in
+                guard let web = editor.web else { c.resume(returning: "no writing area"); return }
+                web.evaluateJavaScript("getComputedStyle(document.getElementById('x')).color") { r, _ in c.resume(returning: (r as? String) ?? "no answer") }
+            }
+            check("compose links: \(look.rawValue) draws links in \(want) (got \(color))", color == want)
+            win.close()
+        }
         return ok
     }
 
