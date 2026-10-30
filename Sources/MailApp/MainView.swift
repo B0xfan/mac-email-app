@@ -339,12 +339,12 @@ struct ToolbarView: View {
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
-        let multi = store.isMulti, n = store.bulk.count   // several selected: Archive, Set Aside, Snooze and To-do act on all, the one-email buttons go grey
+        let multi = store.isMulti, n = store.bulk.count, multiInbox = multi && store.mailbox == .inbox   // several selected: Archive, Set Aside, Snooze and To-do act on all, the one-email buttons go grey
         let one = multi ? "works on one email at a time" : "open an email first"
         let inboxOne = canAct && store.mailbox == .inbox
-        let archiveTip: String = multi ? "Archive \(n) (A)" : (canAct ? "Archive (A)" : "Archive, open an email first")
-        let asideTip: String = multi ? "Set Aside \(n) (S)" : (inboxOne ? "Set Aside (S)" : "Set Aside, open an inbox email first")
-        let snoozeTip: String = multi ? "Snooze \(n) (Z)" : (inboxOne ? "Snooze (Z)" : "Snooze, open an inbox email first")
+        let archiveTip: String = multiInbox ? "Archive \(n) (A)" : (canAct ? "Archive (A)" : "Archive, open an email first")
+        let asideTip: String = multiInbox ? "Set Aside \(n) (S)" : (inboxOne ? "Set Aside (S)" : "Set Aside, open an inbox email first")
+        let snoozeTip: String = multiInbox ? "Snooze \(n) (Z)" : (inboxOne ? "Snooze (Z)" : "Snooze, open an inbox email first")
         let todoTip: String = multi ? "Add \(n) to to-do (T)" : (canAct ? "Add to to-do (T)" : "To-do, open an email first")
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
@@ -356,11 +356,11 @@ struct ToolbarView: View {
                 if let m = store.openMail { store.reply(m, all: true) } }
             IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
-            IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multi) {
+            IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multiInbox) {
                 if multi { Task { await store.bulkArchive() } } else { Task { await store.archiveOpen() } } }
-            IconButton(symbol: "rectangle.stack", label: asideTip, enabled: multi || inboxOne) {
+            IconButton(symbol: "rectangle.stack", label: asideTip, enabled: multiInbox || inboxOne) {
                 if multi { Task { await store.bulkSetAside() } } else if let m = store.openRow { Task { await store.setAside(m) } } }
-            IconButton(symbol: "moon", label: snoozeTip, enabled: multi || inboxOne) {
+            IconButton(symbol: "moon", label: snoozeTip, enabled: multiInbox || inboxOne) {
                 if multi { store.bulkSnooze() } else if let m = store.openRow { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
                 if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
@@ -473,9 +473,9 @@ struct ListPane: View {
                     else if store.mailbox == .scheduled { ScheduledList(store: store) }
                     else if store.mailbox == .setAside {
                         ForEach(store.listMails) { m in
-                            MessageRow(mail: m, selected: store.selectedID == m.id, stamp: AsideBook.label(store.asides.date(m)),
+                            MessageRow(mail: m, selected: store.selectedID == m.id, stamp: AsideBook.label(store.asides.date(m)), picked: store.picked.contains(m.id),
                                        onBack: { Task { await store.backToInbox([m]) } }, onArchive: { Task { await store.archive(m) } },
-                                       swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
+                                       swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
                                 .contextMenu {
                                     basicsMenu(store, m)
                                     Button { Task { await store.backToInbox([m]) } } label: { Label("Back to Inbox", systemImage: "tray") }
@@ -489,7 +489,7 @@ struct ListPane: View {
                         let firstExtra = store.extraFirstID
                         ForEach(store.listMails) { m in
                             if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
-                            MessageRow(mail: m, selected: store.selectedID == m.id, swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
+                            MessageRow(mail: m, selected: store.selectedID == m.id, picked: store.picked.contains(m.id), swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
                                 .contextMenu { basicsMenu(store, m); moveToFolderMenu(store, m) }
                         }
                     }

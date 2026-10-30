@@ -26,10 +26,12 @@ struct MultiPanel: View {
                     Text("\(n) selected").font(Theme.title).accessibilityAddTraits(.isHeader)
                     Text(MultiPanel.names(ms)).font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 4)
                     FlowRow(spacing: 8) {
-                        act("Archive \(n)", "archivebox", .primary) { await store.bulkArchive() }
-                        act("Set Aside", "rectangle.stack") { await store.bulkSetAside() }
-                        act("Snooze...", "moon") { store.bulkSnooze() }
-                        act(allPinned ? "Unpin" : "Pin", allPinned ? "pin.slash" : "pin") { await store.bulkPin() }
+                        if store.mailbox == .inbox {   // elsewhere Archive's Undo would land them in the Inbox; the others have the same limit as for one email
+                            act("Archive \(n)", "archivebox", .primary) { await store.bulkArchive() }
+                            act("Set Aside", "rectangle.stack") { await store.bulkSetAside() }
+                            act("Snooze...", "moon") { store.bulkSnooze() }
+                            act(allPinned ? "Unpin" : "Pin", allPinned ? "pin.slash" : "pin") { await store.bulkPin() }
+                        }
                         act("Mark read or unread", "envelope.open") { await store.bulkToggleRead() }
                         act("Add to to-do", "checklist") { store.bulkTodo() }
                         act("Move to folder...", "folder") { store.blockMenuFor = store.blockMenuFor == "bulkMove" ? nil : "bulkMove" }
@@ -76,7 +78,7 @@ struct FolderPick: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if store.folders.isEmpty { Text("No folders yet").font(Theme.body).foregroundStyle(Theme.sub).padding(12) }
-            ForEach(store.folders) { f in
+            ForEach(store.folders.filter { store.mailbox != .folder($0.id) }) { f in   // moving to the folder on screen does nothing
                 Button { store.blockMenuFor = nil; Task { await store.bulkMove(f) } } label: {
                     Text(f.name).font(Theme.body).padding(.horizontal, 12).frame(minHeight: 36).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain)

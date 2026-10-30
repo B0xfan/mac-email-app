@@ -249,10 +249,10 @@ struct MessageMenu: View {
         }
         Divider()
         Group {
-            Button(key("Archive", "A")) { run { if multi { await store.bulkArchive() } else { await store.archiveOpen() } } }.disabled(mail == nil && !multi)
-            Button(key("Set Aside", "S")) { run { if multi { await store.bulkSetAside() } else if let row { await store.setAside(row) } } }.disabled((!inbox || row == nil) && !multi)
-            Button(key("Snooze...", "Z")) { if multi { store.bulkSnooze() } else if let row { store.picker = .snooze([row.id]) } }.disabled((!inbox || row == nil) && !multi)
-            Button(key("Pin or Unpin", "P")) { run { if multi { await store.bulkPin() } else if let row { _ = await store.togglePin(row) } } }.disabled((!inbox || row == nil) && !multi)
+            Button(key("Archive", "A")) { run { if multi { await store.bulkArchive() } else { await store.archiveOpen() } } }.disabled(multi ? !inbox : mail == nil)
+            Button(key("Set Aside", "S")) { run { if multi { await store.bulkSetAside() } else if let row { await store.setAside(row) } } }.disabled(!inbox || (row == nil && !multi))
+            Button(key("Snooze...", "Z")) { if multi { store.bulkSnooze() } else if let row { store.picker = .snooze([row.id]) } }.disabled(!inbox || (row == nil && !multi))
+            Button(key("Pin or Unpin", "P")) { run { if multi { await store.bulkPin() } else if let row { _ = await store.togglePin(row) } } }.disabled(!inbox || (row == nil && !multi))
         }
         Divider()
         Group {

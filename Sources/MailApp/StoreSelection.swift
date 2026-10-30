@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 import MailCore
 
-/// Select several emails at once (Inbox: Smart, Classic, Unread first).
+/// Select several emails at once (Inbox: Smart, Classic, Unread first; and the plain lists, see canPick).
 enum Picking {
     /// The ids from `a` to `b`, both included, in list order. Just `b` when `a` is not in the list.
     static func range(_ ids: [String], from a: String?, to b: String) -> [String] {
@@ -17,10 +17,17 @@ extension MailStore {
     var bulk: [Mail] { picked.isEmpty ? [] : listMails.filter { picked.contains($0.id) } }
     /// Two or more selected: the reading pane shows the group panel and the top bar acts on all of them.
     var isMulti: Bool { bulk.count >= 2 }
+    /// Lists whose rows can be selected. Not Drafts (they open as new emails), Snoozed (Trash would not clear a snooze), or the lists that have no such rows.
+    var canPick: Bool {
+        switch mailbox {
+        case .inbox, .setAside, .sent, .archive, .search, .folder, .smart, .saved: return true
+        default: return false
+        }
+    }
 
-    /// A click on an inbox row. Plain click: leave the selection and open the email. Command: add or remove it. Shift: everything from the last click.
+    /// A click on a row. Plain click: leave the selection and open the email. Command: add or remove it. Shift: everything from the last click.
     func rowClicked(_ m: Mail, command: Bool, shift: Bool) async {
-        guard mailbox == .inbox, command || shift else { await open(m); return }
+        guard canPick, command || shift else { await open(m); return }
         let anchor = pickAnchor ?? selectedID
         let ids = listMails.map(\.id), here = Set(ids)
         picked.formIntersection(here)   // a pick that is not in this list any more does not count
@@ -34,7 +41,7 @@ extension MailStore {
     }
 
     func selectAllInList() {
-        guard mailbox == .inbox, compose == nil else { return }
+        guard canPick, compose == nil else { return }
         let ids = listMails.map(\.id)
         guard !ids.isEmpty else { return }
         closeForPicking()
@@ -52,7 +59,7 @@ extension MailStore {
     func pickKey(escape: Bool, selectAll: Bool) -> Bool {
         guard picker == nil, todoMail == nil, printAsk == nil, !commandCenterOpen, editor == nil, !homeShown else { return false }
         if escape, !picked.isEmpty { clearPicked(); return true }
-        if selectAll, mailbox == .inbox, compose == nil { selectAllInList(); return !picked.isEmpty }
+        if selectAll, canPick, compose == nil { selectAllInList(); return !picked.isEmpty }
         return false
     }
 }
@@ -95,13 +102,13 @@ extension MailStore {
         if let n = ArchiveNext.index(mode: settings.afterArchive, unread: after.map { $0.unread }, archivedAt: first) { await open(after[n]) }
     }
 
-    func bulkArchive() async { await batch(bulk, text: { "Archived \($0) emails." }) { await self.archive($0) } }
-    func bulkSetAside() async { await batch(bulk, text: { "Set aside \($0) emails. They are in Set Aside in the sidebar." }) { await self.setAside($0) } }
+    func bulkArchive() async { guard mailbox == .inbox else { return }; await batch(bulk, text: { "Archived \($0) emails." }) { await self.archive($0) } }
+    func bulkSetAside() async { guard mailbox == .inbox else { return }; await batch(bulk, text: { "Set aside \($0) emails. They are in Set Aside in the sidebar." }) { await self.setAside($0) } }
     func bulkTrash() async {
         await batch(bulk, text: { "Moved \($0) emails to Trash." }) { await self.leaveInbox($0, add: [], text: "", aside: false, exactUndo: true, trashIt: true) }
     }
     func bulkMove(_ f: FolderNode) async { await batch(bulk, text: { "Moved \($0) emails to \(f.leaf)." }) { await self.moveToFolder($0, f) } }
-    func bulkSnooze() { let ids = bulk.map(\.id); if ids.count > 1 { picker = .snooze(ids) } }
+    func bulkSnooze() { let ids = bulk.map(\.id); if ids.count > 1, mailbox == .inbox { picker = .snooze(ids) } }
     func bulkTodo() { let ms = bulk; guard let f = ms.first, ms.count > 1 else { return }; todoMail = f; todoBulk = ms }
 
     /// Marks all read if any is unread, otherwise all unread (the swipe choice flips one email; for a group "any unread" is the useful reading).
@@ -124,6 +131,7 @@ extension MailStore {
 
     /// Unpins all if every selected email is pinned, otherwise pins the ones that are not.
     func bulkPin() async {
+        guard mailbox == .inbox else { return }
         let ms = bulk, unpin = ms.allSatisfy { isPinned($0) }
         let changed = ms.filter { isPinned($0) == unpin }
         var touched: [String] = []

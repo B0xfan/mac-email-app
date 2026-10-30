@@ -78,11 +78,22 @@ extension SelfTest {
         _ = await MainActor.run { store.pickKey(escape: false, selectAll: true) }
         check("select several: in Smart, Command-A selects only the tab you are on", (await state()).picked == ["sp1", "sp2"])
         await MainActor.run { store.clearPicked() }
-        // other lists keep the old click
-        await MainActor.run { store.inbox = ms; store.settings.inboxView = .classic; store.mailbox = .sent; store.other = ms }
+        // plain lists select too, with the actions that make sense there
+        await MainActor.run { store.inbox = ms; store.settings.inboxView = .classic; store.mailbox = .sent; store.other = ms; store.selectedID = nil; store.openMail = nil }
+        await store.rowClicked(ms[0], command: true, shift: false)
+        await store.rowClicked(ms[1], command: true, shift: false)
+        s = await state()
+        check("select several: Command-click selects in Sent too", s.picked == ["mu1", "mu2"] && s.multi)
+        await store.bulkSetAside()
+        await store.bulkArchive()
+        await MainActor.run { store.bulkSnooze() }
+        let sentLeft = await MainActor.run { (store.other.count, store.picker == nil) }
+        check("select several: in Sent, Archive, Set Aside and Snooze change nothing", sentLeft.0 == ms.count && sentLeft.1)
+        await MainActor.run { store.clearPicked(); store.mailbox = .recent; store.selectedID = nil; store.openMail = nil }
+        // lists that cannot select keep the old click
         await store.rowClicked(ms[0], command: true, shift: false)
         s = await state()
-        check("select several: outside the Inbox a Command-click is just a click", s.picked.isEmpty && s.open == "mu1")
+        check("select several: in Recently Seen a Command-click is just a click", s.picked.isEmpty)
         await MainActor.run { store.mailbox = .inbox; store.other = []; store.selectedID = nil; store.openMail = nil }
 
         // Unread first keeps its hold rule
