@@ -23,6 +23,13 @@ if [ ! -x "$SIGN_UPDATE" ]; then
   tar -xf "$T/s.tar.xz" -C "$TOOLS" bin; rm -rf "$T"
 fi
 
+# The signature check below needs Python's cryptography: its own copy here, so a Python upgrade on the Mac cannot take it away.
+PYENV="$SUPPORT/release-python"
+if ! "$PYENV/bin/python3" -I -c 'import cryptography' 2>/dev/null; then
+  rm -rf "$PYENV"; python3.13 -m venv "$PYENV"; "$PYENV/bin/pip" install -q cryptography
+fi
+export PATH="$PYENV/bin:$PATH"
+
 # Next version: one more than the newest release (the first one is 0.1.2; the app in the field before Sparkle is build 1).
 LAST=$(gh release list --repo "$REPO" --limit 1 --json tagName -q '.[0].tagName')   # a login failure stops the script here; no releases yet gives an empty answer
 N=$(( ${LAST##*.} + 1 )); [ -n "$LAST" ] || N=2
