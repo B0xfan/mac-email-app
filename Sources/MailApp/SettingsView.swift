@@ -289,7 +289,7 @@ struct SettingsView: View {
 
     func makeDefault() {
         let r = LSSetDefaultHandlerForURLScheme("mailto" as CFString, (Bundle.main.bundleIdentifier ?? "") as CFString)
-        note.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. You can set it in Audrey Mail > Settings."
+        note.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. To do it yourself, open Apple's Mail app, choose Settings, and pick Audrey Mail under Default email reader."
     }
 
     func head(_ t: String, _ s: String) -> some View {

@@ -30,7 +30,7 @@ extension SelfTest {
                     let code = line.range(of: " //").map { String(line[..<$0.lowerBound]) } ?? line
                     for m in lit.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
                         let t = String(code[Range(m.range, in: code)!])
-                        if bare.numberOfMatches(in: t, range: NSRange(t.startIndex..., in: t)) > 0 && !t.contains("Mail Snoozed") { bareLits.append("\(f):\(i + 1)") }
+                        if bare.numberOfMatches(in: t, range: NSRange(t.startIndex..., in: t)) > 0 && !t.contains("Mail Snoozed") && !t.contains("Apple's Mail") { bareLits.append("\(f):\(i + 1)") }
                     }
                 }
             }
