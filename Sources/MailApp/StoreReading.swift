@@ -164,6 +164,7 @@ extension MailStore {
 
     /// Undo brings the archived (or set-aside) email back to the inbox and reopens it.
     func undoLast() async {
+        menuUndo?.removeAllActions(withTarget: self)
         var failed: String?
         func note(_ e: Error) { failed = (e as? LocalizedError)?.errorDescription ?? "Undo did not go through. Check your connection and try again." }
         if !undoArchive.isEmpty, let u = undoFolder {
@@ -187,12 +188,25 @@ extension MailStore {
         if let failed { error = failed }
     }
 
+    /// Edit > Undo and Command-Z run the same undo as the toast's button. Only the newest step is kept, as with the toast; typing in the same window keeps its own undo steps.
+    func offerMenuUndo() {
+        menuUndo?.removeAllActions(withTarget: self)
+        menuUndo = NSApp.keyWindow?.undoManager
+        menuUndo?.registerUndo(withTarget: self) { s in Task { @MainActor in await s.undoNow() } }
+    }
+
+    /// The toast's Undo button and the menu: a send still counting down comes first, so it can never go out while an older archive comes back.
+    func undoNow() async {
+        if undoSend != nil || pendingScheduled != nil, toast?.text.hasPrefix("Sending") == true { undoPendingSend() } else { await undoLast() }
+    }
+
     func showToast(_ text: String, action: String? = nil, seconds: Double = 8, link: URL? = nil) {
         let t = ToastInfo(text: text, action: action, link: link)
         toast = t
+        if action == "Undo" { offerMenuUndo() }
         Task {
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            if self.toast?.id == t.id { self.toast = nil; self.undoArchive = []; self.undoAside = false; self.undoFolder = nil }
+            if self.toast?.id == t.id { self.toast = nil }   // what Undo needs stays: Command-Z still works after the toast is gone
         }
     }
 

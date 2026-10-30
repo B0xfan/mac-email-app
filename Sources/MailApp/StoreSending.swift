@@ -102,6 +102,7 @@ extension MailStore {
         let delay = settings.undoDelay
         compose = nil
         toast = ToastInfo(text: UndoSend.sendingText(delay), action: "Undo")
+        offerMenuUndo()
         let tid = toast!.id
         pendingMail[token] = (d, bodyHTML)
         savePending(token)

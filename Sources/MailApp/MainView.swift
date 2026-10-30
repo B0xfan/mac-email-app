@@ -103,8 +103,7 @@ struct ToastView: View {
                 Button(a) {
                     if let l = toast.link { NSWorkspace.shared.open(l); store.toast = nil }
                     else if a == "Done" || a == "OK" { store.toast = nil }
-                    else if store.undoSend != nil || store.pendingScheduled != nil, toast.text.hasPrefix("Sending") { store.undoPendingSend() }
-                    else { Task { await store.undoLast() } }
+                    else { Task { await store.undoNow() } }
                 }
                 .buttonStyle(.plain).font(.system(size: 13, weight: .semibold))
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)

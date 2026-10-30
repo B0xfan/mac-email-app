@@ -94,7 +94,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 
 - **Pin.** Pinned emails stay in a strip at the top. Hover over a row and click the pin, or press P. Pin again to unpin.
 - **Set Aside.** Parks an email out of the inbox without deciding on it. Find it under **Set Aside**; **Back to Inbox** returns it.
-- **Archive.** Hover icon, A, or the toolbar button. A short **Undo** appears.
+- **Archive.** Hover icon, A, or the toolbar button. A short **Undo** appears. Command-Z or Edit, Undo does the same, even after it has gone.
 - **Swipe.** Slide a row sideways with two fingers on the trackpad. By default right archives and left sets aside. You can change each side in Settings, Swipe.
 - **Select several emails.** In the Inbox, hold Command and click to add or remove one email. Hold Shift and click to select everything from the last email you clicked. Command-A selects every email in the list (in Smart, the tab you are on). Selected emails turn grey-blue with a check mark where the picture was; teal is only for the email you have open. With two or more selected, the reading pane says how many and offers Archive, Set Aside, Snooze, Pin, Mark read or unread, Add to to-do, Move to folder, Block senders and Move to Trash, each applied to all of them. One **Undo** brings them all back. The top-bar buttons that need a single email (Reply, Reply all, Forward, Save as note, Link) turn grey. Press Escape, or click one email, to go back to normal.
 - **Right-click an email** for Pin, Set Aside, Snooze, Archive, Move to folder, Move to category and more.
@@ -348,6 +348,7 @@ Single keys work only with the email list in front, not while writing, and only 
 | Command-N | New email |
 | Command-K | Command Center |
 | Command-P | Print |
+| Command-Z | Undo the last archive, snooze, set aside or similar action |
 | Command-comma | Settings |
 | Command-? | Audrey Mail Help |
 | Control-Command-S | Hide or show the sidebar |

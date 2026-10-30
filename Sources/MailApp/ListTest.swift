@@ -220,6 +220,44 @@ enum ListTest {
         if await !creatorEmail(into: dir) { ok = false }
         if await !asksFirst("remove account", confirm: "Remove Account", picture: "list-14-remove-account", into: dir, { RemoveAccountButton(email: "marta@harborlane.example", remove: $0) }) { ok = false }
         if await !asksFirst("clear stored mail", confirm: "Clear Stored Mail", picture: "list-15-clear-stored-mail", into: dir, { ClearStoredMailButton(clear: $0) }) { ok = false }
+        if await !menuUndo() { ok = false }
+        return ok
+    }
+
+    /// Design review finding 3: Undo lived only in the toast (never signs in, sends nothing). Edit > Undo and Command-Z send the same `undo:` as here.
+    static func menuUndo() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        let store = Snapshots.sampleStore()
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: Color.clear.frame(width: 300, height: 120))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(0.5)
+        check("menu undo: nothing to undo before any action", win.undoManager?.canUndo == false)
+        store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo", seconds: 0.2)
+        await LiveTest.pump(0.6)
+        check("menu undo: still offered after the toast is gone", store.toast == nil && win.undoManager?.canUndo == true)
+        NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+        await LiveTest.pump(1.0)
+        check("menu undo: Undo in the menu runs the toast's undo", store.undoArchive.isEmpty && win.undoManager?.canUndo == false)
+        store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo", seconds: 0.2)
+        store.undoArchive = ["tomas"]; store.showToast("Archived.", action: "Undo", seconds: 0.2)
+        await store.undoLast()
+        check("menu undo: undone from the toast's button, the menu has nothing left, even after two actions", win.undoManager?.canUndo == false)
+        store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo")
+        store.newCompose()
+        if let d = store.compose {
+            let tid = UUID()
+            store.compose = nil
+            store.toast = ToastInfo(text: UndoSend.sendingText(7), action: "Undo", id: tid)
+            store.undoSend = (UUID(), d, "", tid)
+            NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+            await LiveTest.pump(1.0)
+            check("menu undo: while an email is counting down it stops the send, and the older archive stays as it was", store.undoSend == nil && store.compose != nil && store.undoArchive == ["priya"])
+        } else { check("menu undo: a new email opens for the send check", false) }
+        win.close()
         return ok
     }
 

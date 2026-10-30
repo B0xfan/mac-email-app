@@ -159,6 +159,7 @@ final class MailStore: ObservableObject {
     var inFlight: [String: SendMarker] = [:]   // sends going out right now, by send token or scheduled draft id
     var undoSend: (UUID, ComposeDraft, String, UUID)?
     var undoArchive: [String] = []
+    weak var menuUndo: UndoManager?   // the window's Edit > Undo, see offerMenuUndo()
     var undoSibs: [String] = []     // other emails of a conversation that only left the inbox (Move/Snooze): Undo puts them back
     var draftMap: [String: String] = [:]   // message id -> draft id
 
@@ -271,6 +272,7 @@ final class MailStore: ObservableObject {
     /// Settings > Accounts "Remove": sign out and clear the account shown. The mail stored on this Mac goes too (John, 2026-10-16): the database and the saved inbox file.
     /// The service keeps its jobs when a new sign-in registers again (it only swaps the key), so cancel them first or they would still go out.
     func removeAccount() async {
+        menuUndo?.removeAllActions(withTarget: self); undoArchive = []; undoFolder = nil   // Command-Z must not reach the next account
         for s in timing.data.scheduled where s.server != "off" { await releaseServer(s.draftID) }
         await releaseReminders()
         await auth.signOut(); accountEmail = ""

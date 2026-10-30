@@ -171,6 +171,7 @@ extension MailStore {
         await releaseServer(s.draftID)   // before touching the draft; Undo then needs nothing from the service
         let delay = settings.undoDelay
         toast = ToastInfo(text: UndoSend.sendingText(delay), action: "Undo")
+        offerMenuUndo()
         let tid = toast!.id
         pendingScheduled = (s.draftID, tid)
         scheduledTask = Task { [weak self] in
