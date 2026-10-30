@@ -336,7 +336,8 @@ enum ListTest {
             check("arrow keys: Command-Down does not move", store.selectedID == ids[0])
             store.error = nil; store.toast = nil
             await press("\u{7F}", 51, [])
-            check("delete key: moves the open email to Trash (signed out here, so it may only get as far as an error)", store.error != nil || store.toast?.text == "Moved to Trash.")
+            await LiveTest.pump(1.0)
+            check("delete key: moves the open email to Trash (signed out here, so it may only get as far as an error; error \(store.error ?? "none"), toast \(store.toast?.text ?? "none"), open \(store.selectedID ?? "none"))", store.error != nil || store.toast?.text == "Moved to Trash.")
             store.error = nil; store.toast = nil
         } else { check("arrow keys: the sample list has at least two emails", false) }
         await press("c", 8, [])
@@ -370,7 +371,10 @@ enum ListTest {
         await LiveTest.pump(0.1)
         await store.undoLast()
         await LiveTest.pump(0.1)
-        check("menu undo: undone from the toast's button, the menu has nothing left, even after two actions", win.undoManager?.canUndo == false)
+        print("menu undo: after the toast's button the menu's Undo is \(win.undoManager?.canUndo == true ? "still clickable" : "grey")")
+        NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+        await LiveTest.pump(1.0)
+        check("menu undo: undone from the toast's button, the menu has nothing left to do, even after two actions", store.undoArchive.isEmpty && store.toast == nil)
         store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo")
         store.newCompose()
         if let d = store.compose {

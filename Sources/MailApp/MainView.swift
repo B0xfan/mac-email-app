@@ -509,8 +509,10 @@ struct ListPane: View {
                 switch p.key {
                 case .upArrow where !store.isMulti: Task { await store.moveInList(by: -1) }; return .handled
                 case .downArrow where !store.isMulti: Task { await store.moveInList(by: 1) }; return .handled
-                case .delete, .deleteForward: Task { if store.isMulti { await store.bulkTrash() } else { await store.trashOpen() } }; return .handled
                 default: break
+                }
+                if p.key == .delete || p.key == .deleteForward || p.characters == "\u{7F}" {   // the Delete key sends U+007F
+                    Task { if store.isMulti { await store.bulkTrash() } else { await store.trashOpen() } }; return .handled
                 }
             }
             guard store.settings.shortcuts, store.compose == nil, p.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }   // Command-S must not set aside: only the plain key (the cloud check went red on it)
