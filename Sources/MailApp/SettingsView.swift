@@ -328,12 +328,17 @@ struct StorageCard: View {
     }
 }
 
-/// Settings > Accounts "Remove".
+/// Settings > Accounts "Remove": asks first, because removing deletes everything stored on this Mac.
 struct RemoveAccountButton: View {
     let email: String
     var remove: () -> Void
+    @StateObject private var asking = Box(false)
     var body: some View {
-        Button("Remove", action: remove).buttonStyle(MailButtonStyle(kind: .block))
+        Button("Remove") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .block))
+            .alert("Remove this account?", isPresented: $asking.v) {
+                Button("Remove Account", role: .destructive, action: remove)
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("This signs \(email) out of Audrey Mail and deletes the mail and attachments stored on this Mac. Scheduled emails and reminders may not go out as planned. Your emails stay in Gmail.") }
     }
 }
 

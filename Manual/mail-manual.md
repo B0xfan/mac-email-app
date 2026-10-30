@@ -59,7 +59,7 @@ If sign-in fails:
 
 Drive comes with the same Google sign-in. There is no separate button.
 
-1. Open Settings (Command-comma), choose **Accounts**, click **Remove**. Your emails stay with Gmail.
+1. Open Settings (Command-comma), choose **Accounts**, click **Remove**, then **Remove Account**. Your emails stay with Gmail.
 2. Click **Sign in with Google** and go through the steps above again. This time Google also asks about Drive. Allow it.
 
 If you skip this, adding a big file ends with: "Big files need one more Google permission. Open Settings, sign out of Google, and sign in again."
@@ -290,7 +290,7 @@ Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's sta
 
 | Page | What it does |
 | --- | --- |
-| Accounts | Shows the connected Gmail account. **Remove** signs out (your emails stay in Gmail). |
+| Accounts | Shows the connected Gmail account. **Remove** asks first, then signs out and deletes the mail stored on this Mac (your emails stay in Gmail). |
 | Signatures | Your signature for new emails. |
 | Quick Replies | The short answers under an email. |
 | Away message | An automatic out-of-office reply: on or off, first and last day (or "Until I turn it off"), subject, message, and "Only reply to people in my contacts". Gmail sends it even when your Mac is off. A strip at the top of the inbox shows while it is on, with **Turn off**. |
