@@ -259,6 +259,7 @@ enum ListTest {
         st.shortcuts = true; st.inboxView = .classic; st.screenNewSenders = false
         let store = Snapshots.sampleStore()
         store.mailbox = .inbox; store.homeShown = false
+        store.inbox.removeAll { store.isNew($0) }   // a new sender's email would ignore these keys and pass for the wrong reason
         let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
         win.isReleasedWhenClosed = false
         win.contentView = NSHostingView(rootView: MailRoot(store: store))
@@ -280,6 +281,24 @@ enum ListTest {
             check("command keys: Command-\(c.uppercased()) does not fire the one-key shortcut", same)
             store.compose = nil; store.picker = nil; store.todoMail = nil
         }
+        // Design review finding 8: arrows move and open, Delete moves to Trash
+        let ids = store.listMails.map(\.id)
+        if ids.count >= 2 {
+            await store.open(store.listMails[0])
+            let arrow: NSEvent.ModifierFlags = [.numericPad, .function]
+            await press("\u{F701}", 125, arrow)
+            check("arrow keys: down opens the next email", store.selectedID == ids[1])
+            await press("\u{F700}", 126, arrow)
+            check("arrow keys: up opens the one above", store.selectedID == ids[0])
+            await press("\u{F700}", 126, arrow)
+            check("arrow keys: up at the top stays there", store.selectedID == ids[0])
+            await press("\u{F701}", 125, arrow.union(.command))
+            check("arrow keys: Command-Down does not move", store.selectedID == ids[0])
+            store.error = nil; store.toast = nil
+            await press("\u{7F}", 51, [])
+            check("delete key: moves the open email to Trash (signed out here, so it may only get as far as an error)", store.error != nil || store.toast?.text == "Moved to Trash.")
+            store.error = nil; store.toast = nil
+        } else { check("arrow keys: the sample list has at least two emails", false) }
         await press("c", 8, [])
         check("command keys: plain C still reaches the list and starts an email", store.compose != nil)
         store.compose = nil

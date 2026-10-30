@@ -147,6 +147,7 @@ struct InboxBody: View {
                    fromText: noReply ? "You, to \(Address.parse(m.to).display)" : store.rowFromText(m), count: store.rowCount(m), pinned: pinned, picked: store.picked.contains(m.id),
                    onPin: { Task { await store.togglePin(m) } }, onAside: { Task { await store.setAside(m) } }, onSnooze: { store.picker = .snooze([m.id]) }, onArchive: { Task { await store.archive(m) } },
                    swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
+            .id(m.id)   // so the list can scroll an email the arrow keys opened into view
             .contextMenu {
                 Button { Task { await store.togglePin(m) } } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
                 Button { Task { await store.setAside(m) } } label: { Label("Set Aside", systemImage: "rectangle.stack") }

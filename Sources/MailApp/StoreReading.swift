@@ -35,7 +35,7 @@ extension MailStore {
             withPictures.convo = m.convo; withPictures.siblings = m.siblings; withPictures.historyID = m.historyID
             if selectedID == m.id, withPictures.html != full.html { openMail = withPictures }
         }
-        if m.unread { await setRead(m) }
+        if m.unread, selectedID == m.id { await setRead(m) }   // an arrow key held down only marks the email it stops on
     }
 
     private func setRead(_ m: Mail) async {
@@ -67,6 +67,21 @@ extension MailStore {
     func archiveOpen() async {
         guard let m = openRow, !selectedIsNewSender else { return }
         await archive(m)
+    }
+
+    /// The Delete key: the same Trash as the swipe, with the same Undo.
+    func trashOpen() async {
+        guard mailbox != .snoozed, let m = openRow, !selectedIsNewSender else { return }   // Trash does not clear a snooze: it would come back when due
+        await leaveInbox(m, add: [], text: "Moved to Trash.", aside: false, exactUndo: true, trashIt: true)
+    }
+
+    /// Up and down arrows: the email above or below opens, as a click would; with none open, the first one. Drafts open as a new email and New senders shows one row per sender, so the arrows leave those alone.
+    func moveInList(by step: Int) async {
+        guard mailbox != .drafts, mailbox != .newSenders else { return }
+        let list = mailbox == .recent ? RecentGroups.groups(listMails, opened: { openedAt($0) }).flatMap(\.mails) : listMails   // the order on screen
+        let at = list.firstIndex { $0.id == selectedID } ?? openRow.flatMap { r in list.firstIndex { $0.id == r.id } }
+        let next = at.map { $0 + step } ?? 0
+        if list.indices.contains(next) { await open(list[next]) }
     }
 
     /// Archives any email in the list (row button or open email). Moves on to the next email only if this one was open.

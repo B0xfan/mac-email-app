@@ -504,6 +504,14 @@ struct ListPane: View {
         .background(Theme.bg)
         .focusable().focusEffectDisabled()
         .onKeyPress(phases: .down) { p in
+            if store.compose == nil, p.modifiers.isDisjoint(with: [.command, .control, .option, .shift]) {   // arrow keys also carry the number pad flag; these work with the one-key shortcuts off
+                switch p.key {
+                case .upArrow where !store.isMulti: Task { await store.moveInList(by: -1) }; return .handled
+                case .downArrow where !store.isMulti: Task { await store.moveInList(by: 1) }; return .handled
+                case .delete, .deleteForward: Task { if store.isMulti { await store.bulkTrash() } else { await store.trashOpen() } }; return .handled
+                default: break
+                }
+            }
             guard store.settings.shortcuts, store.compose == nil else { return .ignored }
             if store.isMulti {   // the same keys act on the whole selection
                 switch p.characters.lowercased() {
@@ -528,6 +536,7 @@ struct ListPane: View {
             default: return .ignored
             }
         }
+        .onChange(of: store.selectedID) { _, id in if let id { proxy.scrollTo(id) } }   // no anchor: a row already in view stays where it is
         // another folder, Smart tab, unread filter or inbox view starts at the top: a scroll position kept from a longer list can lie past the end of a shorter one
         .onChange(of: [AnyHashable(store.mailbox), AnyHashable(settings.smartTab), AnyHashable(store.unreadOnly), AnyHashable(settings.inboxView)]) { _, _ in proxy.scrollTo("listTop", anchor: .top) }
         }

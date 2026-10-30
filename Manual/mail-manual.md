@@ -341,7 +341,7 @@ The Send Later and reminder service needs you to have signed in with the current
 
 ## Keyboard shortcuts
 
-Single keys work only with the email list in front, not while writing, and only if **Keyboard shortcuts** is on (Settings, Keyboard).
+Single keys work only with the email list in front, not while writing, and only if **Keyboard shortcuts** is on (Settings, Keyboard). The arrow keys and Delete work with that switch off too.
 
 | Keys | What it does |
 | --- | --- |
@@ -352,6 +352,8 @@ Single keys work only with the email list in front, not while writing, and only 
 | Command-comma | Settings |
 | Command-? | Audrey Mail Help |
 | Control-Command-S | Hide or show the sidebar |
+| Up and down arrows | Open the email above or below |
+| Delete | Move to Trash (Undo brings it back) |
 | C | New email |
 | R | Reply |
 | F | Forward |
