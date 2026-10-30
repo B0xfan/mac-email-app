@@ -218,6 +218,48 @@ enum ListTest {
         check("13-storage page: the Storage settings page draws (picture is not blank)", ((try? FileManager.default.attributesOfItem(atPath: sp)[.size] as? Int) ?? 0) > 5_000)
         win.close()
         if await !creatorEmail(into: dir) { ok = false }
+        if await !removeAccountAsks(into: dir) { ok = false }
+        return ok
+    }
+
+    /// Design review finding 1: one click on Remove signed out and deleted the stored mail. The real button in a window that is
+    /// never shown; `remove` only sets a flag, so nothing is signed out or deleted here.
+    static func removeAccountAsks(into dir: String) async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        var removed = 0
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: RemoveAccountButton(email: "marta@harborlane.example") { removed += 1 }.frame(width: 300, height: 120))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(0.5)
+        func clickRemove() async {
+            let p = CGPoint(x: 150, y: 60)
+            for (n, t) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() { NSApp.sendEvent(DropTest.mouse(win, t, p, n: n)) }
+            await LiveTest.pump(1.0)
+        }
+        func button(_ title: String) -> NSButton? {
+            func find(_ v: NSView) -> NSButton? {
+                if let b = v as? NSButton, b.title == title { return b }
+                for s in v.subviews { if let b = find(s) { return b } }
+                return nil
+            }
+            for w in NSApp.windows { if let v = w.contentView, let b = find(v) { return b } }
+            return nil
+        }
+        await clickRemove()
+        check("remove account: the first click removes nothing (removed \(removed) times)", removed == 0)
+        check("remove account: it asks, with a Remove Account button and a Cancel button", button("Remove Account") != nil && button("Cancel") != nil)
+        if let sheet = win.attachedSheet { LiveTest.grab(sheet, "\(dir)/list-14-remove-account.png") }
+        button("Cancel")?.performClick(nil)
+        await LiveTest.pump(1.0)
+        check("remove account: Cancel removes nothing and closes the question", removed == 0 && button("Remove Account") == nil)
+        await clickRemove()
+        button("Remove Account")?.performClick(nil)
+        await LiveTest.pump(1.0)
+        check("remove account: the Remove Account button removes once", removed == 1)
+        win.close()
         return ok
     }
 

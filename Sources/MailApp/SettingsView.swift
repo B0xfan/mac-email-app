@@ -63,7 +63,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading) { Text(app.store.accountEmail.isEmpty ? "Not signed in" : app.store.accountEmail).font(Theme.bodyStrong); Text(app.store.accountEmail.isEmpty ? "" : "Connected (Gmail)").foregroundStyle(Theme.sub).font(Theme.small) }
                     Spacer()
                     if !app.store.accountEmail.isEmpty {
-                        Button("Remove") { Task { await app.store.removeAccount(); note.v = "Signed out. Your emails stay with Gmail." } }.buttonStyle(MailButtonStyle(kind: .block))
+                        RemoveAccountButton(email: app.store.accountEmail) { Task { await app.store.removeAccount(); note.v = "Signed out. Your emails stay with Gmail." } }
                     } else {
                         Button("Sign in with Google") { note.v = ""; Task { await app.signIn.signIn(); if case .signedIn(let e) = app.signIn.state { app.store.accountEmail = e ?? "" } } }
                             .buttonStyle(MailButtonStyle(kind: .primary)).disabled(signIn.state == .signingIn)
@@ -325,6 +325,15 @@ struct StorageCard: View {
             Text("Clearing frees the space. Your mail stays safe in Gmail and comes back down as you use Audrey Mail.").font(Theme.small).foregroundStyle(Theme.sub)
         }.frame(maxWidth: .infinity, alignment: .leading) }
         .task { info.v = await store.storageText() }
+    }
+}
+
+/// Settings > Accounts "Remove".
+struct RemoveAccountButton: View {
+    let email: String
+    var remove: () -> Void
+    var body: some View {
+        Button("Remove", action: remove).buttonStyle(MailButtonStyle(kind: .block))
     }
 }
 
