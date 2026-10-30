@@ -127,6 +127,8 @@ struct MailApp: App {
             CommandGroup(replacing: .printItem) {
                 Button("Print...") { if let m = app.store.openMail { app.store.startPrint(m) } }.keyboardShortcut("p")
             }
+            CommandMenu("Mailbox") { MailboxMenu(store: app.store) }
+            CommandMenu("Message") { MessageMenu(store: app.store) }
             CommandGroup(after: .toolbar) {
                 Button(app.store.settings.compactSidebar ? "Show Sidebar" : "Hide Sidebar") { app.store.toggleSidebar() }.keyboardShortcut("s", modifiers: [.control, .command])
                 Button("Command Center") { app.store.commandCenterOpen.toggle() }.keyboardShortcut("k")
@@ -210,6 +212,52 @@ final class SignInModel: ObservableObject {
     }
 
     func signOut() async { await auth.signOut(); state = .signedOut }
+}
+
+/// The Mailbox menu of the design plan's command map.
+struct MailboxMenu: View {
+    @ObservedObject var store: MailStore
+    var body: some View {
+        Button("Check for New Email") { Task { await store.refresh(reloadList: true) } }.disabled(store.loading || store.accountEmail.isEmpty)
+    }
+}
+
+/// The Message menu: the same actions and limits as the list's keys. The keys are named in the titles and not set on the items:
+/// a plain key set on a menu item would also fire while typing in a text field.
+struct MessageMenu: View {
+    @ObservedObject var store: MailStore
+    @ObservedObject private var settings = AppSettings.shared
+    private func key(_ title: String, _ k: String) -> String { settings.shortcuts ? "\(title) (\(k))" : title }
+    private func run(_ work: @escaping @MainActor () async -> Void) { Task { await work() } }
+    var body: some View {
+        let multi = store.compose == nil && store.isMulti
+        let mail = store.compose == nil && !multi && !store.selectedIsNewSender ? store.openMail : nil
+        let row = mail == nil ? nil : store.openRow
+        let inbox = store.mailbox == .inbox
+        Group {
+            Button(key("Reply", "R")) { if let mail { store.reply(mail) } }.disabled(mail == nil)
+            Button("Reply All") { if let mail { store.reply(mail, all: true) } }.disabled(mail == nil)
+            Button(key("Forward", "F")) { if let mail { store.forward(mail) } }.disabled(mail == nil)
+        }
+        Divider()
+        Group {
+            Button(key("Archive", "A")) { run { if multi { await store.bulkArchive() } else { await store.archiveOpen() } } }.disabled(mail == nil && !multi)
+            Button(key("Set Aside", "S")) { run { if multi { await store.bulkSetAside() } else if let row { await store.setAside(row) } } }.disabled((!inbox || row == nil) && !multi)
+            Button(key("Snooze...", "Z")) { if multi { store.bulkSnooze() } else if let row { store.picker = .snooze([row.id]) } }.disabled((!inbox || row == nil) && !multi)
+            Button(key("Pin or Unpin", "P")) { run { if multi { await store.bulkPin() } else if let row { _ = await store.togglePin(row) } } }.disabled((!inbox || row == nil) && !multi)
+        }
+        Divider()
+        Group {
+            Button(key("Add to To-Do", "T")) { if multi { store.bulkTodo() } else { store.todoMail = mail } }.disabled(mail == nil && !multi)
+            Button(key("Save as Note", "N")) { run { if let mail { await store.saveAsNote(mail) } } }.disabled(mail == nil || store.savingNote)
+            Button(multi ? "Mark Read or Unread" : mail?.unread == true ? "Mark as Read" : "Mark as Unread") { run { if multi { await store.bulkToggleRead() } else if let mail { await store.toggleRead(mail) } } }.disabled(mail == nil && !multi)
+            Button(key("Move to Trash", "Delete")) { run { if multi { await store.bulkTrash() } else { await store.trashOpen() } } }.disabled(store.mailbox == .snoozed || (mail == nil && !multi))
+        }
+        Divider()
+        let moves = store.compose == nil && !store.isMulti && store.mailbox != .drafts && store.mailbox != .newSenders
+        Button("Next Email (Down Arrow)") { run { await store.moveInList(by: 1) } }.disabled(!moves)
+        Button("Previous Email (Up Arrow)") { run { await store.moveInList(by: -1) } }.disabled(!moves)
+    }
 }
 
 struct RegisterOpenWindow: ViewModifier {

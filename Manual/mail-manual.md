@@ -366,7 +366,7 @@ Single keys work only with the email list in front, not while writing, and only 
 | Escape | Back from an email (reading pane below) |
 | Any key | Leaves the Home screen |
 
-Reply all has no key; use the toolbar or Command-K.
+Reply all has no key; use the toolbar, the Message menu or Command-K. The **Message** and **Mailbox** menus list these actions and name their keys.
 
 ## Using this help
 

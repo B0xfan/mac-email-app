@@ -223,6 +223,12 @@ enum ListTest {
         if await !menuUndo() { ok = false }
         if await !commandKeys() { ok = false }
         if await !composeLinks() { ok = false }
+        // Design review finding 9
+        if let bar = NSApp.mainMenu, bar.numberOfItems > 0 {
+            check("menus: the menu bar has Mailbox and Message", bar.item(withTitle: "Mailbox") != nil && bar.item(withTitle: "Message") != nil)
+            let plain = bar.item(withTitle: "Message")?.submenu?.items.filter { !$0.keyEquivalent.isEmpty } ?? []
+            check("menus: no Message item has a key of its own, so typing can never fire one", plain.isEmpty)
+        } else { print("SKIP menus: no menu bar in this run") }
         return ok
     }
 
