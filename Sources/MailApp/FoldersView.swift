@@ -90,6 +90,20 @@ struct FolderRow: View {
     }
 }
 
+/// The top of an email's right-click menu: the everyday actions.
+@MainActor @ViewBuilder
+func basicsMenu(_ store: MailStore, _ m: Mail) -> some View {
+    if store.mailbox != .drafts {   // a draft opens as a new email, and has nothing to reply to
+        Button { Task { await store.openThenReply(m) } } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
+        Button { Task { await store.openThenReply(m, all: true) } } label: { Label("Reply All", systemImage: "arrowshape.turn.up.left.2") }
+        Button { Task { await store.openThenForward(m) } } label: { Label("Forward", systemImage: "arrowshape.turn.up.right") }
+        Divider()
+        Button { Task { await store.toggleRead(m) } } label: { Label(m.unread ? "Mark as Read" : "Mark as Unread", systemImage: m.unread ? "envelope.open" : "envelope.badge") }
+        Button { Task { await store.swipe(m, .trash) } } label: { Label("Move to Trash", systemImage: "trash") }
+        Divider()
+    }
+}
+
 /// "Move to folder" in an email's right-click menu.
 @MainActor @ViewBuilder
 func moveToFolderMenu(_ store: MailStore, _ m: Mail) -> some View {

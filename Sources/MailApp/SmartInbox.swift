@@ -149,6 +149,7 @@ struct InboxBody: View {
                    swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
             .id(m.id)   // so the list can scroll an email the arrow keys opened into view
             .contextMenu {
+                basicsMenu(store, m)
                 Button { Task { await store.togglePin(m) } } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
                 Button { Task { await store.setAside(m) } } label: { Label("Set Aside", systemImage: "rectangle.stack") }
                 Button { store.picker = .snooze([m.id]) } label: { Label("Snooze...", systemImage: "moon") }

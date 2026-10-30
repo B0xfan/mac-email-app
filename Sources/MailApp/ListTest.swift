@@ -434,6 +434,8 @@ enum ListTest {
         }
         print("creator email: right-click menu items \(menu?.items.map(\.title) ?? [])")
         check("creator email: the row's right-click menu has Move to category", menu != nil)
+        let titles = menu?.items.map(\.title) ?? []
+        check("right-click: the basics are there (finding 11)", ["Reply", "Reply All", "Forward", "Move to Trash"].allSatisfy(titles.contains) && titles.contains { $0.hasPrefix("Mark as ") })
         if let menu, let i = menu.items.firstIndex(where: { $0.title == "Move to category" }), let sub = menu.items[i].submenu {
             sub.delegate?.menuNeedsUpdate?(sub); sub.delegate?.menuWillOpen?(sub)
             print("creator email: Move to category items \(sub.items.map(\.title))")

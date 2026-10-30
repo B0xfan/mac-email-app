@@ -59,6 +59,20 @@ extension MailStore {
         compose = d
     }
 
+    /// Right-click: a list row has no body and no message headers yet, so it opens first, as a click would. Then the reply quotes the whole email and joins its conversation.
+    func openThenReply(_ m: Mail, all: Bool = false) async {
+        if let o = await openLoaded(m) { reply(o, all: all) }
+    }
+    func openThenForward(_ m: Mail) async {
+        if let o = await openLoaded(m) { forward(o) }
+    }
+    private func openLoaded(_ m: Mail) async -> Mail? {
+        await open(m)
+        guard let o = openMail, o.id == m.id else { return nil }   // another email was clicked meanwhile
+        if o.html == nil && o.text == nil { error = "This email did not load, so nothing was started. Check your connection and try again."; return nil }
+        return o
+    }
+
     func forward(_ m: Mail) {
         let subj = m.subject.lowercased().hasPrefix("fwd:") ? m.subject : "Fwd: \(m.subject)"
         var d = ComposeDraft(from: defaultFrom, to: "", subject: subj, mode: .forward(m.id))

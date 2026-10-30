@@ -477,6 +477,7 @@ struct ListPane: View {
                                        onBack: { Task { await store.backToInbox([m]) } }, onArchive: { Task { await store.archive(m) } },
                                        swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
                                 .contextMenu {
+                                    basicsMenu(store, m)
                                     Button { Task { await store.backToInbox([m]) } } label: { Label("Back to Inbox", systemImage: "tray") }
                                     Button { Task { await store.archive(m) } } label: { Label("Archive", systemImage: "archivebox") }
                                     moveToFolderMenu(store, m)
@@ -489,7 +490,7 @@ struct ListPane: View {
                         ForEach(store.listMails) { m in
                             if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
                             MessageRow(mail: m, selected: store.selectedID == m.id, swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { Task { await store.open(m) } }
-                                .contextMenu { moveToFolderMenu(store, m) }
+                                .contextMenu { basicsMenu(store, m); moveToFolderMenu(store, m) }
                         }
                     }
                     if store.mailbox != .inbox, store.otherNext != nil { MoreRow(loading: store.loadingOtherMore, page: store.otherNext, resetKey: "", auto: { await store.autoMoreOther() }, manual: { store.resetAutoPages(); await store.loadMoreOther() }, reset: { store.resetAutoPages() }) }
