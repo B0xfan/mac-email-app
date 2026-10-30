@@ -317,10 +317,10 @@ struct StorageCard: View {
                     Text(info.v.isEmpty ? " " : info.v).font(Theme.small).foregroundStyle(Theme.sub)
                 }
                 Spacer()
-                Button(busy.v ? "Clearing\u{2026}" : "Clear stored mail") {
+                ClearStoredMailButton(busy: busy.v) {
                     busy.v = true
                     Task { await store.clearStoredMail(); info.v = await store.storageText(); busy.v = false }
-                }.buttonStyle(MailButtonStyle(kind: .warn)).disabled(busy.v || store.db == nil)
+                }.disabled(busy.v || store.db == nil)
             }
             Text("Clearing frees the space. Your mail stays safe in Gmail and comes back down as you use Audrey Mail.").font(Theme.small).foregroundStyle(Theme.sub)
         }.frame(maxWidth: .infinity, alignment: .leading) }
@@ -339,6 +339,20 @@ struct RemoveAccountButton: View {
                 Button("Remove Account", role: .destructive, action: remove)
                 Button("Cancel", role: .cancel) {}
             } message: { Text("This signs \(email) out of Audrey Mail and deletes the mail and attachments stored on this Mac. Scheduled emails and reminders may not go out as planned. Your emails stay in Gmail.") }
+    }
+}
+
+/// Settings > Storage "Clear stored mail": asks first, because the mail then has to come down from Gmail again.
+struct ClearStoredMailButton: View {
+    var busy = false
+    var clear: () -> Void
+    @StateObject private var asking = Box(false)
+    var body: some View {
+        Button(busy ? "Clearing\u{2026}" : "Clear stored mail") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .warn))
+            .alert("Clear the mail stored on this Mac?", isPresented: $asking.v) {
+                Button("Clear Stored Mail", role: .destructive, action: clear)
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("This deletes the stored mail and downloaded attachments on this Mac. Your mail stays safe in Gmail and comes back down by itself, which can take a while.") }
     }
 }
 

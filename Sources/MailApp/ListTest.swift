@@ -218,19 +218,20 @@ enum ListTest {
         check("13-storage page: the Storage settings page draws (picture is not blank)", ((try? FileManager.default.attributesOfItem(atPath: sp)[.size] as? Int) ?? 0) > 5_000)
         win.close()
         if await !creatorEmail(into: dir) { ok = false }
-        if await !removeAccountAsks(into: dir) { ok = false }
+        if await !asksFirst("remove account", confirm: "Remove Account", picture: "list-14-remove-account", into: dir, { RemoveAccountButton(email: "marta@harborlane.example", remove: $0) }) { ok = false }
+        if await !asksFirst("clear stored mail", confirm: "Clear Stored Mail", picture: "list-15-clear-stored-mail", into: dir, { ClearStoredMailButton(clear: $0) }) { ok = false }
         return ok
     }
 
-    /// Design review finding 1: one click on Remove signed out and deleted the stored mail. The real button in a window that is
-    /// never shown; `remove` only sets a flag, so nothing is signed out or deleted here.
-    static func removeAccountAsks(into dir: String) async -> Bool {
+    /// Design review findings 1 and 2: one click signed out or deleted the stored mail. The real button in a window that is
+    /// never shown; the action only sets a flag, so nothing is signed out or deleted here.
+    static func asksFirst<V: View>(_ name: String, confirm: String, picture: String, into dir: String, _ view: (@escaping () -> Void) -> V) async -> Bool {
         var ok = true
         func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
         var removed = 0
         let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
         win.isReleasedWhenClosed = false
-        win.contentView = NSHostingView(rootView: RemoveAccountButton(email: "marta@harborlane.example") { removed += 1 }.frame(width: 300, height: 120))
+        win.contentView = NSHostingView(rootView: view({ removed += 1 }).frame(width: 300, height: 120))
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
         await LiveTest.pump(0.5)
@@ -245,20 +246,20 @@ enum ListTest {
                 for s in v.subviews { if let b = find(s) { return b } }
                 return nil
             }
-            for w in NSApp.windows { if let v = w.contentView, let b = find(v) { return b } }
+            for w in NSApp.windows where w.isVisible { if let v = w.contentView, let b = find(v) { return b } }
             return nil
         }
         await clickRemove()
-        check("remove account: the first click removes nothing (removed \(removed) times)", removed == 0)
-        check("remove account: it asks, with a Remove Account button and a Cancel button", button("Remove Account") != nil && button("Cancel") != nil)
-        if let sheet = win.attachedSheet { LiveTest.grab(sheet, "\(dir)/list-14-remove-account.png") }
+        check("\(name): the first click does nothing yet (done \(removed) times)", removed == 0)
+        check("\(name): it asks, with a \(confirm) button and a Cancel button", button(confirm) != nil && button("Cancel") != nil)
+        if let sheet = win.attachedSheet { LiveTest.grab(sheet, "\(dir)/\(picture).png") }
         button("Cancel")?.performClick(nil)
         await LiveTest.pump(1.0)
-        check("remove account: Cancel removes nothing and closes the question", removed == 0 && button("Remove Account") == nil)
+        check("\(name): Cancel does nothing and closes the question", removed == 0 && button(confirm) == nil)
         await clickRemove()
-        button("Remove Account")?.performClick(nil)
+        button(confirm)?.performClick(nil)
         await LiveTest.pump(1.0)
-        check("remove account: the Remove Account button removes once", removed == 1)
+        check("\(name): the \(confirm) button does it once", removed == 1)
         win.close()
         return ok
     }
