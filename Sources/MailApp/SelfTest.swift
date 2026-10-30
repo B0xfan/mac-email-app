@@ -727,6 +727,9 @@ enum SelfTest {
               fcalls.contains { $0.contains("batchModify") && $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"L1\"]") })
         await MainActor.run { store.inbox = [fm1, fm2] }
         fcalls = []
+        let dragged = Mail(id: "7f3a91c2e0", from: Address(name: "A", email: "a@example.com"), subject: "Fix [urgent] (see ](audreymail://email/bad))", snippet: "", date: Date(), labels: [])
+        check("drag: a dragged email is its subject and a link, and a folder reads the id back", MailLink.dragText(dragged).hasPrefix("[Fix \\[urgent\\]") && MailLink.dragText(dragged).hasSuffix("(audreymail://email/7f3a91c2e0)") && MailLink.dragID(MailLink.dragText(dragged)) == "7f3a91c2e0")
+        check("drag: other dropped text is not taken for an email", MailLink.dragID("hello") == nil && MailLink.dragID("7f3a91c2e0") == nil)
         let dropped = await store.drop(["fm2"], on: fTravel), nope = await store.drop(["not-an-email"], on: fTravel)
         check("drag onto a folder: files the dragged email; a stray drop is ignored", dropped && !nope && fcalls.contains { $0.contains("batchModify") && $0.contains("fm2") && $0.contains("\"L1\"") })
         // moving out of one folder view into another also leaves the first

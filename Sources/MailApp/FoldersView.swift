@@ -78,7 +78,8 @@ struct FolderRow: View {
     var body: some View {
         let row = NavRow(symbol: "folder", title: f.leaf, indent: CGFloat(f.depth) * 14, hot: hot.v, on: store.mailbox == .folder(f.id)) { Task { await store.select(.folder(f.id)) } }
         // the native drop target does not draw in the headless screens, so they get the plain row
-        return Group { if SnapshotMode.on { row } else { row.dropDestination(for: String.self) { ids, _ in
+        return Group { if SnapshotMode.on { row } else { row.dropDestination(for: String.self) { texts, _ in
+                let ids = texts.compactMap(MailLink.dragID)
                 Task { await store.drop(ids, on: f) }
                 return !ids.isEmpty
             } isTargeted: { hot.v = $0 } } }

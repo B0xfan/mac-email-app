@@ -100,7 +100,7 @@ enum DropTest {
         let carried = pb.string(forType: .string)
         print("drag pasteboard types:", pb.types?.map(\.rawValue) ?? [], "string:", carried ?? "nil")
         if variant == "app" {
-            check("a real drag of an email row starts (the drag carries its id)", carried == "dana")
+            check("a real drag of an email row starts (the drag carries its id)", MailLink.dragID(carried ?? "") == "dana")
             // The drop half: hand the genuine drag pasteboard to the window the way a finished drag does.
             let info = FakeDrag(window: win, pasteboard: pb, point: to)
             // AppKit hands the drop to the registered view under the pointer: find it the same way

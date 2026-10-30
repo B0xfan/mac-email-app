@@ -16,6 +16,17 @@ enum MailLink {
         return id.range(of: #"^[0-9a-fA-F]{6,32}$"#, options: .regularExpression) != nil ? id : nil
     }
 
+    /// What a dragged row carries: a Markdown link, so a note shows the subject as a link and any other app shows readable text. A folder in the sidebar reads the id back.
+    static func dragText(_ m: Mail) -> String {
+        let title = subject(m).replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+        return "[\(title)](\(mine(m.id).absoluteString))"
+    }
+    /// The id in `dragText`; nil for anything else dropped. The last link counts: a subject could hold one too.
+    static func dragID(_ text: String) -> String? {
+        guard text.hasSuffix(")"), let r = text.range(of: "](audreymail://email/", options: .backwards) else { return nil }
+        return String(text[r.upperBound...].dropLast())
+    }
+
     /// Empty subjects get a visible title, so a pasted link is never blank.
     static func subject(_ m: Mail) -> String { m.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(no subject)" : m.subject }
 

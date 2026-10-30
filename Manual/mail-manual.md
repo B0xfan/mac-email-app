@@ -160,7 +160,7 @@ Hides an email until the time you pick, then it comes back to the top of the inb
 
 ## Link to an email
 
-Makes a link to one email that you can paste into a note, a to-do or a message. Use the link button in the email's header, or right-click the email.
+Makes a link to one email that you can paste into a note, a to-do or a message. Use the link button in the email's header, or right-click the email. You can also drag the email from the list into a note or another app, which pastes its subject and the link.
 
 - **Copy link for me.** Opens that email in Audrey Mail on this Mac, even if you archived it. It works only on a Mac with Audrey Mail and your account. If the email has been deleted, Audrey Mail says "That email is no longer in this account."
 - **Copy link to share.** Makes a web page with a plain-text copy of the email, and copies its address. Anyone who has the link can read it, with no sign-in. They cannot reply, and attachments and pictures are not included. The link stops working by itself after 30 days. Very long emails are shortened, and Audrey Mail tells you when that happened.

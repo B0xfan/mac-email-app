@@ -679,7 +679,7 @@ struct MessageRow: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(picked ? Theme.multi : selected ? Theme.selStrong : (hover.v ? Theme.hovBg : (pinned ? Theme.pinBg : .clear))))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(picked ? Theme.multiLine : selected ? Theme.acc : .clear, lineWidth: picked ? 1.5 : 2))
             .contentShape(Rectangle())
-            .draggable(mail.id)   // drop it on a folder in the sidebar to file it; must sit INSIDE the Button, or the Button swallows the drag
+            .draggable(MailLink.dragText(mail))   // drop it on a folder in the sidebar to file it; must sit INSIDE the Button, or the Button swallows the drag
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(picked ? .isSelected : [])
