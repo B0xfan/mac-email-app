@@ -19,7 +19,7 @@ struct ComposeView: View {
     @StateObject private var showBcc: Box<Bool>
     @StateObject private var translate: ComposeTranslate
     @FocusState private var focus: Line?
-    private enum Line { case cc, bcc }
+    private enum Line { case to, cc, bcc }
 
     var suggestions: [Address] {
         let typing = ContactDirectory.split(draft.v.to).typing
@@ -79,7 +79,7 @@ struct ComposeView: View {
                         .accessibilityLabel("From, \(fromLabel)")
                     }
                     field("To") {
-                        TextField("Name or email address", text: $draft.v.to).textFieldStyle(.plain)
+                        TextField("Name or email address", text: $draft.v.to).textFieldStyle(.plain).focused($focus, equals: .to)
                             .onChange(of: draft.v.to) { _, _ in
                                 picked.v = 0
                                 Task { await store.contacts.loadIfNeeded() }
@@ -154,7 +154,7 @@ struct ComposeView: View {
                 }
             }
         }
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { editor.focus() } }
+        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if draft.v.to.isEmpty { focus = .to } else { editor.focus() } } }   // nobody to write to yet: the To line first
         .sheet(isPresented: Binding(get: { !bigAsk.v.isEmpty }, set: { if !$0 { bigAsk.v = [] } })) { bigPanel }
         .alert("Insert link", isPresented: $linkPrompt.v) {
             TextField("https://", text: $linkURL.v)

@@ -223,6 +223,7 @@ enum ListTest {
         if await !menuUndo() { ok = false }
         if await !commandKeys() { ok = false }
         if await !composeLinks() { ok = false }
+        if await !composeCursor() { ok = false }
         // Design review finding 9
         if let bar = NSApp.mainMenu, bar.numberOfItems > 0 {
             check("menus: the menu bar has Mailbox and Message", bar.item(withTitle: "Mailbox") != nil && bar.item(withTitle: "Message") != nil)
@@ -232,6 +233,26 @@ enum ListTest {
             file?.update()   // a menu only refreshes its grey items when asked or opened
             check("menus: Print is grey with no email open (finding 10)", file?.item(withTitle: "Print...")?.isEnabled == false)
         } else { print("SKIP menus: no menu bar in this run") }
+        return ok
+    }
+
+    /// Design review finding 13: a new email started with the cursor in the body. The real window; a text line's cursor is a text view, the body is a web page.
+    static func composeCursor() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        for (to, wantToLine) in [("", true), ("dana@example.com", false)] {
+            let store = Snapshots.sampleStore()
+            store.mailbox = .inbox; store.homeShown = false
+            store.newCompose(); store.compose?.to = to
+            let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+            win.isReleasedWhenClosed = false
+            win.contentView = NSHostingView(rootView: MailRoot(store: store))
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+            await LiveTest.pump(1.5)
+            check("compose cursor: \(to.isEmpty ? "with nobody to write to it starts on the To line" : "with an address filled in it does not") (\(String(describing: win.firstResponder.map { type(of: $0) })))", (win.firstResponder is NSTextView) == wantToLine)
+            win.close()
+        }
         return ok
     }
 
