@@ -365,8 +365,11 @@ enum ListTest {
         await LiveTest.pump(1.0)
         check("menu undo: Undo in the menu runs the toast's undo", store.undoArchive.isEmpty && win.undoManager?.canUndo == false)
         store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo", seconds: 0.2)
+        await LiveTest.pump(0.1)   // each action is its own click, not all in one moment
         store.undoArchive = ["tomas"]; store.showToast("Archived.", action: "Undo", seconds: 0.2)
+        await LiveTest.pump(0.1)
         await store.undoLast()
+        await LiveTest.pump(0.1)
         check("menu undo: undone from the toast's button, the menu has nothing left, even after two actions", win.undoManager?.canUndo == false)
         store.undoArchive = ["priya"]; store.showToast("Archived.", action: "Undo")
         store.newCompose()

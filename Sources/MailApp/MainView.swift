@@ -513,7 +513,7 @@ struct ListPane: View {
                 default: break
                 }
             }
-            guard store.settings.shortcuts, store.compose == nil else { return .ignored }
+            guard store.settings.shortcuts, store.compose == nil, p.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }   // Command-S must not set aside: only the plain key (the cloud check went red on it)
             if store.isMulti {   // the same keys act on the whole selection
                 switch p.characters.lowercased() {
                 case "a": Task { await store.bulkArchive() }; return .handled
