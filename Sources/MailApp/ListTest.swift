@@ -221,6 +221,46 @@ enum ListTest {
         if await !asksFirst("remove account", confirm: "Remove Account", picture: "list-14-remove-account", into: dir, { RemoveAccountButton(email: "marta@harborlane.example", remove: $0) }) { ok = false }
         if await !asksFirst("clear stored mail", confirm: "Clear Stored Mail", picture: "list-15-clear-stored-mail", into: dir, { ClearStoredMailButton(clear: $0) }) { ok = false }
         if await !menuUndo() { ok = false }
+        if await !commandKeys() { ok = false }
+        return ok
+    }
+
+    /// Design review finding 4: the list's one-key shortcuts never look at Command, so a Command key no menu item takes might act on the open email.
+    /// No menu bar runs here, which is that case. The plain C at the end shows the keys really reach the list (never signs in, sends nothing).
+    static func commandKeys() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        let st = AppSettings.shared
+        let (wasShortcuts, wasView, wasScreen) = (st.shortcuts, st.inboxView, st.screenNewSenders)
+        defer { st.shortcuts = wasShortcuts; st.inboxView = wasView; st.screenNewSenders = wasScreen }
+        st.shortcuts = true; st.inboxView = .classic; st.screenNewSenders = false
+        let store = Snapshots.sampleStore()
+        store.mailbox = .inbox; store.homeShown = false
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: MailRoot(store: store))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(1.0)
+        for (n, t) in [NSEvent.EventType.leftMouseDown, .leftMouseUp].enumerated() { NSApp.sendEvent(DropTest.mouse(win, t, CGPoint(x: 400, y: 700), n: n)) }   // a row near the top of the list: opens it and gives the list the keys
+        await LiveTest.pump(1.0)
+        check("command keys: a click opened an email to act on", store.openRow != nil)
+        func press(_ c: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags) async {
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, characters: c, charactersIgnoringModifiers: c, isARepeat: false, keyCode: code) { NSApp.sendEvent(e) }
+            await LiveTest.pump(0.5)
+        }
+        for (c, code) in [("a", UInt16(0)), ("s", 1), ("z", 6), ("c", 8), ("t", 17), ("p", 35), ("r", 15), ("f", 3), ("n", 45)] {
+            let before = store.inbox.map(\.id)
+            store.toast = nil; store.error = nil
+            await press(c, code, .command)
+            let same = store.inbox.map(\.id) == before && store.toast == nil && store.error == nil && store.compose == nil && store.picker == nil && store.todoMail == nil   // signed out, a fired shortcut may only leave an error
+            check("command keys: Command-\(c.uppercased()) does not fire the one-key shortcut", same)
+            store.compose = nil; store.picker = nil; store.todoMail = nil
+        }
+        await press("c", 8, [])
+        check("command keys: plain C still reaches the list and starts an email", store.compose != nil)
+        store.compose = nil
+        win.close()
         return ok
     }
 
