@@ -259,7 +259,7 @@ struct MessageMenu: View {
             Button(key("Add to To-Do", "T")) { if multi { store.bulkTodo() } else { store.todoMail = mail } }.disabled(mail == nil && !multi)
             Button(key("Save as Note", "N")) { run { if let mail { await store.saveAsNote(mail) } } }.disabled(mail == nil || store.savingNote)
             Button(multi ? "Mark Read or Unread" : mail?.unread == true ? "Mark as Read" : "Mark as Unread") { run { if multi { await store.bulkToggleRead() } else if let mail { await store.toggleRead(mail) } } }.disabled(mail == nil && !multi)
-            Button(key("Move to Trash", "Delete")) { run { if multi { await store.bulkTrash() } else { await store.trashOpen() } } }.disabled(store.mailbox == .snoozed || (mail == nil && !multi))
+            Button("Move to Trash (Delete)") { run { if multi { await store.bulkTrash() } else { await store.trashOpen() } } }.disabled(store.mailbox == .snoozed || (mail == nil && !multi))
         }
         Divider()
         let moves = store.compose == nil && !store.isMulti && store.mailbox != .drafts && store.mailbox != .newSenders

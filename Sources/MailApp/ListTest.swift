@@ -378,6 +378,10 @@ enum ListTest {
             NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
             await LiveTest.pump(1.0)
             check("menu undo: while an email is counting down it stops the send, and the older archive stays as it was", store.undoSend == nil && store.compose != nil && store.undoArchive == ["priya"])
+            store.showToast("Archived.", action: "Undo")
+            NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+            await LiveTest.pump(1.0)
+            check("menu undo: with an email being written it brings nothing back, so that email stays open", store.compose != nil && store.undoArchive == ["priya"])
         } else { check("menu undo: a new email opens for the send check", false) }
         win.close()
         return ok

@@ -207,7 +207,7 @@ extension MailStore {
     func offerMenuUndo() {
         menuUndo?.removeAllActions(withTarget: self)
         menuUndo = NSApp.keyWindow?.undoManager
-        menuUndo?.registerUndo(withTarget: self) { s in Task { @MainActor in await s.undoNow() } }
+        menuUndo?.registerUndo(withTarget: self) { s in Task { @MainActor in if s.compose == nil { await s.undoNow() } } }   // bringing an email back would close the one being written
     }
 
     /// The toast's Undo button and the menu: a send still counting down comes first, so it can never go out while an older archive comes back.
