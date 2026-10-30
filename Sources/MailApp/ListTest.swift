@@ -224,6 +224,16 @@ enum ListTest {
         if await !commandKeys() { ok = false }
         if await !composeLinks() { ok = false }
         if await !composeCursor() { ok = false }
+        // Design review finding 15: toasts are read aloud, once each
+        var heard: [String] = []
+        let realAnnounce = MailStore.announce
+        MailStore.announce = { heard.append($0) }
+        let spoken = Snapshots.sampleStore()
+        spoken.showToast("Archived.", action: "Undo")
+        spoken.toast?.text = "Sending in 4 seconds"
+        spoken.showToast("Sent.")
+        MailStore.announce = realAnnounce
+        check("voiceover: each new toast is read once, and a countdown changing its words is not read again (\(heard))", heard == ["Archived.", "Sent."])
         // Design review finding 9
         if let bar = NSApp.mainMenu, bar.numberOfItems > 0 {
             check("menus: the menu bar has Mailbox and Message", bar.item(withTitle: "Mailbox") != nil && bar.item(withTitle: "Message") != nil)

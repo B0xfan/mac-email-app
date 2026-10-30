@@ -65,7 +65,9 @@ final class MailStore: ObservableObject {
     var languageGuesses: [String: String] = [:]   // mail id -> language code, "" = not foreign
     @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
     @Published var status = ""                 // spoken-style status line
-    @Published var toast: ToastInfo?
+    /// VoiceOver reads each new toast once; a send's countdown keeps its id, so it is not read again every second.
+    @Published var toast: ToastInfo? { didSet { if let t = toast, t.id != oldValue?.id { MailStore.announce(t.text) } } }
+    nonisolated(unsafe) static var announce: (String) -> Void = { AccessibilityNotification.Announcement($0).post() }   // a test swaps it
     @Published var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
     @Published var awayError: String?
     @Published var rules: [RuleRow] = []   // Gmail filters, read when the Rules page opens
