@@ -228,6 +228,9 @@ enum ListTest {
             check("menus: the menu bar has Mailbox and Message", bar.item(withTitle: "Mailbox") != nil && bar.item(withTitle: "Message") != nil)
             let plain = bar.item(withTitle: "Message")?.submenu?.items.filter { !$0.keyEquivalent.isEmpty } ?? []
             check("menus: no Message item has a key of its own, so typing can never fire one", plain.isEmpty)
+            let file = bar.item(withTitle: "File")?.submenu
+            file?.update()   // a menu only refreshes its grey items when asked or opened
+            check("menus: Print is grey with no email open (finding 10)", file?.item(withTitle: "Print...")?.isEnabled == false)
         } else { print("SKIP menus: no menu bar in this run") }
         return ok
     }

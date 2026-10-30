@@ -125,7 +125,7 @@ struct MailApp: App {
                 Button("New email") { app.store.newCompose() }.keyboardShortcut("n")
             }
             CommandGroup(replacing: .printItem) {
-                Button("Print...") { if let m = app.store.openMail { app.store.startPrint(m) } }.keyboardShortcut("p")
+                PrintMenuItem(store: app.store)
             }
             CommandMenu("Mailbox") { MailboxMenu(store: app.store) }
             CommandMenu("Message") { MessageMenu(store: app.store) }
@@ -212,6 +212,14 @@ final class SignInModel: ObservableObject {
     }
 
     func signOut() async { await auth.signOut(); state = .signedOut }
+}
+
+/// File > Print: grey with no email open (its own view, so the menu follows the store).
+struct PrintMenuItem: View {
+    @ObservedObject var store: MailStore
+    var body: some View {
+        Button("Print...") { if let m = store.openMail { store.startPrint(m) } }.keyboardShortcut("p").disabled(store.openMail == nil)
+    }
 }
 
 /// The Mailbox menu of the design plan's command map.
