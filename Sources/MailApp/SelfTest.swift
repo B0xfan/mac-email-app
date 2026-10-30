@@ -797,7 +797,7 @@ enum SelfTest {
               && Swipe.isHorizontal(dx: 8, dy: 2) && !Swipe.isHorizontal(dx: 3, dy: 8) && !Swipe.isHorizontal(dx: 0, dy: 0))
         let defSet = await MainActor.run { AppSettings() }
         check("swipe: choices and defaults (right = Archive, left = Set Aside)",
-              SwipeAction.allCases.map(\.title) == ["Archive", "Pin", "Set Aside", "Mark read or unread", "Move to Trash", "Do nothing"]
+              SwipeAction.allCases.map(\.title) == ["Archive", "Pin", "Set Aside", "Mark Read or Unread", "Move to Trash", "Do nothing"]
               && (UserDefaults.standard.string(forKey: "swipeRight") != nil || defSet.swipeRight == .archive) && (UserDefaults.standard.string(forKey: "swipeLeft") != nil || defSet.swipeLeft == .aside))
         let sw1 = mk("sw1", "a@x.example", unread: true, h: 1), sw2 = mk("sw2", "b@x.example", h: 2), sw3 = mk("sw3", "c@x.example", h: 3), sw4 = mk("sw4", "d@x.example", h: 4), sw5 = mk("sw5", "e@x.example", h: 5)
         await MainActor.run { store.inbox = [sw1, sw2, sw3, sw4, sw5]; store.mailbox = .inbox; store.settings.inboxView = .classic; store.openMail = nil; store.selectedID = nil; store.toast = nil }
@@ -1600,9 +1600,9 @@ enum SelfTest {
         check("shared JSON store: saves and reads back, and a missing file reads as nothing", JSONStore.load([String: Int].self, from: jurl) == ["a": 1, "b": 2] && JSONStore.load([String: Int].self, from: nil) == nil)
 
         // Command Center ranking and menu bar count
-        let cmds = ["Snooze this email", "Go to Snoozed", "Set Aside", "New email", "Print"].map { n in AppCommand(id: n, title: n, run: {}) }
+        let cmds = ["Snooze This Email", "Go to Snoozed", "Set Aside", "New Email", "Print"].map { n in AppCommand(id: n, title: n, run: {}) }
         check("Command Center: typing sn finds Snooze first, then Snoozed; letters in order still match; nothing for nonsense; empty shows all",
-              CommandMatcher.rank("sn", cmds).map(\.title) == ["Snooze this email", "Go to Snoozed"] && CommandMatcher.rank("sa", cmds).first?.title == "Set Aside"
+              CommandMatcher.rank("sn", cmds).map(\.title) == ["Snooze This Email", "Go to Snoozed"] && CommandMatcher.rank("sa", cmds).first?.title == "Set Aside"
               && CommandMatcher.rank("zzzq", cmds).isEmpty && CommandMatcher.rank("", cmds).count == 5 && CommandMatcher.rank("pr", cmds).first?.title == "Print")
         let ppl = Mail(id: "a", from: Address(name: "Priya", email: "p@x.example"), subject: "Venue", snippet: "", date: now4, labels: ["INBOX", "UNREAD"])
         let nws = Mail(id: "b", from: Address(name: "Shop", email: "no-reply@shop.example"), subject: "Sale", snippet: "", date: now4.addingTimeInterval(-60), labels: ["INBOX", "UNREAD"])

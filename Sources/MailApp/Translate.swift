@@ -171,7 +171,7 @@ struct TranslationHost: View {
     }
 }
 
-/// What a translated email shows instead of the original, until "Show original". Kept in memory only.
+/// What a translated email shows instead of the original, until "Show Original". Kept in memory only.
 struct MailTranslation: Equatable {
     let from: String      // language name, e.g. Spanish
     let to: String
@@ -217,7 +217,7 @@ struct TranslatedBanner: View {
     var body: some View {
         HStack(spacing: 6) {
             Text("Translated from \(tr.from) to \(tr.to).").font(Theme.small)
-            Button("Show original") { store.translationShown.remove(mail.id) }.buttonStyle(LinkButtonStyle())
+            Button("Show Original") { store.translationShown.remove(mail.id) }.buttonStyle(LinkButtonStyle())
             if tr.cut { Text("Only the first part of this long email was translated.").font(Theme.small).foregroundStyle(Theme.sub) }
             Spacer(minLength: 0)
         }

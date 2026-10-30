@@ -32,9 +32,9 @@ struct MultiPanel: View {
                             act("Snooze...", "moon") { store.bulkSnooze() }
                             act(allPinned ? "Unpin" : "Pin", allPinned ? "pin.slash" : "pin") { await store.bulkPin() }
                         }
-                        act("Mark read or unread", "envelope.open") { await store.bulkToggleRead() }
-                        act("Add to to-do", "checklist") { store.bulkTodo() }
-                        act("Move to folder...", "folder") { store.blockMenuFor = store.blockMenuFor == "bulkMove" ? nil : "bulkMove" }
+                        act("Mark Read or Unread", "envelope.open") { await store.bulkToggleRead() }
+                        act("Add to To-Do", "checklist") { store.bulkTodo() }
+                        act("Move to Folder...", "folder") { store.blockMenuFor = store.blockMenuFor == "bulkMove" ? nil : "bulkMove" }
                             .popover(isPresented: pop("bulkMove"), arrowEdge: .bottom) { FolderPick(store: store) }
                         act("Block senders...", "nosign", .block) { store.blockMenuFor = store.blockMenuFor == "bulkBlock" ? nil : "bulkBlock" }
                             .popover(isPresented: pop("bulkBlock"), arrowEdge: .bottom) { BulkBlockMenu(store: store, mails: ms) }

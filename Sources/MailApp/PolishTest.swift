@@ -58,7 +58,7 @@ enum PolishTest {
         store.commandCenterOpen = true; await LiveTest.pump(0.6)
         LiveTest.grab(win, "\(dir)/p4-5-command-center.png")
         let titles = store.commandList().map(\.title)
-        check("Command Center lists Mail's own actions", ["New email", "Reply", "Archive", "Snooze this email", "Add to to-do", "Print", "Go to Snoozed", "Go to Inbox", "Check now", "Settings"].allSatisfy(titles.contains))
+        check("Command Center lists Mail's own actions", ["New Email", "Reply", "Archive", "Snooze This Email", "Add to To-Do", "Print", "Go to Snoozed", "Go to Inbox", "Check Now", "Settings"].allSatisfy(titles.contains))
         store.commandCenterOpen = false
 
         // 7 To-do box and a real write into the temporary vault

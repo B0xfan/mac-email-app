@@ -7,7 +7,7 @@ import MailCore
 enum SwipeAction: String, CaseIterable, Codable {
     case archive, pin, aside, toggleRead, trash, none
     var title: String {
-        switch self { case .archive: return "Archive"; case .pin: return "Pin"; case .aside: return "Set Aside"; case .toggleRead: return "Mark read or unread"; case .trash: return "Move to Trash"; case .none: return "Do nothing" }
+        switch self { case .archive: return "Archive"; case .pin: return "Pin"; case .aside: return "Set Aside"; case .toggleRead: return "Mark Read or Unread"; case .trash: return "Move to Trash"; case .none: return "Do nothing" }
     }
     var symbol: String {
         switch self { case .archive: return "archivebox"; case .pin: return "pin"; case .aside: return "rectangle.stack"; case .toggleRead: return "envelope.open"; case .trash: return "trash"; case .none: return "nosign" }

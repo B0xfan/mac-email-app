@@ -40,7 +40,7 @@ struct OrganizerSidebar: View {
     }
     var body: some View {
         let o = store.organizer
-        GroupHead(title: "Folders", folded: o.isFolded("folders"), addLabel: "New folder", toggle: { fold("folders") }, onAdd: { store.editorMessage = nil; store.editor = .newFolder })
+        GroupHead(title: "Folders", folded: o.isFolded("folders"), addLabel: "New Folder", toggle: { fold("folders") }, onAdd: { store.editorMessage = nil; store.editor = .newFolder })
         if !o.isFolded("folders") {
             if store.folders.isEmpty { hint("No folders yet. Use + to make one.") }
             ForEach(store.folders) { FolderRow(store: store, f: $0) }
@@ -57,7 +57,7 @@ struct OrganizerSidebar: View {
                     }
             }
         }
-        GroupHead(title: "Saved searches", folded: o.isFolded("saved"), addLabel: nil, toggle: { fold("saved") })
+        GroupHead(title: "Saved Searches", folded: o.isFolded("saved"), addLabel: nil, toggle: { fold("saved") })
         if !o.isFolded("saved") {
             if o.searches.isEmpty { hint("Search for something, then press Save this search.") }
             ForEach(o.searches) { s in
@@ -105,13 +105,13 @@ func basicsMenu(_ store: MailStore, _ m: Mail) -> some View {
     }
 }
 
-/// "Move to folder" in an email's right-click menu.
+/// "Move to Folder" in an email's right-click menu.
 @MainActor @ViewBuilder
 func moveToFolderMenu(_ store: MailStore, _ m: Mail) -> some View {
     Button("Make a rule from this email\u{2026}") { store.makeRule(from: m) }
-    Button { store.copyLinkForMe(m) } label: { Label("Copy link for me", systemImage: "link") }   // the same two links as the header button
-    Button { Task { await store.copyLinkToShare(m) } } label: { Label("Copy link to share", systemImage: "globe") }
-    Menu("Move to folder") {
+    Button { store.copyLinkForMe(m) } label: { Label("Copy Link for Me", systemImage: "link") }   // the same two links as the header button
+    Button { Task { await store.copyLinkToShare(m) } } label: { Label("Copy Link to Share", systemImage: "globe") }
+    Menu("Move to Folder") {
         if store.folders.isEmpty { Text("No folders yet") }
         ForEach(store.folders) { f in
             Button { Task { await store.moveToFolder(m, f) } } label: {
@@ -171,10 +171,10 @@ struct EditorPane: View {
             Group {
                 switch editor {
                 case .newFolder:
-                    NameForm(store: store, title: "New folder", hint: "The folder is made in Gmail too, so it also shows on your phone. Use Parent/Child to put one inside another.",
+                    NameForm(store: store, title: "New Folder", hint: "The folder is made in Gmail too, so it also shows on your phone. Use Parent/Child to put one inside another.",
                              initial: "", placeholder: "Receipts", action: "Create") { n in Task { await store.createFolder(n) } }
                 case .renameFolder(let id):
-                    NameForm(store: store, title: "Rename folder", hint: "Its emails stay in it.", initial: store.folders.first { $0.id == id }?.leaf ?? "", placeholder: "Folder name", action: "Save",
+                    NameForm(store: store, title: "Rename Folder", hint: "Its emails stay in it.", initial: store.folders.first { $0.id == id }?.leaf ?? "", placeholder: "Folder name", action: "Save",
                              onDelete: { store.editor = .deleteFolder(id) }) { n in Task { await store.renameFolder(id, to: n) } }
                 case .deleteFolder(let id):
                     ConfirmCard(store: store, title: "Delete the folder \u{201C}\(store.folderName(id))\u{201D}?",
@@ -187,9 +187,9 @@ struct EditorPane: View {
                     ConfirmCard(store: store, title: "Delete the Smart Folder \u{201C}\(f?.name ?? "")\u{201D}?",
                                 text: "Only the folder goes. No email is touched.", back: { if let f { store.editor = .smart(f, isNew: false) } else { store.closeEditor() } }) { await store.deleteSmart(id) }
                 case .saveSearch(let q):
-                    NameForm(store: store, title: "Save this search", hint: "Search: \(q)", initial: q, placeholder: "Name", action: "Save") { n in store.saveSearch(name: n, query: q) }
+                    NameForm(store: store, title: "Save This Search", hint: "Search: \(q)", initial: q, placeholder: "Name", action: "Save") { n in store.saveSearch(name: n, query: q) }
                 case .renameSearch(let id):
-                    NameForm(store: store, title: "Rename saved search", hint: "Search: \(store.organizer.searches.first { $0.id == id }?.query ?? "")",
+                    NameForm(store: store, title: "Rename Saved Search", hint: "Search: \(store.organizer.searches.first { $0.id == id }?.query ?? "")",
                              initial: store.organizer.searches.first { $0.id == id }?.name ?? "", placeholder: "Name", action: "Save") { n in store.renameSearch(id, to: n) }
                 case .deleteSearch(let id):
                     ConfirmCard(store: store, title: "Delete the saved search \u{201C}\(store.organizer.searches.first { $0.id == id }?.name ?? "")\u{201D}?",

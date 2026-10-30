@@ -33,7 +33,7 @@ enum BigFile {
     static func due(_ files: [DriveFile], now: Date) -> [DriveFile] { files.filter { $0.deleteAt <= now } }
 
     static func size(_ n: Int) -> String { ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file) }
-    static let neverAt = Date.distantFuture   // a Never file is still recorded (so "Delete now" can find it), but the sweep never reaches it
+    static let neverAt = Date.distantFuture   // a Never file is still recorded (so "Delete Now" can find it), but the sweep never reaches it
 
     /// The block added to the end of the email: one card per file (name, size and expiry, Download link), as in the approved mockup.
     /// Email-safe markup: tables and inline styles only. The icon is left out (mail apps drop inline SVG).
@@ -153,7 +153,7 @@ extension MailStore {
         }
     }
 
-    /// "Delete now" under a Sent email: removes the file from Drive at once. If Google says no, the record stays, due now, so the sweep retries.
+    /// "Delete Now" under a Sent email: removes the file from Drive at once. If Google says no, the record stays, due now, so the sweep retries.
     func deleteBigFileNow(_ id: String) async -> Bool {
         if (try? await gmail.driveDelete(id)) != nil { timing.change { $0.bigFiles?.removeAll { $0.id == id } }; return true }
         timing.change { t in if let i = t.bigFiles?.firstIndex(where: { $0.id == id }) { t.bigFiles?[i].deleteAt = Date() } }
@@ -174,7 +174,7 @@ struct BigFileStripView: View {
                     Image(systemName: "clock").font(Theme.small)
                     Text(failed ? "Google would not delete it yet. Audrey Mail will try again." : s.text).font(Theme.small)
                     Spacer(minLength: 8)
-                    Button("Delete now") { Task { failed = !(await store.deleteBigFileNow(s.id)); refresh += 1 } }
+                    Button("Delete Now") { Task { failed = !(await store.deleteBigFileNow(s.id)); refresh += 1 } }
                         .buttonStyle(.plain).font(Theme.small).foregroundStyle(Theme.acc).accessibilityLabel("Delete \(s.name) from your Google Drive now")
                 }
                 .foregroundStyle(Theme.accPress).padding(.horizontal, 14).padding(.vertical, 10)

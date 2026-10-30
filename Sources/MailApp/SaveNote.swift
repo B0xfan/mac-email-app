@@ -216,7 +216,7 @@ enum EmailNote {
 }
 
 extension MailStore {
-    /// The toolbar's "Save as note": the whole conversation of the open email, drafts and trash left out.
+    /// The toolbar's "Save as Note": the whole conversation of the open email, drafts and trash left out.
     func saveAsNote(_ m: Mail) async {
         guard !savingNote else { return }
         savingNote = true; defer { savingNote = false }

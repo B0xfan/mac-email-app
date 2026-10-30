@@ -59,7 +59,7 @@ If sign-in fails:
 
 Drive comes with the same Google sign-in. There is no separate button.
 
-1. Open Settings (Command-comma), choose **Accounts**, click **Remove**, then **Remove Account**. Your emails stay with Gmail.
+1. Open Settings (Command-comma), choose **Accounts**, click **Remove Account**, then confirm. Your emails stay with Gmail.
 2. Click **Sign in with Google** and go through the steps above again. This time Google also asks about Drive. Allow it.
 
 If you skip this, adding a big file ends with: "Big files need one more Google permission. Open Settings, sign out of Google, and sign in again."
@@ -78,7 +78,7 @@ Three buttons at the top right of the inbox switch the view.
 - **Classic**: everything in one list, newest first.
 - **Unread first**: unread emails on top, then the rest.
 
-Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click the email, choose **Move to category**, and pick the right tab. Audrey Mail remembers your choice for that sender.
+Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click the email, choose **Move to Category**, and pick the right tab. Audrey Mail remembers your choice for that sender.
 
 **Group emails into conversations.** In Settings, Inbox, there is a switch with this name. It is off until you turn it on, and it works in all three views. With it off, nothing changes.
 
@@ -110,7 +110,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 3. **Reading pane.** The button at the right end of the top bar moves the reading pane beside the list or below it. When it is below, a **Back** arrow (or Escape) returns to the list.
 4. **Add note.** Under the subject you can write a private note that only you see. It stays on this Mac.
 5. **Print.** Command-P. For a conversation, choose **This email** or **Whole conversation**.
-6. **Pictures.** Normal pictures load. Hidden tracking pictures, which tell a sender you opened the email, are always blocked, and the email says how many. If you turn off automatic pictures in Settings, an email shows **Load images** or **Always load from this sender**.
+6. **Pictures.** Normal pictures load. Hidden tracking pictures, which tell a sender you opened the email, are always blocked, and the email says how many. If you turn off automatic pictures in Settings, an email shows **Load Images** or **Always load from this sender**.
 7. **Translate.** If the email is in another language, a **Translate** button appears (see [Translate](#translate)).
 8. **Search.** Type in **Search mail** at the top of the sidebar and press Return. Clear the box and press Return to go back (see [Searching your mail](#searching-your-mail)).
 
@@ -122,9 +122,9 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 - **From.** Click the From line to send from another of your Gmail addresses.
 - **Formatting.** Bold, italic, underline, link, bulleted list, and attach file.
 - **Signature.** Added under what you type (Settings, Signatures).
-- **Save draft** and **Discard** sit beside **Send**.
+- **Save Draft** and **Discard** sit beside **Send**.
 - **Undo Send.** After you click Send, an **Undo** button shows for 5, 10, 20 or 30 seconds (your choice in Settings, Sending).
-- **Big files.** A file over 20 MB cannot be attached. Audrey Mail offers **Send as link** instead. The file goes to your Google Drive and the email gets a link that anyone with it can open. Audrey Mail removes the file from Drive after 3 days, 7 days (the usual choice), 30 days or Never. Under a sent email, **Delete now** removes it early. This needs the Drive step above, and Audrey Mail must be open at the time it removes the file. A big-file link cannot be combined with Send Later.
+- **Big files.** A file over 20 MB cannot be attached. Audrey Mail offers **Send as Link** instead. The file goes to your Google Drive and the email gets a link that anyone with it can open. Audrey Mail removes the file from Drive after 3 days, 7 days (the usual choice), 30 days or Never. Under a sent email, **Delete Now** removes it early. This needs the Drive step above, and Audrey Mail must be open at the time it removes the file. A big-file link cannot be combined with Send Later.
 - **Add to to-do.** The checklist button or T. Type one line and Audrey Mail shows what it understood. It goes to Obsidian, Apple Reminders, Todoist or ClickUp (Settings, To-do).
 
 ## Send Later
@@ -133,7 +133,7 @@ Write the email as usual, then click the small arrow beside **Send** and choose 
 
 - The email waits in your Gmail Drafts, so your phone shows it too.
 - **It is sent at the time you chose even if your Mac is off.** Audrey Mail's timing service sends it, usually within a couple of minutes after the time. If your Mac is awake, Audrey Mail sends it on time itself. It is never sent twice.
-- See waiting emails under **Scheduled**. Each one has **Send now**, **Change time** and **Keep as draft** (stops the timer and leaves it in Drafts).
+- See waiting emails under **Scheduled**. Each one has **Send Now**, **Change Time** and **Keep as Draft** (stops the timer and leaves it in Drafts).
 - If Audrey Mail says the timing service needs you to sign in again, sign out and back in (Settings, Accounts).
 - If the service cannot be reached, Audrey Mail says nothing. It sends the email itself at the time you chose, but only while Audrey Mail is open.
 - The timing service only works for Gmail addresses that have been added to its list. If yours is not on the list, the waiting email shows a **Mac must be open** tag in Scheduled. It is still sent at the right time, but only while Audrey Mail is open. The person who runs the service has to add your address first.
@@ -154,7 +154,7 @@ Hides an email until the time you pick, then it comes back to the top of the inb
 
 1. Click the moon icon, press Z, or right-click and choose **Snooze...**.
 2. Pick Later today, This evening, Tomorrow morning, This weekend or Next week, or type a time such as "Tuesday 3pm".
-3. See snoozed emails under **Snoozed**, where you can **Bring back now** or **Change time**.
+3. See snoozed emails under **Snoozed**, where you can **Bring Back Now** or **Change Time**.
 
 **Audrey Mail must be open for the email to come back on time.** If Audrey Mail was closed, the email comes back when you next open it.
 
@@ -174,7 +174,7 @@ Makes a link to one email that you can paste into a note, a to-do or a message. 
 Saves the open email, or its whole conversation, as a note in your Obsidian vault.
 
 1. Open the email.
-2. Click the **Save as note** button in the top bar, or press N.
+2. Click the **Save as Note** button in the top bar, or press N.
 3. The note appears in your vault's Inbox folder. Its title is the subject without "Fwd:" or "Re:".
 
 Forwarded content is kept. Earlier quoted copies of the same text are dropped, so each message appears once, in order. Signatures are kept. Attachments are not saved.
@@ -186,13 +186,13 @@ This needs an Obsidian vault on the Mac. Audrey Mail saves into the folder named
 
 ### New senders
 
-The first email from a stranger waits in **New senders** (a card at the top of the inbox). **Approve** lets them in. **Block** keeps them out. **Approve all** and **Block all** deal with everyone waiting. You can turn this off in Settings, New senders.
+The first email from a stranger waits in **New Senders** (a card at the top of the inbox). **Approve** lets them in. **Block** keeps them out. **Approve All** and **Block All** deal with everyone waiting. You can turn this off in Settings, New senders.
 
 A new sender's Approve takes effect once Audrey Mail has seen the email. Until then your phone may still show them.
 
 ### Block
 
-Choose **Block this address**, or **Block everyone at** their company. The sender is not told. The block is set in Gmail itself, so it also holds on your phone and when your Mac is off. Their old emails move to **Blocked**. **Unblock** there sends them back. Older block rules in your Gmail that send a sender's mail to Trash (for example ones made earlier in Spark) also appear in the Blocked list, so you can undo them in one place. Unblocking one of those removes the rule; the old emails stay in Trash.
+Choose **Block This Address**, or **Block everyone at** their company. The sender is not told. The block is set in Gmail itself, so it also holds on your phone and when your Mac is off. Their old emails move to **Blocked**. **Unblock** there sends them back. Older block rules in your Gmail that send a sender's mail to Trash (for example ones made earlier in Spark) also appear in the Blocked list, so you can undo them in one place. Unblocking one of those removes the rule; the old emails stay in Trash.
 
 ### Unsubscribe
 
@@ -210,9 +210,9 @@ Click the small "i" next to a label for a plain explanation. A label is a reason
 
 ## Folders and searches
 
-- **Folders** are your Gmail labels. In the sidebar, under **Folders**, click **+** to make one. Type `Parent/Child` to put one inside another. Right-click a folder to **Rename** or **Delete** it (the emails are kept). Drag an email onto a folder, or right-click it and choose **Move to folder**.
+- **Folders** are your Gmail labels. In the sidebar, under **Folders**, click **+** to make one. Type `Parent/Child` to put one inside another. Right-click a folder to **Rename** or **Delete** it (the emails are kept). Drag an email onto a folder, or right-click it and choose **Move to Folder**.
 - **Smart Folders** fill themselves from rules you set, for example "has an attachment". Click **+** next to Smart Folders and choose to match **all** or **any** of the rules.
-- **Saved searches.** After a search, click **Save this search** and name it. It appears in the sidebar for one click next time.
+- **Saved searches.** After a search, click **Save This Search** and name it. It appears in the sidebar for one click next time.
 - **Rules** (Settings, Rules) show your Gmail filters as plain sentences. Use **+ New rule** to make one, or right-click an email and choose **Make a rule from this email**. Rules are kept in Gmail, so they also work on your phone and when your Mac is off.
 
 ## Searching your mail
@@ -236,7 +236,7 @@ Audrey Mail reads your words on your Mac with fixed rules. They do not go to any
 
 A search in plain words (for example **invoice Maria**) looks on your Mac first, once Audrey Mail has finished copying your mail down (see **Your mail on your Mac** below). The results appear at once under "Results for ... on this Mac", newest first. Under them, **Search all of Gmail too** asks Gmail for older mail, as far back as your mail goes (2015 and older too). What it finds is added under **From Gmail (older mail)**, and opening one of those keeps it on your Mac. Searches that use Gmail's own words (such as `from:bob`) or tags such as unread or last month go straight to Gmail, all the way back. It does not stop at 80 emails. Scroll to the bottom of the list and the next batch (50 at a time) loads by itself. If it ever pauses, click **Show older emails**. The same is true for Sent, folders, Smart Folders, saved searches, Archive and the inbox.
 
-The notes you wrote under emails (**Add note**) are searched too, so an email can be found by what you wrote about it.
+The notes you wrote under emails (**Add Note**) are searched too, so an email can be found by what you wrote about it.
 
 ## Translate
 
@@ -244,7 +244,7 @@ When an email is written in a language other than your Mac's languages, a **Tran
 
 1. Open the email and click **Translate**.
 2. The email shows in your language, with "Translated from Spanish to English." (or whichever languages apply).
-3. Click **Show original** to bring back the real text at any time.
+3. Click **Show Original** to bring back the real text at any time.
 
 Good to know:
 
@@ -263,7 +263,7 @@ In the writing window, a **Translate to** button sits beside the formatting butt
 
 This lets the Claude app on your Mac search and read your mail when you ask it to. It is off until you turn it on.
 
-1. Open Settings (Command-comma) and choose **Claude access**.
+1. Open Settings (Command-comma) and choose **Claude Access**.
 2. Turn on **Allow Claude to use my mail**.
 3. Quit the Claude app and open it again, once. Claude only sees Audrey Mail after that restart. Audrey Mail reminds you with "On. Quit and reopen the Claude app once so it sees Audrey Mail."
 
@@ -290,10 +290,10 @@ Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's sta
 
 | Page | What it does |
 | --- | --- |
-| Accounts | Shows the connected Gmail account. **Remove** asks first, then signs out and deletes the mail stored on this Mac (your emails stay in Gmail). |
+| Accounts | Shows the connected Gmail account. **Remove Account** asks first, then signs out and deletes the mail stored on this Mac (your emails stay in Gmail). |
 | Signatures | Your signature for new emails. |
 | Quick Replies | The short answers under an email. |
-| Away message | An automatic out-of-office reply: on or off, first and last day (or "Until I turn it off"), subject, message, and "Only reply to people in my contacts". Gmail sends it even when your Mac is off. A strip at the top of the inbox shows while it is on, with **Turn off**. |
+| Away message | An automatic out-of-office reply: on or off, first and last day (or "Until I turn it off"), subject, message, and "Only reply to people in my contacts". Gmail sends it even when your Mac is off. A strip at the top of the inbox shows while it is on, with **Turn Off**. |
 | Rules | Your Gmail filters. |
 | Sending | How long you have to change your mind after you press Send. |
 | Inbox | How often Audrey Mail checks, and what opens after you archive. |
@@ -306,10 +306,10 @@ Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's sta
 | Appearance | Light, dark, or follow the Mac. |
 | Home Screen | When the welcome page appears. |
 | Recently Seen | 1 or 2 days. |
-| Default app | **Make this my default email app**. |
+| Default app | **Make This My Default Email App**. |
 | New senders | Turns the Approve or Block check on or off. |
 | Privacy | Block hidden tracking pictures, and load normal pictures automatically or choose email by email. |
-| Storage | How long Audrey Mail keeps the full text of emails on this Mac (30 days, 90 days, 6 months or 1 year; older mail keeps sender, subject and a short preview), how much space the stored mail takes, and **Clear stored mail**. |
+| Storage | How long Audrey Mail keeps the full text of emails on this Mac (30 days, 90 days, 6 months or 1 year; older mail keeps sender, subject and a short preview), how much space the stored mail takes, and **Clear Stored Mail**. |
 
 ### Your mail on your Mac
 
@@ -317,7 +317,7 @@ Audrey Mail keeps a copy of your mail on your Mac, so lists and search open at o
 
 - **Full text.** Emails newer than the time you choose in Settings, **Storage**, and every email you open keep their full text on your Mac. Older mail keeps sender, subject and a short preview. Opening an older email brings its text down from Gmail and keeps it.
 - **Attachments.** The copy never downloads attachments. When you open an email, click an attachment to download and open it. Audrey Mail keeps the downloaded file on your Mac, so clicking it again opens the same file.
-- **Clear stored mail** (Settings, Storage) asks first, then empties the copy, deletes the downloaded attachments and frees the space. Your mail stays safe in Gmail, and the copy starts again by itself.
+- **Clear Stored Mail** (Settings, Storage) asks first, then empties the copy, deletes the downloaded attachments and frees the space. Your mail stays safe in Gmail, and the copy starts again by itself.
 - **Removing an account** (Settings, Accounts) also deletes the mail stored on your Mac for it, and the attachments you downloaded.
 
 Other Mac touches: **Command Center** (Command-K) lets you type what you want to do and press Return. The **menu bar envelope** shows a count and the five newest unread emails, and Audrey Mail keeps running when you close its window. The **Share** menu in Safari and Finder starts a new email from a link, text or file (files over 20 MB are skipped).
@@ -341,7 +341,7 @@ The Send Later and reminder service needs you to have signed in with the current
 
 ## Keyboard shortcuts
 
-Single keys work only with the email list in front, not while writing, and only if **Keyboard shortcuts** is on (Settings, Keyboard). The arrow keys and Delete work with that switch off too.
+Single keys work only with the email list in front, not while writing, and only if **Keyboard Shortcuts** is on (Settings, Keyboard). The arrow keys and Delete work with that switch off too.
 
 | Keys | What it does |
 | --- | --- |
@@ -373,5 +373,5 @@ Reply all has no key; use the toolbar, the Message menu or Command-K. The **Mess
 - **Open it:** Help, then **Audrey Mail Help** (Command-?), or the **?** button at the top right of the inbox, beside the reading pane button.
 - **Left side:** the list of sections. Click one to read it.
 - **Search:** type in the box at the top. Matching sections are listed as you type, with your words highlighted, and the sections that do not match are dimmed in the list. Click a result to open it. Press Escape to clear the search.
-- **Help, Keyboard shortcuts** jumps straight to the shortcuts. **Help, Search help...** puts the cursor in the search box.
+- **Help, Keyboard Shortcuts** jumps straight to the shortcuts. **Help, Search help...** puts the cursor in the search box.
 - The help is built into Audrey Mail, so it works without the internet. It opens in its own window, so you can keep it beside your mail while you follow the steps.

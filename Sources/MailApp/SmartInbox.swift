@@ -156,7 +156,7 @@ struct InboxBody: View {
                 Button { Task { await store.archive(m) } } label: { Label("Archive", systemImage: "archivebox") }
                 moveToFolderMenu(store, m)
                 Divider()
-                Menu("Move to category") {
+                Menu("Move to Category") {
                     ForEach(MailCategory.allCases, id: \.self) { c in
                         Button { store.moveToCategory(m, c) } label: {
                             if store.category(of: m) == c { Label(c.title, systemImage: "checkmark") } else { Text(c.title) }

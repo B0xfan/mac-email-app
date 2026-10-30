@@ -58,7 +58,7 @@ struct UpdatesPanel: View {
         Card { VStack(alignment: .leading, spacing: 10) {
             Text("Audrey Mail \(Updater.version)").font(Theme.heading)
             Text(status).font(Theme.small).foregroundStyle(Theme.sub)
-            Button("Check for updates") { updater.check() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(!updater.canCheck)
+            Button("Check for Updates") { updater.check() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(!updater.canCheck)
         }.frame(maxWidth: .infinity, alignment: .leading) }
         Card { HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 2) {

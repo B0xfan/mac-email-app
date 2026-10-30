@@ -33,7 +33,7 @@ final class MailStore: ObservableObject {
     @Published var openMail: Mail? {
         didSet { if oldValue?.id != openMail?.id { convoShown = nil }; if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
-    @Published var imagesLoaded: Set<String> = []   // emails John chose "Load images" for, this session
+    @Published var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
     @Published var search = ""
     @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     @Published var loadingOtherMore = false
@@ -105,7 +105,7 @@ final class MailStore: ObservableObject {
     @Published var noteEdit: String?        // conversation whose private note is being typed
     @Published var todoMail: Mail? { didSet { if todoMail == nil { todoBulk = [] } } }   // the to-do box is open for this email
     var todoBulk: [Mail] = []               // several selected emails: the box adds one task for each
-    @Published var savingNote = false       // "Save as note" is running (no double notes from a double click)
+    @Published var savingNote = false       // "Save as Note" is running (no double notes from a double click)
     @Published var printAsk: Mail?          // "this email or the whole conversation?"
     var todoSender = TodoSender()
     var todoVault: URL { URL(fileURLWithPath: settings.vaultPath) }

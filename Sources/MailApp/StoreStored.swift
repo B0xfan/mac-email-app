@@ -55,7 +55,7 @@ extension MailStore {
         return e.compactMap { ($0 as? URL).flatMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize } }.reduce(0) { $0 + Int64($1) }
     }
 
-    /// Settings > Storage "Clear stored mail": the copy on this Mac is emptied and the file made small. Changes still waiting for Gmail are kept and sent. Lists and the Inbox are read
+    /// Settings > Storage "Clear Stored Mail": the copy on this Mac is emptied and the file made small. Changes still waiting for Gmail are kept and sent. Lists and the Inbox are read
     /// from Gmail again until the first copy has been made again, which starts straight away.
     func clearStoredMail() async {
         guard let db else { return }

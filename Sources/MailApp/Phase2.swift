@@ -196,7 +196,7 @@ struct HomeScreenView: View {
                     HStack(spacing: 12) {
                         HomePreviewMenu()
                         HomeRound(symbol: "magnifyingglass", label: "Search mail") { store.dismissHome(); store.focusSearchSoon() }
-                        HomeRound(symbol: "square.and.pencil", label: "New email") { store.dismissHome(); store.newCompose() }
+                        HomeRound(symbol: "square.and.pencil", label: "New Email") { store.dismissHome(); store.newCompose() }
                     }
                 }
                 Spacer()

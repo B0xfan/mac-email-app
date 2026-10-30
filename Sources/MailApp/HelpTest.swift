@@ -18,7 +18,7 @@ extension SelfTest {
         check("help: every section has text and the names are unique", sections.allSatisfy { !$0.blocks.isEmpty } && Set(ids).count == ids.count)
         check("help: the sections the app points at exist", ["send-later", "keyboard-shortcuts", "searching-your-mail", "translate", "claude-access", "using-this-help", "what-works-when-your-mac-is-off"].allSatisfy { ids.contains($0) })
         check("help: the manual has no unchecked marker, no em dash and no vault link", !raw.contains("[CHECK") && !raw.contains("\u{2014}") && !raw.contains("[["))
-        let bare = try! NSRegularExpression(pattern: "(?<!Audrey )\\bMail\\b")   // "Mail" is only the internal name; John 2026-10-15: every visible mention says Audrey Mail
+        let bare = try! NSRegularExpression(pattern: "(?<!Audrey )(?<!Stored )\\bMail\\b")   // "Mail" is only the internal name; John 2026-10-15: every visible mention says Audrey Mail
         check("help: the manual names the app Audrey Mail, never bare Mail", raw.contains("**Audrey Mail Help**") && bare.numberOfMatches(in: raw, range: NSRange(raw.startIndex..., in: raw)) == 0)
         // the same for every on-screen text in the code (only runs where the sources are present, as in the cloud build)
         let lit = try! NSRegularExpression(pattern: "\"(?:[^\"\\\\]|\\\\.)*\"")
@@ -46,7 +46,7 @@ extension SelfTest {
         check("help: parser skips frontmatter, intro and Contents; one section per ## heading", p.count == 1 && p[0].id == "one-thing" && p[0].title == "One Thing")
         check("help: parser reads paragraphs, headings, bullets, numbered steps and tables", p.first?.blocks == [.para("First **line** second line."), .sub("Part"), .item("\u{2022}", "a bullet"), .item("3.", "a step"), .table([["Col A", "Col B"], ["x", "y"]])])
         check("help: plain text drops bold marks, code marks and link addresses", HelpManual.plain("Open [Settings](#settings) and **click** `Add`") == "Open Settings and click Add")
-        check("help: a heading becomes a link name", HelpManual.slug("Remind me if no reply") == "remind-me-if-no-reply" && HelpManual.slug("Keyboard shortcuts") == "keyboard-shortcuts")
+        check("help: a heading becomes a link name", HelpManual.slug("Remind me if no reply") == "remind-me-if-no-reply" && HelpManual.slug("Keyboard Shortcuts") == "keyboard-shortcuts")
 
         // search
         let off = HelpSearch.hits(sections, query: "mac is off").map(\.section.id)
@@ -56,7 +56,7 @@ extension SelfTest {
         check("help: the first line shown for a result is not a table header", HelpSearch.hits(sections, query: "mac is off").first.map { !$0.snippet.hasPrefix("Feature") } ?? false)
         check("help: search ignores case", HelpSearch.hits(sections, query: "MAC IS OFF").map(\.section.id) == off)
         check("help: words with no match list nothing, and an empty box lists nothing", HelpSearch.hits(sections, query: "zzzqqq").isEmpty && HelpSearch.hits(sections, query: "   ").isEmpty)
-        check("help: a result shows the line that matched", HelpSearch.hits(sections, query: "Show original").first.map { HelpManual.plain($0.snippet).lowercased().contains("show original") } ?? false)
+        check("help: a result shows the line that matched", HelpSearch.hits(sections, query: "Show Original").first.map { HelpManual.plain($0.snippet).lowercased().contains("show original") } ?? false)
         check("help: a long line is cut around the match", HelpSearch.excerpt(String(repeating: "word ", count: 80) + "needle " + String(repeating: "word ", count: 80), around: ["needle"]).contains("needle")
               && HelpSearch.excerpt(String(repeating: "word ", count: 80) + "needle " + String(repeating: "word ", count: 80), around: ["needle"]).count < 200)
 

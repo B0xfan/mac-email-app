@@ -149,7 +149,7 @@ struct SidebarView: View {
             MaybeScroll { VStack(alignment: .leading, spacing: 4) {
             NavRow(symbol: "house", title: "Home", on: false) { store.homeShown = true }
             SideHead("Accounts")
-            NavRow(symbol: "tray.full", title: "All inboxes", on: false) { Task { await store.select(.inbox) } }
+            NavRow(symbol: "tray.full", title: "All Inboxes", on: false) { Task { await store.select(.inbox) } }
             if !store.accountEmail.isEmpty { NavRow(title: store.accountEmail, small: true, on: false) { Task { await store.select(.inbox) } } }
             SideHead("Mailboxes")
             NavRow(symbol: "tray", title: "Inbox", on: store.mailbox == .inbox) { Task { await store.select(.inbox) } }
@@ -157,7 +157,7 @@ struct SidebarView: View {
             NavRow(symbol: "rectangle.stack", title: "Set Aside", badge: store.aside.count, on: store.mailbox == .setAside) { Task { await store.select(.setAside) } }
             NavRow(symbol: "moon", title: "Snoozed", badge: store.snoozed.count, on: store.mailbox == .snoozed) { Task { await store.select(.snoozed) } }
             NavRow(symbol: "paperplane.circle", title: "Scheduled", badge: store.timing.data.scheduled.count, on: store.mailbox == .scheduled) { Task { await store.select(.scheduled) } }
-            NavRow(symbol: "person.crop.circle", title: "New senders", badge: store.newSenderCount, on: store.mailbox == .newSenders) { Task { await store.select(.newSenders) } }
+            NavRow(symbol: "person.crop.circle", title: "New Senders", badge: store.newSenderCount, on: store.mailbox == .newSenders) { Task { await store.select(.newSenders) } }
             NavRow(symbol: "nosign", title: "Blocked", on: store.mailbox == .blocked) { Task { await store.select(.blocked) } }
             NavRow(symbol: "paperplane", title: "Sent", on: store.mailbox == .sent) { Task { await store.select(.sent) } }
             NavRow(symbol: "doc", title: "Drafts", on: store.mailbox == .drafts) { Task { await store.select(.drafts) } }
@@ -311,9 +311,9 @@ struct LinkMenuButton: View {
         IconButton(symbol: "link", label: enabled ? "Copy a link to this email" : "Link, open an email first", enabled: enabled) { open = true }
             .popover(isPresented: $open, arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
-                    row("envelope", "Copy link for me", "Opens this email in Audrey Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
+                    row("envelope", "Copy Link for Me", "Opens this email in Audrey Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
                     Divider()
-                    row("globe", "Copy link to share", "Anyone you send it to can read this email in a web page") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
+                    row("globe", "Copy Link to Share", "Anyone you send it to can read this email in a web page") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
                 }
                 .padding(6).frame(width: 290)
             }
@@ -345,14 +345,14 @@ struct ToolbarView: View {
         let archiveTip: String = multiInbox ? "Archive \(n) (A)" : (canAct ? "Archive (A)" : "Archive, open an email first")
         let asideTip: String = multiInbox ? "Set Aside \(n) (S)" : (inboxOne ? "Set Aside (S)" : "Set Aside, open an inbox email first")
         let snoozeTip: String = multiInbox ? "Snooze \(n) (Z)" : (inboxOne ? "Snooze (Z)" : "Snooze, open an inbox email first")
-        let todoTip: String = multi ? "Add \(n) to to-do (T)" : (canAct ? "Add to to-do (T)" : "To-do, open an email first")
+        let todoTip: String = multi ? "Add \(n) to to-do (T)" : (canAct ? "Add to To-Do (T)" : "To-do, open an email first")
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
-            IconButton(symbol: "square.and.pencil", label: "New email (C)") { store.newCompose() }
+            IconButton(symbol: "square.and.pencil", label: "New Email (C)") { store.newCompose() }
             Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
             IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
-            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply all" : "Reply all, \(one)", enabled: canAct) {
+            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply All" : "Reply All, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m, all: true) } }
             IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
@@ -364,7 +364,7 @@ struct ToolbarView: View {
                 if multi { store.bulkSnooze() } else if let m = store.openRow { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
                 if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
-            IconButton(symbol: "doc.text", label: "Save as note (N)", enabled: canAct && !store.savingNote) {
+            IconButton(symbol: "doc.text", label: "Save as Note (N)", enabled: canAct && !store.savingNote) {
                 if let m = store.openMail { Task { await store.saveAsNote(m) } } }
             LinkMenuButton(store: store, enabled: canAct)
             if canAct, let m = store.openMail, store.foreignLanguage(m) != nil, !store.translationShown.contains(m.id) {
@@ -379,13 +379,13 @@ struct ToolbarView: View {
             switch store.mailbox { case .folder, .smart, .saved: Text(store.title).font(Theme.bodyStrong).lineLimit(1).padding(.leading, 8); default: EmptyView() }
             Spacer()
             switch store.mailbox {
-            case .folder(let id): Button("Edit folder") { store.editorMessage = nil; store.editor = .renameFolder(id) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
-            case .smart(let id): if let f = store.organizer.smart.first(where: { $0.id == id }) { Button("Edit folder") { store.editorMessage = nil; store.editor = .smart(f, isNew: false) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true)) }
-            case .saved(let id): Button("Rename search") { store.editorMessage = nil; store.editor = .renameSearch(id) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+            case .folder(let id): Button("Edit Folder") { store.editorMessage = nil; store.editor = .renameFolder(id) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+            case .smart(let id): if let f = store.organizer.smart.first(where: { $0.id == id }) { Button("Edit Folder") { store.editorMessage = nil; store.editor = .smart(f, isNew: false) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true)) }
+            case .saved(let id): Button("Rename Search") { store.editorMessage = nil; store.editor = .renameSearch(id) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             default: EmptyView()
             }
             if store.mailbox == .setAside, !store.aside.isEmpty {
-                Button("Move all back to Inbox") { Task { await store.backToInbox(store.aside) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                Button("Move All Back to Inbox") { Task { await store.backToInbox(store.aside) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             }
             if store.mailbox == .inbox { InboxViewSwitch(settings: store.settings) }
             IconButton(symbol: "questionmark.circle", label: "Help") { openWindow.help() }
@@ -440,7 +440,7 @@ struct ListPane: View {
                     HStack {
                         Text("Showing unread emails only.").font(Theme.small).foregroundStyle(Theme.sub)
                         Spacer()
-                        Button("Show all") { store.unreadOnly = false }.buttonStyle(LinkButtonStyle())
+                        Button("Show All") { store.unreadOnly = false }.buttonStyle(LinkButtonStyle())
                     }
                 }
                 if store.mailbox == .search, store.isSearching {
@@ -448,7 +448,7 @@ struct ListPane: View {
                         Text("Results for \u{201C}\(store.search.trimmingCharacters(in: .whitespaces))\u{201D}" + (store.searchMore != .hidden && store.extraIDs.isEmpty ? " on this Mac" : "")).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
                         Spacer()
                         if !store.currentSearchIsSaved {
-                            Button("Save this search") { store.editorMessage = nil; store.editor = .saveSearch(store.search.trimmingCharacters(in: .whitespaces)) }
+                            Button("Save This Search") { store.editorMessage = nil; store.editor = .saveSearch(store.search.trimmingCharacters(in: .whitespaces)) }
                                 .buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                         }
                     }
@@ -639,8 +639,8 @@ struct MessageRow: View {
                     if let onPin { HoverIcon(symbol: pinned ? "pin.fill" : "pin", label: pinned ? "Unpin (P)" : "Pin (P)", on: pinned, action: onPin) }
                     if let onAside { HoverIcon(symbol: "rectangle.stack", label: "Set Aside (S)", on: false, action: onAside) }
                     if let onSnooze { HoverIcon(symbol: "moon", label: "Snooze (Z)", on: false, action: onSnooze) }
-                    if let onBack { HoverIcon(symbol: "tray", label: onTime == nil ? "Back to Inbox" : "Bring back now", on: false, action: onBack) }
-                    if let onTime { HoverIcon(symbol: "clock", label: "Change time", on: false, action: onTime) }
+                    if let onBack { HoverIcon(symbol: "tray", label: onTime == nil ? "Back to Inbox" : "Bring Back Now", on: false, action: onBack) }
+                    if let onTime { HoverIcon(symbol: "clock", label: "Change Time", on: false, action: onTime) }
                     if let onArchive { HoverIcon(symbol: "archivebox", label: "Archive", on: false, action: onArchive) }
                 }
                 .padding(2).background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
@@ -727,11 +727,11 @@ struct NewSendersStrip: View {
         Card {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text(rows.isEmpty ? "New senders" : "New senders (\(rows.count))").font(Theme.heading)
+                    Text(rows.isEmpty ? "New Senders" : "New Senders (\(rows.count))").font(Theme.heading)
                     Spacer()
                     if !rows.isEmpty {
-                        Button("Approve all") { Task { await store.approveAll() } }.buttonStyle(LinkButtonStyle())
-                        Button("Block all") { store.confirmBlockAll = true }.buttonStyle(LinkButtonStyle(purple: true))
+                        Button("Approve All") { Task { await store.approveAll() } }.buttonStyle(LinkButtonStyle())
+                        Button("Block All") { store.confirmBlockAll = true }.buttonStyle(LinkButtonStyle(purple: true))
                     }
                 }
                 if rows.isEmpty {
@@ -742,7 +742,7 @@ struct NewSendersStrip: View {
                         HStack(spacing: 16) {
                             Text("Block all \(rows.count) senders?").font(Theme.bodyStrong)
                             Spacer()
-                            Button("Yes, block") { Task { await store.blockAllNewSenders() } }.buttonStyle(MailButtonStyle(kind: .block, small: true))
+                            Button("Block All Senders") { Task { await store.blockAllNewSenders() } }.buttonStyle(MailButtonStyle(kind: .block, small: true))
                             Button("Cancel") { store.confirmBlockAll = false }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                         }
                         .padding(.vertical, 8)
@@ -796,7 +796,7 @@ struct BlockMenu: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             let own = store.blockRefusal(addr, wholeCompany: false) != nil, company = store.blockRefusal(addr, wholeCompany: true) != nil
-            MenuItem(title: "Block this address", detail: own ? "That is your own address" : addr.email) { Task { await store.block(addr, wholeCompany: false) } }.disabled(own).opacity(own ? 0.45 : 1)
+            MenuItem(title: "Block This Address", detail: own ? "That is your own address" : addr.email) { Task { await store.block(addr, wholeCompany: false) } }.disabled(own).opacity(own ? 0.45 : 1)
             MenuItem(title: "Block everyone at \(addr.domain)", detail: company ? "Not for free email services or your own company" : "Every address at this company") { Task { await store.block(addr, wholeCompany: true) } }.disabled(company).opacity(company ? 0.45 : 1)
             Text("They won't be told.").font(Theme.small).foregroundStyle(Theme.sub)
                 .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
@@ -910,8 +910,8 @@ struct ReadingContent: View {
                     HStack(spacing: 16) {
                         Text("Unsubscribed from \(who). Also move their old emails to Blocked?").font(Theme.bodyStrong)
                         Spacer(minLength: 8)
-                        Button("Move old emails too") { Task { await store.finishUnsubscribe(mail, moveOld: true) } }.buttonStyle(MailButtonStyle(kind: .primary))
-                        Button("Keep old emails") { Task { await store.finishUnsubscribe(mail, moveOld: false) } }.buttonStyle(MailButtonStyle(kind: .neutral))
+                        Button("Move Old Emails Too") { Task { await store.finishUnsubscribe(mail, moveOld: true) } }.buttonStyle(MailButtonStyle(kind: .primary))
+                        Button("Keep Old Emails") { Task { await store.finishUnsubscribe(mail, moveOld: false) } }.buttonStyle(MailButtonStyle(kind: .neutral))
                     }
                 }
             case .done(let t):
@@ -925,7 +925,7 @@ struct ReadingContent: View {
                     HStack(spacing: 12) {
                         Text("Images are hidden in this email").font(Theme.bodyStrong)
                         Spacer(minLength: 8)
-                        Button("Load images") { store.imagesLoaded.insert(mail.id) }.buttonStyle(MailButtonStyle(kind: .primary))
+                        Button("Load Images") { store.imagesLoaded.insert(mail.id) }.buttonStyle(MailButtonStyle(kind: .primary))
                         Button("Always load from this sender") {
                             store.settings.imageSenders.append(sender); store.imagesLoaded.insert(mail.id)
                         }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))

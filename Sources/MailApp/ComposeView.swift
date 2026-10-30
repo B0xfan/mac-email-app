@@ -51,7 +51,7 @@ struct ComposeView: View {
 
     var title: String {
         switch draft.v.mode {
-        case .new: return "New email"
+        case .new: return "New Email"
         case .reply: return "Reply to \(store.openMail?.from.display ?? draft.v.to)"
         case .forward: return "Forward"
         }
@@ -136,7 +136,7 @@ struct ComposeView: View {
                             Button { draft.v.remindAt = nil } label: { Label("Remind me \(TimeParser.short(r)) if no reply  \u{2715}", systemImage: "bell") }
                                 .buttonStyle(MailButtonStyle(kind: .neutral, small: true)).help("Remove the reminder")
                         }
-                        Button("Save draft") { Task { await store.saveDraft(draft.v, bodyHTML: await editor.html()); draft.v.draftID = store.compose?.draftID } }.buttonStyle(MailButtonStyle(kind: .neutral))
+                        Button("Save Draft") { Task { await store.saveDraft(draft.v, bodyHTML: await editor.html()); draft.v.draftID = store.compose?.draftID } }.buttonStyle(MailButtonStyle(kind: .neutral))
                         Spacer()
                         Button("Discard") { Task { await store.discardCompose() } }.buttonStyle(MailButtonStyle(kind: .danger))
                     }.padding(.top, 8)
@@ -191,7 +191,7 @@ struct ComposeView: View {
             HStack(spacing: 8) {
                 Spacer()
                 Button("Cancel") { bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .neutral)).keyboardShortcut(.cancelAction)
-                Button("Send as link") { bigFiles.v += bigAsk.v.map { var b = $0; b.expiry = bigExpiry.v; return b }; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                Button("Send as Link") { bigFiles.v += bigAsk.v.map { var b = $0; b.expiry = bigExpiry.v; return b }; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
             }
         }
         .padding(22).frame(width: 460).background(Theme.card)

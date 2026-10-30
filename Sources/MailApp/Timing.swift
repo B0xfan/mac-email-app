@@ -282,8 +282,8 @@ struct SnoozedList: View {
                 MessageRow(mail: m, selected: store.selectedID == m.id, tag: store.timing.data.snoozes[m.id].map { "Back " + TimeParser.short($0) },
                            onBack: { Task { await store.wake([m.id]) } }, onTime: { store.picker = .changeSnooze(m.id) }) { Task { await store.open(m) } }
                     .contextMenu {
-                        Button { Task { await store.wake([m.id]) } } label: { Label("Bring back now", systemImage: "tray") }
-                        Button { store.picker = .changeSnooze(m.id) } label: { Label("Change time", systemImage: "clock") }
+                        Button { Task { await store.wake([m.id]) } } label: { Label("Bring Back Now", systemImage: "tray") }
+                        Button { store.picker = .changeSnooze(m.id) } label: { Label("Change Time", systemImage: "clock") }
                     }
             }
             if store.listMails.isEmpty { Text("Nothing snoozed.").font(Theme.body).foregroundStyle(Theme.sub).padding(.top, 32) }
@@ -308,9 +308,9 @@ struct ScheduledList: View {
                     }
                     Text(s.subject.isEmpty ? "(no subject)" : s.subject).font(Theme.body).lineLimit(1)
                     HStack(spacing: 8) {
-                        Button("Send now") { Task { await store.sendScheduledNow(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .primary, small: true))
-                        Button("Change time") { store.picker = .changeScheduled(s.draftID) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
-                        Button("Keep as draft") { Task { await store.unschedule(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                        Button("Send Now") { Task { await store.sendScheduledNow(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .primary, small: true))
+                        Button("Change Time") { store.picker = .changeScheduled(s.draftID) }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                        Button("Keep as Draft") { Task { await store.unschedule(s.draftID) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                             .help("Stop the timer. The email stays in Drafts.")
                     }.padding(.top, 4)
                 }

@@ -30,7 +30,7 @@ enum TipTest {
         var found: [String] = []
         tips(in: win.contentView!, &found)
         print("tips registered: \(found.count)")
-        for w in ["New email (C)", "Reply (R)", "Reply all", "Forward (F)", "Archive (A)", "Save as note (N)", "Add to to-do (T)", "Check for new email now"] { check("toolbar tip: \(w)", found.contains(w)) }
+        for w in ["New Email (C)", "Reply (R)", "Reply All", "Forward (F)", "Archive (A)", "Save as Note (N)", "Add to To-Do (T)", "Check for new email now"] { check("toolbar tip: \(w)", found.contains(w)) }
         check("toolbar tip: sidebar button", found.contains { $0.hasPrefix("Hide Sidebar") || $0.hasPrefix("Show Sidebar") })
         check("toolbar tip: Help", found.contains("Help"))
         check("toolbar tip: set aside and snooze", found.contains { $0.hasPrefix("Set Aside") } && found.contains { $0.hasPrefix("Snooze") })

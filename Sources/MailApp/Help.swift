@@ -412,7 +412,7 @@ struct HelpCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .help) {
             Button("Audrey Mail Help") { openWindow.help() }.keyboardShortcut("?", modifiers: .command)
-            Button("Keyboard shortcuts") { openWindow.help("keyboard-shortcuts") }
+            Button("Keyboard Shortcuts") { openWindow.help("keyboard-shortcuts") }
             Divider()
             Button("Search help...") { openWindow.help(search: true) }
         }

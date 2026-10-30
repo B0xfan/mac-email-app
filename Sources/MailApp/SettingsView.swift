@@ -3,8 +3,8 @@ import AppKit
 import MailCore
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu bar", todo = "To-do", keyboard = "Keyboard"
-    case claude = "Claude access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default app", senders = "New senders", privacy = "Privacy", storage = "Storage", updates = "Updates"
+    case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away Message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu Bar", todo = "To-do", keyboard = "Keyboard"
+    case claude = "Claude Access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default App", senders = "New Senders", privacy = "Privacy", storage = "Storage", updates = "Updates"
     var id: String { rawValue }
     var symbol: String {
         switch self {
@@ -63,7 +63,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading) { Text(app.store.accountEmail.isEmpty ? "Not signed in" : app.store.accountEmail).font(Theme.bodyStrong); Text(app.store.accountEmail.isEmpty ? "" : "Connected (Gmail)").foregroundStyle(Theme.sub).font(Theme.small) }
                     Spacer()
                     if !app.store.accountEmail.isEmpty {
-                        RemoveAccountButton(email: app.store.accountEmail) { Task { await app.store.removeAccount(); note.v = "Signed out. Your emails stay with Gmail." } }
+                        RemoveAccountButton(email: app.store.accountEmail) { Task { await app.store.removeAccount(); note.v = "Account removed. Your emails stay in Gmail." } }
                     } else {
                         Button("Sign in with Google") { note.v = ""; Task { await app.signIn.signIn(); if case .signedIn(let e) = app.signIn.state { app.store.accountEmail = e ?? "" } } }
                             .buttonStyle(MailButtonStyle(kind: .primary)).disabled(signIn.state == .signingIn)
@@ -83,7 +83,7 @@ struct SettingsView: View {
             head("Quick Replies", "Short answers shown under each open email. Drag to change the order. These stay on this Mac.")
             QuickRepliesEditor(settings: settings)
         case .away:
-            head("Away message", "Gmail sends this reply for you, even when your Mac is off.")
+            head("Away Message", "Gmail sends this reply for you, even when your Mac is off.")
             AwayPanel(store: app.store)
         case .rules:
             head("Rules", "Gmail applies these to new emails for you, even when your Mac is off.")
@@ -178,16 +178,16 @@ struct SettingsView: View {
                 RadioRow(label: "A new built-in photo each day", on: !settings.homePhotoOwn) { settings.homePhotoOwn = false; note.v = "" }
                 RadioRow(label: "A photo I choose", on: settings.homePhotoOwn) { choosePhoto() }
                 if settings.homePhotoOwn {
-                    Button("Choose a different photo") { choosePhoto() }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                    Button("Choose a Different Photo") { choosePhoto() }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                 }
                 if !note.v.isEmpty { Text(note.v).font(Theme.small).foregroundStyle(Theme.sub) }
             }.frame(maxWidth: .infinity, alignment: .leading) }
         case .keyboard:
             head("Keyboard", "Shortcuts that work when you press a single key.")
-            switchCard("Keyboard shortcuts", "Press one key to write a new email, reply, forward or archive. Turn this off if you sometimes press keys by accident.", $settings.shortcuts)
+            switchCard("Keyboard Shortcuts", "Press one key to write a new email, reply, forward or archive. Turn this off if you sometimes press keys by accident.", $settings.shortcuts)
             Text(settings.shortcuts ? "Keyboard shortcuts are on." : "Keyboard shortcuts are off. Use the buttons at the top of the inbox instead.").font(Theme.small).foregroundStyle(Theme.sub)
         case .claude:
-            head("Claude access", "Lets Claude, the AI assistant, work with your mail when you ask it to from the Claude app on this Mac.")
+            head("Claude Access", "Lets Claude, the AI assistant, work with your mail when you ask it to from the Claude app on this Mac.")
             Card { HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) { Text("Allow Claude to use my mail").font(Theme.bodyStrong); Text("Off means Claude cannot see anything.").font(Theme.small).foregroundStyle(Theme.sub) }
                 Spacer()
@@ -223,19 +223,19 @@ struct SettingsView: View {
                 }.pickerStyle(.radioGroup).labelsHidden()
             } }
         case .defaultApp:
-            head("Default email app", "Open email links from other apps and websites here.")
+            head("Default Email App", "Open email links from other apps and websites here.")
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text(isDefault ? "Audrey Mail already opens your email links." : "Right now another app opens your email links.").font(Theme.bodyStrong)
-                Button("Make this my default email app") { makeDefault() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(isDefault)
+                Button("Make This My Default Email App") { makeDefault() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(isDefault)
             } }
             Text(note.v).font(Theme.small).foregroundStyle(Theme.sub)
         case .senders:
-            head("New senders", "Decide who reaches your inbox the first time they write.")
-            switchCard("Screen new senders", "When someone writes for the first time, their email waits in New senders until you approve or block them.", $settings.screenNewSenders)
+            head("New Senders", "Decide who reaches your inbox the first time they write.")
+            switchCard("Screen new senders", "When someone writes for the first time, their email waits in New Senders until you approve or block them.", $settings.screenNewSenders)
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text("Blocked senders").font(Theme.bodyStrong)
                 Text("People you blocked never reach your inbox. Blocked senders are not told.").foregroundStyle(Theme.sub)
-                Button("Open the Blocked list") { openBlocked() }.buttonStyle(MailButtonStyle(kind: .neutral))
+                Button("Open the Blocked List") { openBlocked() }.buttonStyle(MailButtonStyle(kind: .neutral))
             } }
         case .privacy:
             head("Privacy", "Control what emails can do when you open them.")
@@ -334,7 +334,7 @@ struct RemoveAccountButton: View {
     var remove: () -> Void
     @StateObject private var asking = Box(false)
     var body: some View {
-        Button("Remove") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .block))
+        Button("Remove Account") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .block))
             .alert("Remove this account?", isPresented: $asking.v) {
                 Button("Remove Account", role: .destructive, action: remove)
                 Button("Cancel", role: .cancel) {}
@@ -342,13 +342,13 @@ struct RemoveAccountButton: View {
     }
 }
 
-/// Settings > Storage "Clear stored mail": asks first, because the mail then has to come down from Gmail again.
+/// Settings > Storage "Clear Stored Mail": asks first, because the mail then has to come down from Gmail again.
 struct ClearStoredMailButton: View {
     var busy = false
     var clear: () -> Void
     @StateObject private var asking = Box(false)
     var body: some View {
-        Button(busy ? "Clearing\u{2026}" : "Clear stored mail") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .warn))
+        Button(busy ? "Clearing\u{2026}" : "Clear Stored Mail") { asking.v = true }.buttonStyle(MailButtonStyle(kind: .warn))
             .alert("Clear the mail stored on this Mac?", isPresented: $asking.v) {
                 Button("Clear Stored Mail", role: .destructive, action: clear)
                 Button("Cancel", role: .cancel) {}
@@ -382,8 +382,8 @@ struct QuickRepliesEditor: View {
                     let r = settings.quickReplies.remove(at: from); settings.quickReplies.insert(r, at: i); return true
                 }
                 .contextMenu {
-                    if i > 0 { Button("Move up") { settings.quickReplies.swapAt(i, i - 1) } }
-                    if i < settings.quickReplies.count - 1 { Button("Move down") { settings.quickReplies.swapAt(i, i + 1) } }
+                    if i > 0 { Button("Move Up") { settings.quickReplies.swapAt(i, i - 1) } }
+                    if i < settings.quickReplies.count - 1 { Button("Move Down") { settings.quickReplies.swapAt(i, i + 1) } }
                 }
             }
             Button("Add a Quick Reply") { settings.quickReplies.append("New quick reply"); text.v = "New quick reply"; editing.v = settings.quickReplies.count - 1 }

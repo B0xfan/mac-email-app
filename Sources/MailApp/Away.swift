@@ -32,7 +32,7 @@ struct AwayStrip: View {
                 Image(systemName: "paperplane").font(Theme.small)
                 Text(a.stripText()).font(Theme.small)
                 Spacer()
-                Button("Turn off") { Task { await store.turnAwayOff() } }.buttonStyle(LinkButtonStyle())
+                Button("Turn Off") { Task { await store.turnAwayOff() } }.buttonStyle(LinkButtonStyle())
             }
             .padding(.horizontal, 12).padding(.vertical, 6).background(Theme.side).clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
@@ -47,9 +47,9 @@ struct AwayPanel: View {
     var body: some View {
         Card { VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("Away message").font(Theme.bodyStrong)
+                Text("Away Message").font(Theme.bodyStrong)
                 Spacer()
-                Toggle("Away message", isOn: Binding(get: { d.v.on }, set: { d.v.on = $0 })).labelsHidden().toggleStyle(.switch)
+                Toggle("Away Message", isOn: Binding(get: { d.v.on }, set: { d.v.on = $0 })).labelsHidden().toggleStyle(.switch)
             }
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -73,7 +73,7 @@ struct AwayPanel: View {
             }
             Toggle("Only reply to people in my contacts", isOn: Binding(get: { d.v.contactsOnly }, set: { d.v.contactsOnly = $0 }))
             if let e = store.awayError {
-                HStack { Text(e).font(Theme.small).foregroundStyle(Theme.sub); Spacer(); Button("Try again") { Task { await store.loadAway(); d.v = store.away ?? d.v } }.buttonStyle(LinkButtonStyle()) }
+                HStack { Text(e).font(Theme.small).foregroundStyle(Theme.sub); Spacer(); Button("Try Again") { Task { await store.loadAway(); d.v = store.away ?? d.v } }.buttonStyle(LinkButtonStyle()) }
             } else if d.v.html != nil && d.v.body.isEmpty {
                 Text("This message has formatting set in Gmail. Leave the box empty to keep it, or type here to replace it.").font(Theme.small).foregroundStyle(Theme.sub)
             }

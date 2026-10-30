@@ -41,29 +41,29 @@ extension MailStore {
     func commandList() -> [AppCommand] {
         var c: [AppCommand] = []
         func add(_ id: String, _ title: String, group: String = "", key: String? = nil, _ run: @escaping @MainActor () -> Void) { c.append(AppCommand(id: id, title: title, group: group, key: key, run: run)) }
-        add("new", "New email", key: "\u{2318}N") { self.newCompose() }
+        add("new", "New Email", key: "\u{2318}N") { self.newCompose() }
         if let m = openMail, !selectedIsNewSender, compose == nil {
             add("reply", "Reply", key: "R") { self.reply(m) }
-            add("replyall", "Reply all") { self.reply(m, all: true) }
+            add("replyall", "Reply All") { self.reply(m, all: true) }
             add("forward", "Forward", key: "F") { self.forward(m) }
             add("archive", "Archive", key: "A") { Task { await self.archive(self.openRow ?? m) } }
             if mailbox == .inbox {
                 add("aside", "Set Aside", key: "S") { Task { await self.setAside(self.openRow ?? m) } }
-                add("snooze", "Snooze this email", key: "Z") { self.picker = .snooze([(self.openRow ?? m).id]) }
-                add("pin", "Pin or unpin this email", key: "P") { Task { await self.togglePin(self.openRow ?? m) } }
+                add("snooze", "Snooze This Email", key: "Z") { self.picker = .snooze([(self.openRow ?? m).id]) }
+                add("pin", "Pin or Unpin This Email", key: "P") { Task { await self.togglePin(self.openRow ?? m) } }
             }
             add("note", NotesBook.shared.has(m.threadID) ? "Edit private note" : "Add private note") { self.noteOpen = m.threadID; self.noteEdit = m.threadID }
-            add("todo", "Add to to-do", key: "T") { self.todoMail = m }
+            add("todo", "Add to To-Do", key: "T") { self.todoMail = m }
             add("print", "Print", key: "\u{2318}P") { self.startPrint(m) }
         }
         if let m = convoShown ?? openMail, compose == nil {   // works for an approved sender too; the same block as the new-sender card, and the same refusals (your own address, free-mail companies) hide the row
             if blockRefusal(m.from, wholeCompany: false) == nil { add("block", "Block \(m.from.display) (\(m.from.email))") { Task { await self.block(m.from, wholeCompany: false) } } }
             if blockRefusal(m.from, wholeCompany: true) == nil { add("blockco", "Block everyone at \(m.from.domain)") { Task { await self.block(m.from, wholeCompany: true) } } }
         }
-        add("check", "Check now") { Task { await self.refresh(reloadList: true) } }
+        add("check", "Check Now") { Task { await self.refresh(reloadList: true) } }
         add("home", "Go to Home", group: "Go") { self.homeShown = true }
         let places: [(String, String, Mailbox)] = [("Inbox", "inbox", .inbox), ("Recently Seen", "recent", .recent), ("Set Aside", "setaside", .setAside), ("Snoozed", "snoozed", .snoozed),
-            ("Scheduled", "scheduled", .scheduled), ("New senders", "newsenders", .newSenders), ("Blocked", "blocked", .blocked), ("Sent", "sent", .sent), ("Drafts", "drafts", .drafts), ("Archive", "archive", .archive)]
+            ("Scheduled", "scheduled", .scheduled), ("New Senders", "newsenders", .newSenders), ("Blocked", "blocked", .blocked), ("Sent", "sent", .sent), ("Drafts", "drafts", .drafts), ("Archive", "archive", .archive)]
         for (n, id, box) in places { add("go-" + id, "Go to " + n, group: "Go") { Task { await self.select(box) } } }
         for f in folders { add("folder-" + f.id, "Go to " + f.name.replacingOccurrences(of: "/", with: " / "), group: "Go") { Task { await self.select(.folder(f.id)) } } }
         for s in organizer.smart { add("smart-\(s.id)", "Go to " + s.name, group: "Go") { Task { await self.select(.smart(s.id)) } } }
@@ -192,8 +192,8 @@ struct MenuBarContent: View {
         }
         Divider()
         Button("Open Audrey Mail") { AppDelegate().showWindow() }
-        Button("New email") { AppDelegate().showWindow(); store.newCompose() }
-        Button("Check now") { Task { await store.refresh(reloadList: true) } }
+        Button("New Email") { AppDelegate().showWindow(); store.newCompose() }
+        Button("Check Now") { Task { await store.refresh(reloadList: true) } }
         Divider()
         Button("Quit Audrey Mail") { NSApp.terminate(nil) }
     }
@@ -479,7 +479,7 @@ extension SettingsView {
     }
 
     @ViewBuilder var menuBarPanel: some View {
-        head("Menu bar", "The small envelope at the top of the Mac screen.")
+        head("Menu Bar", "The small envelope at the top of the Mac screen.")
         switchCard("Show the envelope", "Turn it off to hide it.", $settings.menuBarShow)
         Card { VStack(alignment: .leading, spacing: 8) {
             Text("Menu bar count").font(Theme.bodyStrong)
@@ -505,7 +505,7 @@ extension SettingsView {
                 Text("Vault folder").font(Theme.bodyStrong)
                 Text("Tasks are written into this vault's task notes folder, the same way A4 writes them.").font(Theme.small).foregroundStyle(Theme.sub)
                 TextField("Vault folder", text: $settings.vaultPath).textFieldStyle(.roundedBorder)
-                Button("Choose folder") { chooseVault() }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                Button("Choose Folder") { chooseVault() }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             }.frame(maxWidth: .infinity, alignment: .leading) }
         case .reminders:
             Text("The first time, the Mac asks if Audrey Mail may use Reminders. Choose Allow.").font(Theme.small).foregroundStyle(Theme.sub)
@@ -538,7 +538,7 @@ struct TokenCard: View {
                     MiniMenu(label: lists.v.first { $0.id == list.v }?.label ?? (list.v.isEmpty ? "Choose a list" : "List \(list.v)")) {
                         ForEach(lists.v, id: \.id) { l in Button(l.label) { list.v = l.id; save() } }
                     }
-                    Button("Find my lists") { Task { await findLists() } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
+                    Button("Find My Lists") { Task { await findLists() } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                 }
             }
             HStack(spacing: 8) {

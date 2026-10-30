@@ -406,7 +406,7 @@ enum ListTest {
                 for s in v.subviews { if let b = find(s) { return b } }
                 return nil
             }
-            for w in NSApp.windows where w.isVisible { if let v = w.contentView, let b = find(v) { return b } }
+            for w in NSApp.windows where w.isVisible && w !== win { if let v = w.contentView, let b = find(v) { return b } }   // the question, not the button that opened it
             return nil
         }
         await clickRemove()
@@ -455,19 +455,19 @@ enum ListTest {
         w.orderFront(nil)
         await LiveTest.pump(1.0)
 
-        // right-click the row: find the point whose menu holds "Move to category", then pick Newsletters in it
+        // right-click the row: find the point whose menu holds "Move to Category", then pick Newsletters in it
         var menu: NSMenu?
         for y in stride(from: 40.0, through: 600, by: 10) where menu == nil {
             let p = CGPoint(x: 450, y: 900 - y)
             let e = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: w.windowNumber, context: nil, eventNumber: 500, clickCount: 1, pressure: 1)!
-            if let mm = host.hitTest(host.convert(p, from: nil))?.menu(for: e) ?? host.menu(for: e), mm.items.contains(where: { $0.title == "Move to category" }) { menu = mm }
+            if let mm = host.hitTest(host.convert(p, from: nil))?.menu(for: e) ?? host.menu(for: e), mm.items.contains(where: { $0.title == "Move to Category" }) { menu = mm }
         }
         print("creator email: right-click menu items \(menu?.items.map(\.title) ?? [])")
         check("creator email: the row's right-click menu has Move to category", menu != nil)
         let titles = menu?.items.map(\.title) ?? []
         check("right-click: the basics are there (finding 11)", ["Reply", "Reply All", "Forward", "Move to Trash"].allSatisfy(titles.contains) && titles.contains { $0.hasPrefix("Mark as ") })
-        if let menu, let i = menu.items.firstIndex(where: { $0.title == "Move to category" }), let sub = menu.items[i].submenu {
+        if let menu, let i = menu.items.firstIndex(where: { $0.title == "Move to Category" }), let sub = menu.items[i].submenu {
             sub.delegate?.menuNeedsUpdate?(sub); sub.delegate?.menuWillOpen?(sub)
             print("creator email: Move to category items \(sub.items.map(\.title))")
             if let j = sub.items.firstIndex(where: { $0.title == "Newsletters" }) { sub.performActionForItem(at: j) }

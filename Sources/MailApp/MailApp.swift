@@ -122,7 +122,7 @@ struct MailApp: App {
             HelpCommands()
             CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
             CommandGroup(replacing: .newItem) {
-                Button("New email") { app.store.newCompose() }.keyboardShortcut("n")
+                Button("New Email") { app.store.newCompose() }.keyboardShortcut("n")
             }
             CommandGroup(replacing: .printItem) {
                 PrintMenuItem(store: app.store)

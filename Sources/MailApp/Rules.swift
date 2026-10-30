@@ -80,7 +80,7 @@ struct RulesPanel: View {
                     Button("+ New rule") { start(MailRule()) }.buttonStyle(MailButtonStyle(kind: .primary))
                 }.padding(16)
                 if let e = store.rulesError {
-                    HStack { Text(e).font(Theme.small).foregroundStyle(Theme.sub); Spacer(); Button("Try again") { Task { await store.loadRules() } }.buttonStyle(LinkButtonStyle()) }.padding(16)
+                    HStack { Text(e).font(Theme.small).foregroundStyle(Theme.sub); Spacer(); Button("Try Again") { Task { await store.loadRules() } }.buttonStyle(LinkButtonStyle()) }.padding(16)
                 } else if store.rules.isEmpty {
                     Text("No rules yet. Click \"+ New rule\" to make one.").font(Theme.small).foregroundStyle(Theme.sub).padding(16)
                 }
@@ -107,8 +107,8 @@ struct RulesPanel: View {
             store.rulePrefill = nil
         }
         .alert("Throw away your unsaved changes?", isPresented: Binding(get: { replaceWith.v != nil }, set: { if !$0 { replaceWith.v = nil } })) {
-            Button("Start a new rule") { if let p = replaceWith.v { start(MailRule(from: p)) } }
-            Button("Keep editing", role: .cancel) {}
+            Button("Start a New Rule") { if let p = replaceWith.v { start(MailRule(from: p)) } }
+            Button("Keep Editing", role: .cancel) {}
         } message: { Text("The rule you are editing has changes that are not saved.") }
         .alert("Delete this rule?", isPresented: Binding(get: { deleting.v != nil }, set: { if !$0 { deleting.v = nil } }), presenting: deleting.v) { row in
             Button("Delete", role: .destructive) { Task { await store.deleteRule(row) } }
@@ -129,7 +129,7 @@ struct RulesPanel: View {
             Toggle("Mark as read", isOn: b(\.read))
             Toggle("Star it", isOn: b(\.star))
             HStack {
-                Toggle("Move to folder", isOn: Binding(get: { d.v.folder != nil }, set: { d.v.folder = $0 ? folderChoices.first?.id : nil })).disabled(folderChoices.isEmpty && d.v.folder == nil)
+                Toggle("Move to Folder", isOn: Binding(get: { d.v.folder != nil }, set: { d.v.folder = $0 ? folderChoices.first?.id : nil })).disabled(folderChoices.isEmpty && d.v.folder == nil)
                 Picker("Folder", selection: Binding(get: { d.v.folder ?? "" }, set: { d.v.folder = $0 })) { ForEach(folderChoices) { Text($0.name).tag($0.id) } }
                     .labelsHidden().fixedSize().disabled(d.v.folder == nil)
                 if folderChoices.isEmpty { Text("No folders yet").font(Theme.small).foregroundStyle(Theme.sub) }
