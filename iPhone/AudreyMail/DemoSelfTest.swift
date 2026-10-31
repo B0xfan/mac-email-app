@@ -380,6 +380,14 @@ enum DemoSelfTest {
         check("archiving inside a folder takes it out of the inbox but leaves it in the folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return !l.contains("INBOX") && l.contains("Label_receipts") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == false)
         store.toast?.undo?(); await store.settle()
         check("Undo brings the inbox label back, in Gmail and in the folder list", box.with { b in b.msgs.first { $0.id == "m5" }!.labels.contains("INBOX") } && store.folderMails.first { $0.id == "m5" }?.labels.contains("INBOX") == true)
+        // an email that was only in the folder: Undo of Archive must not add it to the inbox
+        box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m5" }) { b.msgs[i].labels.removeAll { $0 == "INBOX" } } }
+        var folderOnly = nb; folderOnly.labels.removeAll { $0 == "INBOX" }
+        store.archive(folderOnly); await store.settle()
+        store.toast?.undo?(); await store.settle()
+        check("Undo of Archive on an email that was only in the folder leaves it out of the inbox", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return !l.contains("INBOX") && l.contains("Label_receipts") })
+        box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m5" }) { b.msgs[i].labels.append("INBOX") } }
+        await store.openFolder("Label_receipts")
         store.moveToFolder(store.folderMails.first { $0.id == "m5" }!, travel, from: "Label_receipts"); await store.settle()
         check("moving an email from one folder to another leaves the first folder", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_travel") && !l.contains("Label_receipts") && !l.contains("INBOX") } && !store.folderMails.contains { $0.id == "m5" })
         store.toast?.undo?(); await store.settle()
