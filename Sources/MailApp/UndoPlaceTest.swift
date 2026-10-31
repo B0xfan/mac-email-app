@@ -62,7 +62,7 @@ extension SelfTest {
 
         // Search: rows come back in their place; only an email that was in the Inbox goes back there
         await st.select(.archive)
-        let found = await MainActor.run { () -> [Mail] in let rows = st.other.filter { ["a1", "a2"].contains($0.id) } + st.inbox.filter { $0.id == "i1" }; st.mailbox = .search; st.other = rows; return rows }
+        let found = await MainActor.run { () -> [Mail] in let rows = st.other.filter { ["a1", "a2"].contains($0.id) } + st.inbox.filter { $0.id == "i1" }; st.mailbox = .search; st.search = "x"; st.otherSource = .query("x"); st.other = rows; return rows }   // as a search Gmail answered: a refresh does not reread it
         check("undo place: the search test has its three rows", found.count == 3)
         await st.open(found[0])
         await st.archiveOpen(); await st.engine?.flushOutbox()
