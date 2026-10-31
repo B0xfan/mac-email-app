@@ -4,6 +4,7 @@ import MailCore
 import SwiftUI
 import UIKit
 import WebKit
+import Combine
 
 /// `-selftest`: drives the real store against the pretend Gmail and prints PASS or FAIL for each check, then exits with 0 or 1.
 @MainActor
@@ -112,8 +113,65 @@ enum DemoSelfTest {
         return ((0..<844).first { count($0, pinBg) > 195 }, (0..<844).first { count($0, selStrong) > 60 })
     }
 
+    /// Lets a check open an email through the real screens (nil goes back).
+    static let openInbox = PassthroughSubject<Mail?, Never>()
+    static let openNewSenders = PassthroughSubject<Mail?, Never>()
+
+    /// John's bug, 2026-10-31: approve a new sender, open the email, and the body flashes until Back; opened again it is fine.
+    /// Runs the whole app screen on the pretend Gmail and counts what the body does while nobody touches it.
+    private static func readFlashChecks() async {
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { check("the read flash check has a screen to run on", false); return }
+        let layouts: [(name: String, html: String)] = [
+            ("an ordinary email", "<p>Your car is ready.</p><p>Bring your license.</p>"),
+            ("a page as tall as the screen", "<style>html,body{height:100%}</style><div style=\"height:100vh;background:#eef\"><p>Welcome</p></div>"),
+            ("a wide fixed layout at full height", "<style>html,body{height:100%}</style><table width=\"700\" height=\"100%\" style=\"min-height:100%\"><tr><td style=\"width:700px\">Welcome to the shop</td></tr></table>"),
+            ("a store newsletter", DemoNewsletter.html),
+        ]
+        let box = DemoMailbox.shared, now = Date()
+        box.with { b in
+            for (i, l) in layouts.enumerated() { b.msgs.append(.init(id: "fl\(i)", thread: "Tfl\(i)", labels: ["INBOX", "UNREAD"], from: "Flash \(i) <hello@flash\(i)-shop.example>", subject: "Flash \(i)", body: l.html, date: now.addingTimeInterval(Double(-60 * (i + 1))))) }
+            b.msgs.append(.init(id: "fln", thread: "Tfln", labels: ["INBOX", "UNREAD"], from: "Flash N <hello@flashn-shop.example>", subject: "Flash N", body: "<p>Opened while being approved.</p>", date: now.addingTimeInterval(-30)))
+        }
+        defer { box.with { b in b.msgs.removeAll { $0.id.hasPrefix("fl") } } }
+        let fst = DemoMode.makeStore()
+        await fst.start()
+        let w = UIWindow(windowScene: scene)
+        w.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        w.rootViewController = UIHostingController(rootView: RootView().phoneEnvironment(fst))
+        w.isHidden = false
+        defer { w.isHidden = true }
+        func wait(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+        func watch(_ s: Double) async -> (made: Int, loads: Int, sizes: Int) {
+            MailWebView.made = 0; MailWebView.loads = 0; MailWebView.sizes = 0
+            await wait(s)
+            return (MailWebView.made, MailWebView.loads, MailWebView.sizes)
+        }
+        func steady(_ r: (made: Int, loads: Int, sizes: Int)) -> Bool { r.made <= 1 && r.loads <= 1 && r.sizes <= 6 }
+        await wait(2)
+        for (i, l) in layouts.enumerated() {
+            guard let m = fst.newSenderRows.first(where: { $0.id == "fl\(i)" }) else { check("the read flash check finds its new sender (\(l.name))", false); continue }
+            fst.approve(m)
+            openInbox.send(fst.inbox.first { $0.id == m.id } ?? m)
+            let first = await watch(5)
+            openInbox.send(nil); await wait(1)
+            openInbox.send(fst.inbox.first { $0.id == m.id } ?? m)
+            let second = await watch(3)
+            openInbox.send(nil); await wait(1)
+            print("read flash, \(l.name): first open \(first), second open \(second)")
+            check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first) && steady(second))
+        }
+        if let m = fst.newSenderRows.first(where: { $0.id == "fln" }) {
+            openNewSenders.send(m); fst.approve(m)
+            let held = await watch(5)
+            openNewSenders.send(nil); await wait(1)
+            print("read flash, opened in New senders while approving: \(held)")
+            check("an email opened in New senders while its sender is approved does not reload or resize over and over", steady(held))
+        } else { check("the read flash check finds its new sender (New senders)", false) }
+    }
+
     static func run() async {
         setvbuf(stdout, nil, _IONBF, 0)   // lines reach the log even if the app stops suddenly
+        await readFlashChecks()
         let box = DemoMailbox.shared
         let store = DemoMode.makeStore()
         await store.start()

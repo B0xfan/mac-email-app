@@ -43,6 +43,7 @@ struct InboxView: View {
             }
         }
         #if DEBUG
+        .onReceive(DemoSelfTest.openInbox) { m in if let m { path.append(m) } else { path = NavigationPath() } }
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""

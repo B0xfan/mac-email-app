@@ -121,6 +121,9 @@ struct MailWebView: UIViewRepresentable {
 
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
     nonisolated(unsafe) static var compiled: WKContentRuleList?
+    #if DEBUG
+    nonisolated(unsafe) static var made = 0, loads = 0, sizes = 0   // the built-in checks count these: a body that keeps reloading or resizing is what flashes on screen
+    #endif
 
     /// `plain`: a text email takes the app's colors on the app's background; an HTML email keeps its own white page (it was made for one).
     static func page(_ body: String, allowRemote: Bool, plain: Bool) -> String {
@@ -144,6 +147,9 @@ struct MailWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
+        #if DEBUG
+        Self.made += 1
+        #endif
         let cfg = WKWebViewConfiguration()
         cfg.defaultWebpagePreferences.allowsContentJavaScript = false
         cfg.websiteDataStore = .nonPersistent()
@@ -155,7 +161,13 @@ struct MailWebView: UIViewRepresentable {
         c.view = wv
         c.observation = wv.scrollView.observe(\.contentSize, options: [.new]) { [weak c] sv, _ in
             let h = sv.contentSize.height
-            DispatchQueue.main.async { if let c, abs(c.height.wrappedValue - h) > 1 { c.height.wrappedValue = h } }
+            DispatchQueue.main.async {
+                guard let c, abs(c.height.wrappedValue - h) > 1 else { return }
+                #if DEBUG
+                MailWebView.sizes += 1
+                #endif
+                c.height.wrappedValue = h
+            }
         }
         return wv
     }
@@ -174,6 +186,9 @@ struct MailWebView: UIViewRepresentable {
         var observation: NSKeyValueObservation?
         func load() {
             guard let v = view else { return }
+            #if DEBUG
+            MailWebView.loads += 1
+            #endif
             let go = { [self] in v.loadHTMLString(page, baseURL: nil) }
             v.configuration.userContentController.removeAllContentRuleLists()
             if remote { go(); return }
