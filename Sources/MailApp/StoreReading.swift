@@ -86,7 +86,7 @@ extension MailStore {
 
     /// Archives any email in the list (row button or open email). Moves on to the next email only if this one was open.
     func archive(_ m: Mail) async {
-        await leaveInbox(m, add: [], text: "Archived.", aside: false, exactUndo: !m.inInbox && !inbox.contains { $0.id == m.id })   // Undo adds the Inbox only if it was there
+        await leaveInbox(m, add: [], text: "Archived.", aside: false, exactUndo: aside.contains { $0.id == m.id } || (!m.inInbox && !inbox.contains { $0.id == m.id }))   // Undo adds the Inbox only if it was there
     }
 
     /// Shared by Archive and Set Aside: the email leaves the inbox (and the Set Aside list), toast with Undo,
@@ -100,7 +100,7 @@ extension MailStore {
         let idx = before.firstIndex { $0.id == m.id }
         let wasAside = aside.contains { $0.id == m.id }
         let asideDay = asides.date(m)
-        let row: (box: Mailbox, at: Int, mail: Mail)? = keepOther ? nil : other.firstIndex { $0.id == m.id }.map { (box: mailbox, at: $0, mail: other[$0]) }
+        let row: (box: Mailbox, query: String, at: Int, mail: Mail)? = keepOther ? nil : other.firstIndex { $0.id == m.id }.map { (box: mailbox, query: search, at: $0, mail: other[$0]) }
         do {
             var remove = ["INBOX"] + alsoRemove
             if wasAside, let l = asideLabelID, !setAside { remove.append(l) }
@@ -201,7 +201,8 @@ extension MailStore {
             toast = nil
             await refresh()
             if failed == nil { putBackRows(ids) }
-            if failed == nil, undoReopen == ids[0], let back = (inbox + other + aside).first(where: { $0.id == ids[0] }) { await open(back) }
+            let reopen = undoReopen; undoReopen = nil
+            if failed == nil, reopen == ids[0], let back = (inbox + other + aside).first(where: { $0.id == ids[0] }) { await open(back) }
         } else if !undoArchive.isEmpty {
             let ids = undoArchive; undoArchive = []
             let fromAside = undoAside; undoAside = false
@@ -217,7 +218,7 @@ extension MailStore {
 
     /// The rows this undo step took out of the list on screen go back in their places (a plain refresh does not reread that list). Newest out, first back.
     private func putBackRows(_ ids: [String]) {
-        for r in undoRows.reversed() where r.box == mailbox && ids.contains(r.mail.id) && !other.contains(where: { $0.id == r.mail.id }) {
+        for r in undoRows.reversed() where r.box == mailbox && r.query == search && ids.contains(r.mail.id) && !other.contains(where: { $0.id == r.mail.id }) {
             other.insert(r.mail, at: min(r.at, other.count))
         }
         undoRows = []; undoAsideDays = [:]

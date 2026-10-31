@@ -73,7 +73,7 @@ extension MailStore {
         guard !ms.isEmpty else { return }
         let first = firstPosition(of: ms)
         let earlier = (undoArchive, undoSibs, undoFolder, undoAside, undoUntrash)   // kept if nothing goes through
-        undoArchive = []; undoSibs = []; undoFolder = nil; undoAside = false; undoUntrash = false
+        undoArchive = []; undoSibs = []; undoFolder = nil; undoAside = false; undoUntrash = false; undoReopen = nil
         batching = true
         for m in ms { await each(m) }
         batching = false
