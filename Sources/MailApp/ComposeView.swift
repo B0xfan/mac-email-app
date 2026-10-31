@@ -157,15 +157,13 @@ struct ComposeView: View {
         }
         .onAppear {
             store.composeContents = { [store, draft, editor, startText] in
-                let html = await editor.html(), text = await editor.text()
-                // no text at all means the page is not there (a loaded one reads at least a line break), so nothing can have been typed
-                let bodyChanged = startText.v.map { text != $0 } ?? false
-                return (draft.v, html, !text.isEmpty && (draft.v != store.compose || bodyChanged))
+                let html = await editor.html(), text = await editor.loadedText()
+                // no page means nothing can have been typed
+                return (draft.v, html, text != nil && (draft.v != store.compose || (startText.v != nil && text != startText.v)))
             }
             Task { [editor, startText] in
                 for _ in 0..<100 where startText.v == nil {   // the page loads in the background; a slow first start can take seconds
-                    let t = await editor.text()
-                    if t.isEmpty { try? await Task.sleep(for: .milliseconds(100)) } else { startText.v = t }
+                    if let t = await editor.loadedText() { startText.v = t } else { try? await Task.sleep(for: .milliseconds(100)) }
                 }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if draft.v.to.isEmpty { focus = .to } else { editor.focus() } }   // nobody to write to yet: the To line first

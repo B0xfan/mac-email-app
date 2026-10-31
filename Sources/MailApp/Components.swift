@@ -222,6 +222,13 @@ final class EditorController: ObservableObject {
             web.evaluateJavaScript("document.getElementById('ed').innerText") { r, _ in c.resume(returning: (r as? String) ?? "") }
         }
     }
+    /// The text once the page has loaded (an empty writing area reads ""); nil before that, or with no page.
+    func loadedText() async -> String? {
+        guard let web else { return nil }
+        return await withCheckedContinuation { c in
+            web.evaluateJavaScript("document.getElementById('ed').innerText") { r, _ in c.resume(returning: r as? String) }
+        }
+    }
     /// Replaces everything in the writing area the way typing would, so Command-Z undoes it.
     func insertHTML(_ html: String) {
         guard let d = try? JSONEncoder().encode(html), let lit = String(data: d, encoding: .utf8) else { return }

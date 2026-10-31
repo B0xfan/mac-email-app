@@ -70,7 +70,7 @@ struct SettingsView: View {
             ScrollViewReader { proxy in
                 MaybeScroll {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(page.rawValue).font(Theme.title).accessibilityAddTraits(.isHeader)
+                        Text(page.rawValue).font(Theme.title).accessibilityAddTraits(.isHeader).id("pageTop")
                         Text(page.blurb).foregroundStyle(Theme.sub)
                         ForEach(SnapshotMode.on ? [sec.v] : page.sections) { s in   // a snapshot cannot scroll: it draws the section it asked for
                            
@@ -80,12 +80,17 @@ struct SettingsView: View {
                     .padding(.horizontal, 24).padding(.vertical, 16).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .background(Theme.bg)
-                .onAppear { proxy.scrollTo(sec.v, anchor: .top) }
-                .onChange(of: sec.v) { _, s in proxy.scrollTo(s, anchor: .top) }
+                .onAppear { show(sec.v, proxy) }
+                .onChange(of: sec.v) { _, s in show(s, proxy) }
                 .onReceive(app.store.$rulePrefill) { if $0 != nil { sec.v = .rules; proxy.scrollTo(SettingsSection.rules, anchor: .top) } }   // also when Rules is already the section, scrolled away from
             }
         }
         .foregroundStyle(Theme.text).frame(minWidth: 820, minHeight: 480)
+    }
+
+    /// The first section of a page shows the page's title too.
+    private func show(_ s: SettingsSection, _ proxy: ScrollViewProxy) {
+        if SettingsPage.holding(s).sections.first == s { proxy.scrollTo("pageTop", anchor: .top) } else { proxy.scrollTo(s, anchor: .top) }
     }
 
     @ViewBuilder func panel(_ section: SettingsSection) -> some View {
