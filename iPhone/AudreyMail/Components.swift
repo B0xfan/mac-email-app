@@ -110,6 +110,7 @@ struct MailWebView: UIViewRepresentable {
     // shortcut: a 3-column fixed layout wraps narrow rather than scrolling sideways; scaling is the last resort for a layout that cannot wrap.
     static let fitCSS = """
     html{-webkit-text-size-adjust:100%}
+    html,body{height:auto!important;min-height:0!important}
     body{overflow-wrap:anywhere}
     img,video,svg{max-width:100%!important;height:auto!important}
     div,table,td,th,p,img{max-width:100%!important;min-width:0!important}
@@ -121,11 +122,21 @@ struct MailWebView: UIViewRepresentable {
 
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
     nonisolated(unsafe) static var compiled: WKContentRuleList?
+    #if DEBUG
+    nonisolated(unsafe) static var made = 0, loads = 0, sizes = 0   // the built-in checks count these: a body that keeps reloading or resizing is what flashes on screen
+    #endif
+
+    /// This view is exactly as tall as the email, so an email sized by the height of the screen (100vh) would grow the view, which grows the email, without end: it flashes.
+    /// Those sizes become fixed ones. Only a size inside CSS matches: before it comes a space, colon, bracket or comma and after it a CSS separator, which a picture's base64 text never has.
+    static func withoutScreenHeights(_ body: String) -> String {
+        guard body.contains("vh") || body.contains("vmax") else { return body }
+        return body.replacing(#/([\s:(,])(\d+(?:\.\d+)?)[dsl]?v(?:h|max)(?=[\s;,)!"'}])/#.matchingSemantics(.unicodeScalar)) { "\($0.1)\((Double($0.2) ?? 100) * 8)px" }
+    }
 
     /// `plain`: a text email takes the app's colors on the app's background; an HTML email keeps its own white page (it was made for one).
     static func page(_ body: String, allowRemote: Bool, plain: Bool) -> String {
         let look = plain ? "html,body{background:transparent}body{color:#0f2326}@media(prefers-color-scheme:dark){body{color:#e8f3f3}}" : "body{padding:10px}"
-        return HTMLSafety.page(body, allowRemote: allowRemote)
+        return HTMLSafety.page(withoutScreenHeights(body), allowRemote: allowRemote)
             .replacingOccurrences(of: "<head>", with: "<head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
             .replacingOccurrences(of: "</style></head>", with: "body{font-size:16px;line-height:1.5}\(look)\(fitCSS)</style></head>")
     }
@@ -144,6 +155,9 @@ struct MailWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
+        #if DEBUG
+        Self.made += 1
+        #endif
         let cfg = WKWebViewConfiguration()
         cfg.defaultWebpagePreferences.allowsContentJavaScript = false
         cfg.websiteDataStore = .nonPersistent()
@@ -155,7 +169,16 @@ struct MailWebView: UIViewRepresentable {
         c.view = wv
         c.observation = wv.scrollView.observe(\.contentSize, options: [.new]) { [weak c] sv, _ in
             let h = sv.contentSize.height
-            DispatchQueue.main.async { if let c, abs(c.height.wrappedValue - h) > 1 { c.height.wrappedValue = h } }
+            DispatchQueue.main.async {
+                guard let c, abs(c.height.wrappedValue - h) > 1 else { return }
+                if Date().timeIntervalSince(c.sizedSince) > 2 { c.sizedSince = Date(); c.sizedCount = 0 }
+                c.sizedCount += 1
+                if c.sizedCount > 10 { c.catchUpLater(); return }   // too fast: a layout that follows the view's height, or a burst of pictures
+                #if DEBUG
+                MailWebView.sizes += 1
+                #endif
+                c.height.wrappedValue = h
+            }
         }
         return wv
     }
@@ -163,17 +186,38 @@ struct MailWebView: UIViewRepresentable {
     func updateUIView(_ wv: WKWebView, context: Context) {
         let c = context.coordinator
         c.height = $height
-        let page = Self.page(html, allowRemote: allowRemote, plain: plain)
-        if c.page != page || c.remote != allowRemote { c.page = page; c.remote = allowRemote; c.load() }
+        if c.html != html || c.plain != plain || c.remote != allowRemote {
+            c.html = html; c.plain = plain; c.remote = allowRemote
+            c.page = Self.page(html, allowRemote: allowRemote, plain: plain)
+            c.load()
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         weak var view: WKWebView?
-        var page = "", remote = false
+        var html = "", plain = false, page = "", remote = false
+        var sizedSince = Date.distantPast, sizedCount = 0, catchUps = 0, catchingUp = false
+        /// Once things are quiet, take the latest height so a burst of pictures is never left cut off. A layout that grows every time gets two of these, then stays still.
+        // shortcut: a third burst of over 10 pictures in 2 seconds in one email stays cut off; if that is ever seen, allow more catch-ups.
+        func catchUpLater() {
+            guard !catchingUp, catchUps < 2 else { return }
+            catchingUp = true; catchUps += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self else { return }
+                catchingUp = false
+                guard let h = view?.scrollView.contentSize.height, abs(height.wrappedValue - h) > 1 else { return }
+                sizedSince = Date(); sizedCount = 0
+                height.wrappedValue = h
+            }
+        }
         var height: Binding<CGFloat> = .constant(0)
         var observation: NSKeyValueObservation?
         func load() {
             guard let v = view else { return }
+            #if DEBUG
+            MailWebView.loads += 1
+            #endif
+            sizedSince = .distantPast; sizedCount = 0; catchUps = 0
             let go = { [self] in v.loadHTMLString(page, baseURL: nil) }
             v.configuration.userContentController.removeAllContentRuleLists()
             if remote { go(); return }

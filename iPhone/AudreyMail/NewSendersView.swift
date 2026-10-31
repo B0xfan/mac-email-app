@@ -52,6 +52,7 @@ struct NewSendersView: View {
             .navigationDestination(for: Mail.self) { ReadView(mail: $0) }
         }
         #if DEBUG
+        .onReceive(DemoSelfTest.openNewSenders) { m in if let m { path.append(m) } else { path = [] } }
         .onChange(of: store.newSenderRows.count) { _, _ in
             if DemoMode.screen == "block", path.isEmpty, let m = store.newSenderRows.first(where: { $0.id == "n2" }) { path.append(m) }
         }
