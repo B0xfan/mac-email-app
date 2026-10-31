@@ -121,11 +121,12 @@ enum DemoSelfTest {
     /// Runs the whole app screen on the pretend Gmail and counts what the body does while nobody touches it.
     private static func readFlashChecks() async {
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { check("the read flash check has a screen to run on", false); return }
-        let layouts: [(name: String, html: String)] = [
+        let layouts: [(name: String, html: String)] = [   // the first four must stay steady by themselves; only the last leans on the speed limit
             ("an ordinary email", "<p>Your car is ready.</p><p>Bring your license.</p>"),
             ("a page as tall as the screen", "<style>html,body{height:100%}</style><div style=\"height:100vh;background:#eef\"><p>Welcome</p></div>"),
             ("a wide fixed layout at full height", "<style>html,body{height:100%}</style><table width=\"700\" height=\"100%\" style=\"min-height:100%\"><tr><td style=\"width:700px\">Welcome to the shop</td></tr></table>"),
             ("a store newsletter", DemoNewsletter.html),
+            ("a box pinned to the height of the view", "<div style=\"position:absolute;top:10px;height:100%\"><p>Welcome</p></div>"),
         ]
         let box = DemoMailbox.shared, now = Date()
         box.with { b in
@@ -146,7 +147,9 @@ enum DemoSelfTest {
             await wait(s)
             return (MailWebView.made, MailWebView.loads, MailWebView.sizes)
         }
-        func steady(_ r: (made: Int, loads: Int, sizes: Int)) -> Bool { r.made <= 1 && r.loads <= 1 && r.sizes <= 6 }
+        func steady(_ r: (made: Int, loads: Int, sizes: Int), most: Int = 5) -> Bool { r.made <= 1 && r.loads <= 1 && r.sizes <= most }
+        let picture = "<img src=\"data:image/png;base64,/12vh/AAAA\">"
+        check("sizes by the screen's height become fixed ones, and a picture's own text is left alone", MailWebView.withoutScreenHeights("<div style=\"height:100vh;min-height: 50dvh\">") == "<div style=\"height:800.0px;min-height: 400.0px\">" && MailWebView.withoutScreenHeights(picture) == picture)
         await wait(2)
         for (i, l) in layouts.enumerated() {
             guard let m = fst.newSenderRows.first(where: { $0.id == "fl\(i)" }) else { check("the read flash check finds its new sender (\(l.name))", false); continue }
@@ -158,7 +161,7 @@ enum DemoSelfTest {
             let second = await watch(3)
             openInbox.send(nil); await wait(1)
             print("read flash, \(l.name): first open \(first), second open \(second)")
-            check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first) && steady(second))
+            check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first, most: i == 4 ? 35 : 5) && steady(second, most: i == 4 ? 35 : 5))
         }
         if let m = fst.newSenderRows.first(where: { $0.id == "fln" }) {
             openNewSenders.send(m); fst.approve(m)
@@ -172,6 +175,7 @@ enum DemoSelfTest {
     static func run() async {
         setvbuf(stdout, nil, _IONBF, 0)   // lines reach the log even if the app stops suddenly
         await readFlashChecks()
+        DemoMailbox.shared.with { $0.srvRegisters = 0; $0.srvKey = nil; $0.srvLog = [] }   // that check's store signed up with the pretend server; the checks below expect a clean one
         let box = DemoMailbox.shared
         let store = DemoMode.makeStore()
         await store.start()
