@@ -237,7 +237,7 @@ struct HelpView: View {
                 Spacer()
                 searchBox
             }
-            .padding(.horizontal, 14).padding(.vertical, 8).background(Theme.side)
+            .padding(.horizontal, 12).padding(.vertical, 8).background(Theme.side)
             Rectangle().fill(Theme.line).frame(height: 1)
             HStack(spacing: 0) {
                 contents.frame(width: 220).background(Theme.side)
@@ -250,7 +250,7 @@ struct HelpView: View {
                 Spacer()
                 Text(model.terms.isEmpty ? "Opens beside your mail" : "Press Escape to clear")
             }
-            .font(.system(size: 12)).foregroundStyle(Theme.sub).padding(.horizontal, 14).padding(.vertical, 6).background(Theme.side)
+            .font(.system(size: 11)).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.vertical, 4).background(Theme.side)
         }
         .background(NoRestore())
         .background(Theme.bg).foregroundStyle(Theme.text).tint(Theme.acc)   // links in the text use Mail's teal
@@ -270,7 +270,7 @@ struct HelpView: View {
     }
 
     private var searchBox: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Image(systemName: "magnifyingglass").foregroundStyle(Theme.sub)
             TextField("Search help", text: $model.query)
                 .textFieldStyle(.plain).focused($searchFocus)
@@ -280,9 +280,9 @@ struct HelpView: View {
                     .buttonStyle(.plain).accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 10).frame(width: 260, height: 30)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(searchFocus ? Theme.acc : Theme.line, lineWidth: searchFocus ? 2 : 1))
+        .padding(.horizontal, 8).frame(width: 260, height: 28)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(searchFocus ? Theme.acc : Theme.line, lineWidth: searchFocus ? 2 : 1))
     }
 
     private var contents: some View {
@@ -294,11 +294,11 @@ struct HelpView: View {
                     let on = s.id == model.current?.id && !model.showResults   // while results are listed no section is "open"
                     let hit = matching.contains(s.id)
                     Button { model.show(s.id) } label: {
-                        Text(s.title).font(.system(size: 14, weight: on || (hit && !ts.isEmpty) ? .bold : .regular))
+                        Text(s.title).font(.system(size: 13, weight: on || (hit && !ts.isEmpty) ? .bold : .regular))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 9).fill(on ? Theme.selStrong : .clear))
-                            .overlay(RoundedRectangle(cornerRadius: 9).stroke(on ? Theme.acc : .clear, lineWidth: 1.5))
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.selStrong : .clear))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Theme.acc : .clear, lineWidth: 1.5))
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -322,10 +322,10 @@ struct HelpView: View {
                 ForEach(hits) { h in
                     Button { model.show(h.section.id) } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(HelpText.highlight(AttributedString(h.section.title), ts)).font(.system(size: 14, weight: .bold))
-                            Text(HelpText.highlight(AttributedString(h.snippet), ts)).font(.system(size: 13)).foregroundStyle(Theme.sub).lineLimit(3)
+                            Text(HelpText.highlight(AttributedString(h.section.title), ts)).font(.system(size: 13, weight: .bold))
+                            Text(HelpText.highlight(AttributedString(h.snippet), ts)).font(.system(size: 11)).foregroundStyle(Theme.sub).lineLimit(3)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 14).padding(.vertical, 8).contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     Rectangle().fill(Theme.line).frame(height: 1)
@@ -339,11 +339,11 @@ struct HelpView: View {
         let ts = model.terms
         return ScrollView {
             if let s = model.current {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(HelpText.highlight(AttributedString(s.title), ts)).font(.system(size: 21, weight: .bold))
                     ForEach(Array(s.blocks.enumerated()), id: \.offset) { _, b in HelpBlockView(block: b, terms: ts) }
                 }
-                .padding(.horizontal, 22).padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24).padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .id(model.current?.id ?? "")   // a new section starts at the top
@@ -357,33 +357,33 @@ struct HelpBlockView: View {
     var body: some View {
         switch block {
         case .sub(let t):
-            Text(HelpText.markdown(t, terms)).font(.system(size: 15, weight: .bold)).padding(.top, 6)
+            Text(HelpText.markdown(t, terms)).font(.system(size: 15, weight: .bold)).padding(.top, 4)
         case .para(let t):
-            Text(HelpText.markdown(t, terms)).font(.system(size: 14.5)).fixedSize(horizontal: false, vertical: true)
+            Text(HelpText.markdown(t, terms)).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
         case .item(let marker, let t):
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(marker).frame(width: 22, alignment: .trailing).foregroundStyle(Theme.sub)
                 Text(HelpText.markdown(t, terms)).fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 14.5))
+            .font(.system(size: 13))
         case .table(let rows):
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
                     // two columns: the first (what you see or do) is narrow, the second is the answer
-                    HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(HelpText.markdown(r.first ?? "", terms)).fontWeight(i == 0 ? .bold : .semibold)
                             .frame(width: 170, alignment: .leading)
                         Text(HelpText.markdown(r.dropFirst().joined(separator: " \u{00B7} "), terms)).fontWeight(i == 0 ? .bold : .regular)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .font(.system(size: 14)).foregroundStyle(i == 0 ? Theme.sub : Theme.text)
-                    .padding(.vertical, 6)
+                    .font(.system(size: 13)).foregroundStyle(i == 0 ? Theme.sub : Theme.text)
+                    .padding(.vertical, 4)
                     .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: i == 0 ? 0 : 1) }
                 }
             }
-            .padding(.horizontal, 10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+            .padding(.horizontal, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
         }
     }
 }
@@ -400,7 +400,7 @@ struct NoRestore: NSViewRepresentable {
 
 /// The Help menu. It opens the window through the app's own window opener, so Command-? works with the main window closed.
 extension OpenWindowAction {
-    /// The one way into help: the Help menu, the ? button and any feature that points at a section.
+    /// The one way into help: the Help menu and any feature that points at a section.
     func help(_ section: String? = nil, search: Bool = false) {
         MainActor.assumeIsolated { HelpModel.shared.prepare(section, search: search) }
         callAsFunction(id: "help")

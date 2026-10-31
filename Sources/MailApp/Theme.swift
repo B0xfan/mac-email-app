@@ -50,8 +50,8 @@ enum Theme {
     // Type scale from the style guide (system font: Plus Jakarta Sans is not installed on the Mac).
     static let title = Font.system(size: 24, weight: .bold)
     static let heading = Font.system(size: 16, weight: .bold)
-    static let body = Font.system(size: 14, weight: .regular)
-    static let bodyStrong = Font.system(size: 14, weight: .semibold)
-    static let small = Font.system(size: 13, weight: .medium)
-    static let label = Font.system(size: 12, weight: .bold)
+    static let body = Font.system(size: 13, weight: .regular)
+    static let bodyStrong = Font.system(size: 13, weight: .semibold)
+    static let small = Font.system(size: 11, weight: .medium)
+    static let label = Font.system(size: 11, weight: .bold)
 }

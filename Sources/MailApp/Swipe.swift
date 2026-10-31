@@ -86,9 +86,9 @@ struct SwipeCatcher: NSViewRepresentable {
 struct SwipeBar: View {
     let action: SwipeAction, text: String, fromLeft: Bool
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: action.symbol).font(.system(size: 14, weight: .semibold))
-            Text(text).font(.system(size: 14, weight: .bold)).lineLimit(1)
+        HStack(spacing: 4) {
+            Image(systemName: action.symbol).font(.system(size: 13, weight: .semibold))
+            Text(text).font(.system(size: 13, weight: .bold)).lineLimit(1)
         }
         .padding(.horizontal, 16).frame(maxHeight: .infinity)
         .frame(maxWidth: .infinity, alignment: fromLeft ? .leading : .trailing)

@@ -55,7 +55,7 @@ struct CheckForUpdatesButton: View {
 struct UpdatesPanel: View {
     @ObservedObject private var updater = Updater.shared
     var body: some View {
-        Card { VStack(alignment: .leading, spacing: 10) {
+        Card { VStack(alignment: .leading, spacing: 8) {
             Text("Audrey Mail \(Updater.version)").font(Theme.heading)
             Text(status).font(Theme.small).foregroundStyle(Theme.sub)
             Button("Check for Updates") { updater.check() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(!updater.canCheck)

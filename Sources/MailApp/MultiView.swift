@@ -22,8 +22,8 @@ struct MultiPanel: View {
         let allPinned = ms.allSatisfy { store.isPinned($0) }
         MaybeScroll {
             Card(padding: 18) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("\(n) selected").font(Theme.title).accessibilityAddTraits(.isHeader)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(n) selected").font(.system(size: 20, weight: .bold)).accessibilityAddTraits(.isHeader)
                     Text(MultiPanel.names(ms)).font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 4)
                     FlowRow(spacing: 8) {
                         if store.mailbox == .inbox {   // Archive stays Inbox-only for several emails; the others have the same limit as for one email
@@ -36,7 +36,7 @@ struct MultiPanel: View {
                         act("Add to To-Do", "checklist") { store.bulkTodo() }
                         act("Move to Folder...", "folder") { store.blockMenuFor = store.blockMenuFor == "bulkMove" ? nil : "bulkMove" }
                             .popover(isPresented: pop("bulkMove"), arrowEdge: .bottom) { FolderPick(store: store) }
-                        act("Block senders...", "nosign", .block) { store.blockMenuFor = store.blockMenuFor == "bulkBlock" ? nil : "bulkBlock" }
+                        act("Block Senders...", "nosign", .block) { store.blockMenuFor = store.blockMenuFor == "bulkBlock" ? nil : "bulkBlock" }
                             .popover(isPresented: pop("bulkBlock"), arrowEdge: .bottom) { BulkBlockMenu(store: store, mails: ms) }
                         act("Move to Trash", "trash", .block) { await store.bulkTrash() }
                     }
@@ -80,7 +80,7 @@ struct FolderPick: View {
             if store.folders.isEmpty { Text("No folders yet").font(Theme.body).foregroundStyle(Theme.sub).padding(12) }
             ForEach(store.folders.filter { store.mailbox != .folder($0.id) }) { f in   // moving to the folder on screen does nothing
                 Button { store.blockMenuFor = nil; Task { await store.bulkMove(f) } } label: {
-                    Text(f.name).font(Theme.body).padding(.horizontal, 12).frame(minHeight: 36).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    Text(f.name).font(Theme.body).padding(.horizontal, 12).frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }

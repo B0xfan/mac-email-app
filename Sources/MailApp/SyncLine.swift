@@ -13,7 +13,7 @@ struct SyncLine: View {
     @ObservedObject var store: MailStore
     var body: some View {
         if let l = store.syncProgress.line {
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
                 HStack {
                     Text(l.text).font(Theme.small).foregroundStyle(Theme.text)
                     Spacer()
@@ -23,9 +23,9 @@ struct SyncLine: View {
                 Capsule().fill(Theme.line).frame(height: 5)
                     .overlay(alignment: .leading) { GeometryReader { g in Capsule().fill(Theme.acc).frame(width: g.size.width * store.syncProgress.fraction) } }
             }
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
             .accessibilityElement(children: .ignore).accessibilityLabel("\(l.text) \(l.percent) percent")
         }
     }

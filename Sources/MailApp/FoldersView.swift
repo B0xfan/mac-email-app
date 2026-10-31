@@ -11,19 +11,19 @@ struct GroupHead: View {
     var body: some View {
         HStack(spacing: 0) {
             Button(action: toggle) {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Image(systemName: folded ? "chevron.right" : "chevron.down").font(.system(size: 10, weight: .bold)).frame(width: 12)
                     Text(title.uppercased()).font(Theme.label).tracking(0.7)
                     Spacer(minLength: 0)
                 }
-                .foregroundStyle(Theme.sub).padding(.leading, 12).frame(minHeight: 32).contentShape(Rectangle())
+                .foregroundStyle(Theme.sub).padding(.leading, 8).frame(minHeight: 28).contentShape(Rectangle())
             }
             .buttonStyle(.plain).accessibilityAddTraits(.isHeader)
             .accessibilityLabel("\(title), \(folded ? "folded" : "open")").accessibilityHint("Click to \(folded ? "open" : "fold")")
             if let onAdd {
                 Button(action: onAdd) {
                     Image(systemName: "plus").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.acc)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                        .frame(width: 28, height: 28).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).help(addLabel ?? "New").accessibilityLabel(addLabel ?? "New")
             }
@@ -109,7 +109,7 @@ func basicsMenu(_ store: MailStore, _ m: Mail) -> some View {
 @MainActor @ViewBuilder
 func moveToFolderMenu(_ store: MailStore, _ m: Mail) -> some View {
     Button("Make a rule from this email\u{2026}") { store.makeRule(from: m) }
-    Button { store.copyLinkForMe(m) } label: { Label("Copy Link for Me", systemImage: "link") }   // the same two links as the header button
+    Button { store.copyLinkForMe(m) } label: { Label("Copy Link for Me", systemImage: "link") }   // the same two links as the toolbar's More menu
     Button { Task { await store.copyLinkToShare(m) } } label: { Label("Copy Link to Share", systemImage: "globe") }
     Menu("Move to Folder") {
         if store.folders.isEmpty { Text("No folders yet") }
@@ -131,7 +131,7 @@ struct InputField: View {
     var onSubmit: () -> Void = {}
     @FocusState private var focused: Bool
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             if let prefix { Text(prefix).foregroundStyle(Theme.sub) }
             if SnapshotMode.on {
                 Text(text.wrappedValue.isEmpty ? placeholder : text.wrappedValue).foregroundStyle(text.wrappedValue.isEmpty ? Theme.sub : Theme.text).frame(maxWidth: .infinity, alignment: .leading)
@@ -140,9 +140,9 @@ struct InputField: View {
                     .onAppear { focused = bordered && prefix != nil }
             }
         }
-        .font(Theme.body).padding(.horizontal, bordered ? 10 : 0).frame(minHeight: 44)
-        .background { if bordered { RoundedRectangle(cornerRadius: 9).fill(Theme.bg) } }
-        .overlay { if bordered { RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1.5) } }
+        .font(Theme.body).padding(.horizontal, bordered ? 10 : 0).frame(minHeight: 28)
+        .background { if bordered { RoundedRectangle(cornerRadius: 8).fill(Theme.bg) } }
+        .overlay { if bordered { RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1.5) } }
     }
 }
 
@@ -154,11 +154,11 @@ struct MiniMenu<Items: View>: View {
     @ViewBuilder var items: Items
     var body: some View {
         let l = HStack(spacing: 4) {
-            Text(label).font(.system(size: 14, weight: bold ? .bold : .semibold)).foregroundStyle(Theme.text)
+            Text(label).font(.system(size: 13, weight: bold ? .bold : .semibold)).foregroundStyle(Theme.text)
             if let badge { Text(badge).font(Theme.label).lineLimit(1).fixedSize().foregroundStyle(Theme.accInk).padding(.horizontal, 8).padding(.vertical, 1).background(Capsule().fill(Theme.accSoft)) }
             Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.sub)
         }
-        .padding(.horizontal, 8).frame(minHeight: 32).background(RoundedRectangle(cornerRadius: 8).fill(Theme.hovBg)).contentShape(Rectangle())
+        .padding(.horizontal, 8).frame(minHeight: 28).background(RoundedRectangle(cornerRadius: 8).fill(Theme.hovBg)).contentShape(Rectangle())
         if SnapshotMode.on { l } else { Menu { items } label: { l }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize() }
     }
 }
@@ -222,7 +222,7 @@ struct NameForm: View {
     }
     var body: some View {
         Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(title).font(Theme.heading)
                 InputField(prefix: "Name:", placeholder: placeholder, text: Binding(get: { text.v }, set: { text.v = $0 })) { submit(text.v) }
                 Text(hint).font(Theme.small).foregroundStyle(Theme.sub).fixedSize(horizontal: false, vertical: true)
@@ -245,7 +245,7 @@ struct ConfirmCard: View {
     let run: () async -> Void
     var body: some View {
         Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(title).font(Theme.heading).fixedSize(horizontal: false, vertical: true)
                 Text(text).font(Theme.body).foregroundStyle(Theme.sub).fixedSize(horizontal: false, vertical: true)
                 FormMessage(store: store)
@@ -275,7 +275,7 @@ struct SmartForm: View {
     }
     var body: some View {
         Card(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(isNew ? "New Smart Folder" : "Edit Smart Folder").font(Theme.heading)
                 InputField(prefix: "Name:", placeholder: "Invoices from Tomas", text: Binding(get: { draft.v.name }, set: { draft.v.name = $0 }))
                 ForEach(draft.v.rules) { r in
@@ -285,24 +285,24 @@ struct SmartForm: View {
                             ForEach(RuleField.allCases, id: \.self) { f in Button(f.title) { draft.v.rules[i].field = f } }
                         }
                         if r.field.needsValue {
-                            Text("contains").font(.system(size: 14, weight: .bold))
+                            Text("contains").font(.system(size: 13, weight: .bold))
                             InputField(placeholder: "word or name", text: Binding(get: { draft.v.rules.indices.contains(i) ? draft.v.rules[i].value : "" }, set: { if draft.v.rules.indices.contains(i) { draft.v.rules[i].value = $0 } }), bordered: false)
                         } else { Spacer(minLength: 0) }
                         if draft.v.rules.count > 1 {
                             Button { draft.v.rules.removeAll { $0.id == r.id } } label: {
-                                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.sub).frame(width: 32, height: 32).contentShape(Rectangle())
+                                Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.sub).frame(width: 28, height: 28).contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityLabel("Remove this rule")
                         }
                     }
-                    .padding(.horizontal, 10).frame(minHeight: 44)
-                    .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1.5))
+                    .padding(.horizontal, 8).frame(minHeight: 28)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1.5))
                 }
                 Button { draft.v.rules.append(SmartRule(field: .from)) } label: {
                     Text("+ Add another rule").font(Theme.body).foregroundStyle(Theme.sub).frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10).frame(minHeight: 44).contentShape(Rectangle())
-                        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
+                        .padding(.horizontal, 8).frame(minHeight: 28).contentShape(Rectangle())
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])))
                 }.buttonStyle(.plain)
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     Text("Match").foregroundStyle(Theme.sub)
                     MiniMenu(label: draft.v.matchAll ? "all" : "any", bold: true) {
                         Button("all") { draft.v.matchAll = true }

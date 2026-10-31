@@ -96,26 +96,26 @@ struct CommandCenterView: View {
                         .onKeyPress(.escape) { store.commandCenterOpen = false; return .handled }
                         .accessibilityLabel("Command Center")
                 }
-                .padding(.horizontal, 14).frame(minHeight: 52)
+                .padding(.horizontal, 12).frame(minHeight: 44)
                 Rectangle().fill(Theme.line).frame(height: 1)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        if rows.isEmpty { Text("Nothing matches.").font(Theme.body).foregroundStyle(Theme.sub).padding(14) }
+                        if rows.isEmpty { Text("Nothing matches.").font(Theme.body).foregroundStyle(Theme.sub).padding(12) }
                         ForEach(Array(rows.enumerated()), id: \.element.id) { i, r in
                             if i == 0 && !query.v.isEmpty { head("Best match") } else if i == 1 && !query.v.isEmpty { head("Other") }
                             row(r, on: i == sel.v) { sel.v = i; run(rows) }
                         }
-                    }.padding(6)
+                    }.padding(4)
                 }.frame(maxHeight: 340)
             }
-            .frame(width: 520).background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
+            .frame(width: 520).background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
             .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
             .frame(maxHeight: .infinity, alignment: .top).padding(.top, 90)
         }
         .onAppear { focus = true }
     }
-    private func head(_ t: String) -> some View { Text(t.uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 10).padding(.top, 6) }
+    private func head(_ t: String) -> some View { Text(t.uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 8).padding(.top, 4) }
     private func row(_ r: AppCommand, on: Bool, tap: @escaping () -> Void) -> some View {
         Button(action: tap) {
             HStack(spacing: 8) {
@@ -124,7 +124,7 @@ struct CommandCenterView: View {
                 Spacer()
                 if let k = r.key { Text(k).font(Theme.small).foregroundStyle(Theme.sub) }
             }
-            .padding(.horizontal, 10).frame(minHeight: 40).frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8).frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.selStrong : .clear)).contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
@@ -176,7 +176,7 @@ struct MenuBarLabel: View {
     @ObservedObject var settings: AppSettings
     var body: some View {
         let n = MenuBarLogic.unread(store.inboxMails, all: settings.menuBarAll, category: store.category(of:)).count
-        HStack(spacing: 3) { Image(nsImage: MenuBarIcon.image).renderingMode(.template); if n > 0 { Text("\(n)") } }
+        HStack(spacing: 4) { Image(nsImage: MenuBarIcon.image).renderingMode(.template); if n > 0 { Text("\(n)") } }
             .accessibilityElement(children: .ignore).accessibilityLabel(n > 0 ? "Audrey Mail, \(n) unread" : "Audrey Mail")
     }
 }
@@ -403,15 +403,15 @@ struct TodoBoxView: View {
         ZStack {
             Color.black.opacity(0.25).ignoresSafeArea().onTapGesture { store.todoMail = nil }
             Card(padding: 16) {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(store.todoBulk.count > 1 ? "Add \(store.todoBulk.count) emails to to-do list" : "Add to to-do list").font(Theme.heading)
                     TextField("Task", text: $line.v, axis: .vertical).textFieldStyle(.plain).font(.system(size: 16)).lineLimit(3, reservesSpace: true)
                         .focused($focus).onSubmit { add() }.accessibilityLabel("Task line")
-                        .padding(.horizontal, 12).padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(focus ? Theme.acc : Theme.sub, lineWidth: 2))
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(focus ? Theme.acc : Theme.sub, lineWidth: 2))
                         .shadow(color: focus ? Theme.acc.opacity(0.28) : .clear, radius: 4)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         if p.project == nil && p.priority == nil && p.due == nil {
                             Text("Nothing picked out yet").font(Theme.small).foregroundStyle(Theme.sub)
                         } else {
@@ -435,7 +435,7 @@ struct TodoBoxView: View {
         .onKeyPress(.escape) { store.todoMail = nil; return .handled }
     }
     private func chip(_ t: String, due: Bool) -> some View {
-        Text(t).font(Theme.small).padding(.horizontal, 10).frame(minHeight: 26)
+        Text(t).font(Theme.small).padding(.horizontal, 8).frame(minHeight: 24)
             .background(Capsule().fill(due ? Theme.accSoft : Theme.hovBg)).foregroundStyle(due ? Theme.accInk : Theme.text)
     }
     private func add() {

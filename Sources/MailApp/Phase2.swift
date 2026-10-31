@@ -267,9 +267,9 @@ struct HomePreviewMenu: View {
                     }.help(c.help)
                 }
             }
-        } label: { HStack(spacing: 6) { Text(settings.homePreview.title).font(.system(size: 14, weight: .medium)); Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)) } }
+        } label: { HStack(spacing: 4) { Text(settings.homePreview.title).font(.system(size: 14, weight: .medium)); Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)) } }
         .menuStyle(.button).buttonStyle(.plain).fixedSize()
-        .padding(.horizontal, 14).frame(minHeight: 32)
+        .padding(.horizontal, 12).frame(minHeight: 32)
         .background(Capsule().fill(HomeStyle.pill)).overlay(Capsule().stroke(.white.opacity(0.85), lineWidth: 1.5))
         .help("Choose which new emails are listed under the buttons. The counts always show.")
         .accessibilityLabel("Preview Emails: \(settings.homePreview.title)")
@@ -294,7 +294,7 @@ struct HomePreviewList: View {
             }
             if mails.count > 4 { Text("and \(mails.count - 4) more").font(.system(size: 13)).opacity(0.7) }
         }
-        .padding(.horizontal, 14).padding(.vertical, 8).frame(width: 520, alignment: .leading)
+        .padding(.horizontal, 12).padding(.vertical, 8).frame(width: 520, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12).fill(HomeStyle.pill))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.35), lineWidth: 1))
         .accessibilityElement(children: .combine)
@@ -385,7 +385,7 @@ struct RadioRow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: 44).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            .frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label).accessibilityAddTraits(on ? .isSelected : [])

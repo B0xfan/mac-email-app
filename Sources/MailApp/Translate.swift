@@ -215,14 +215,14 @@ struct TranslatedBanner: View {
     let mail: Mail
     let tr: MailTranslation
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text("Translated from \(tr.from) to \(tr.to).").font(Theme.small)
             Button("Show Original") { store.translationShown.remove(mail.id) }.buttonStyle(LinkButtonStyle())
             if tr.cut { Text("Only the first part of this long email was translated.").font(Theme.small).foregroundStyle(Theme.sub) }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.selStrong))
+        .padding(.horizontal, 12).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.selStrong))
         .accessibilityElement(children: .combine)
     }
 }
@@ -284,7 +284,7 @@ struct TranslateChip: View {
                 }
             } label: {
                 Label(model.busy ? "Translating..." : "Translate to \(model.targetName)", systemImage: "globe")
-                    .font(Theme.small.weight(.semibold)).padding(.horizontal, 11).padding(.vertical, 4)
+                    .font(Theme.small.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 4)
                     .background(Capsule().fill(Theme.selStrong)).overlay(Capsule().stroke(Theme.acc, lineWidth: 1.5))
             } primaryAction: { Task { await model.run(editor: editor, signature: signature) } }
             .menuStyle(.button).buttonStyle(.plain).fixedSize().disabled(model.busy)
@@ -309,7 +309,7 @@ struct TranslateResultBox: View {
                     Button("Cancel") { model.result = nil }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                 }
             }
-            .padding(12).background(RoundedRectangle(cornerRadius: 9).fill(Theme.bg)).overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
+            .padding(12).background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
         } else if let m = model.message {
             Text(m).font(Theme.small).foregroundStyle(Theme.blk)
         }

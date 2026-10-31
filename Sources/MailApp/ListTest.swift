@@ -21,9 +21,9 @@ enum ListTest {
             rep.getPixel(&px, atX: x, y: y)
             return abs(px[0] - rgb.0) <= tol && abs(px[1] - rgb.1) <= tol && abs(px[2] - rgb.2) <= tol
         }
-        // the list column starts right of the 244 pt sidebar: find the left edge of the teal, then look 3 points inside it (inside the border, clear of the orange dot)
+        // the list column starts right of the 220 pt sidebar: find the left edge of the teal, then look 3 points inside it (inside the border, clear of the orange dot)
         var left: Int?
-        scan: for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
+        scan: for x in Int(224 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
             for y in stride(from: 0, to: rep.pixelsHigh, by: 2) where isTeal(x, y) { left = x; break scan }
         }
         guard let left else { return [] }
@@ -212,6 +212,16 @@ enum ListTest {
         sw.contentView = NSHostingView(rootView: SettingsView(app: app, openBlocked: {}, start: .storage))
         sw.orderFront(nil)
         await LiveTest.pump(1.0)
+        for p in SettingsPage.allCases {   // every page, for a look (design review finding 18)
+            let pw = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 960, height: 760), styleMask: [.borderless], backing: .buffered, defer: false)
+            pw.isReleasedWhenClosed = false
+            pw.appearance = NSAppearance(named: .aqua)
+            pw.contentView = NSHostingView(rootView: SettingsView(app: app, openBlocked: {}, start: p.sections[0]))
+            pw.orderFront(nil)
+            await LiveTest.pump(1.0)
+            LiveTest.grab(pw, "\(dir)/list-14-settings-page-\(p.id.replacingOccurrences(of: " ", with: "-")).png")
+            pw.close()
+        }
         let sp = "\(dir)/list-13-settings-storage.png"
         try? FileManager.default.removeItem(atPath: sp)
         LiveTest.grab(sw, sp)
@@ -226,6 +236,7 @@ enum ListTest {
         if await !composeLinks() { ok = false }
         if await !composeCursor() { ok = false }
         if await !composeReplace() { ok = false }
+        if !layoutFits() { ok = false }
         // Design review finding 15: toasts are read aloud, once each
         var heard: [String] = []
         let realAnnounce = MailStore.announce
@@ -265,6 +276,20 @@ enum ListTest {
             check("compose cursor: \(to.isEmpty ? "with nobody to write to it starts on the To line" : "with an address filled in it does not") (\(String(describing: win.firstResponder.map { type(of: $0) })))", (win.firstResponder is NSTextView) == wantToLine)
             win.close()
         }
+        return ok
+    }
+
+    /// Design review findings 17 and 18: every Settings section sits on exactly one page, and the toolbar leaves room for Translate in the smallest window (980 less the 220 sidebar).
+    static func layoutFits() -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        let placed = SettingsPage.allCases.flatMap(\.sections)
+        check("settings pages: 7 pages hold all \(SettingsSection.allCases.count) sections once", SettingsPage.allCases.count == 7 && placed.count == SettingsSection.allCases.count && Set(placed) == Set(SettingsSection.allCases))
+        let store = Snapshots.sampleStore()
+        store.mailbox = .inbox; store.homeShown = false
+        let bar = NSHostingView(rootView: ToolbarView(store: store))
+        let need = bar.fittingSize.width
+        check("toolbar: fits the smallest window with room for Translate (needs \(Int(need)))", need > 0 && need <= 640)
         return ok
     }
 
@@ -543,7 +568,7 @@ enum ListTest {
         var px = [Int](repeating: 0, count: 5), rows = 0
         for y in 0..<rep.pixelsHigh {
             var run = 0, hit = false
-            for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
+            for x in Int(224 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
                 rep.getPixel(&px, atX: x, y: y)
                 if abs(px[0] - rgb.0) <= tol && abs(px[1] - rgb.1) <= tol && abs(px[2] - rgb.2) <= tol { run += 1; if run >= longest { hit = true; break } } else { run = 0 }
             }
@@ -575,7 +600,7 @@ enum ListTest {
         var px = [Int](repeating: 0, count: 5)
         for y in 0..<rep.pixelsHigh {
             var run = 0
-            for x in Int(250 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
+            for x in Int(224 * scale)..<min(rep.pixelsWide, Int(760 * scale)) {
                 rep.getPixel(&px, atX: x, y: y)
                 if abs(px[0] - 74) <= 3 && abs(px[1] - 95) <= 3 && abs(px[2] - 98) <= 3 { run += 1; if run >= need { return true } } else { run = 0 }
             }

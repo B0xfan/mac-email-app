@@ -168,7 +168,7 @@ struct BigFileStripView: View {
     @State private var failed = false
     var body: some View {
         let _ = refresh   // changing it redraws the strip after a delete
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             ForEach(BigFile.strips(html: mail.html, records: store.timing.data.bigFiles ?? [], now: Date())) { s in
                 HStack(spacing: 8) {
                     Image(systemName: "clock").font(Theme.small)
@@ -177,7 +177,7 @@ struct BigFileStripView: View {
                     Button("Delete Now") { Task { failed = !(await store.deleteBigFileNow(s.id)); refresh += 1 } }
                         .buttonStyle(.plain).font(Theme.small).foregroundStyle(Theme.acc).accessibilityLabel("Delete \(s.name) from your Google Drive now")
                 }
-                .foregroundStyle(Theme.accPress).padding(.horizontal, 14).padding(.vertical, 10)
+                .foregroundStyle(Theme.accPress).padding(.horizontal, 12).padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.side))
             }
         }

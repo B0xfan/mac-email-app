@@ -34,7 +34,7 @@ struct AwayStrip: View {
                 Spacer()
                 Button("Turn Off") { Task { await store.turnAwayOff() } }.buttonStyle(LinkButtonStyle())
             }
-            .padding(.horizontal, 12).padding(.vertical, 6).background(Theme.side).clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, 12).padding(.vertical, 4).background(Theme.side).clipShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
         }
     }
@@ -45,7 +45,7 @@ struct AwayPanel: View {
     @StateObject private var d = Box(AwaySettings())
     @StateObject private var msg = Box("")
     var body: some View {
-        Card { VStack(alignment: .leading, spacing: 14) {
+        Card { VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Away Message").font(Theme.bodyStrong)
                 Spacer()

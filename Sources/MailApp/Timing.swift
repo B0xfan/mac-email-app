@@ -204,22 +204,22 @@ struct TimePickerCard: View {
     var body: some View {
         let parsed = TimeParser.parse(typed.v)
         VStack(alignment: .leading, spacing: 2) {
-            Text(kind.title.uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 10).padding(.top, 6).padding(.bottom, 2)
+            Text(kind.title.uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 2)
                 .accessibilityAddTraits(.isHeader)
             ForEach(kind.presets()) { p in
                 Button { pick(p.date) } label: {
                     HStack { Text(p.label).font(Theme.body); Spacer(minLength: 12); Text(TimeParser.short(p.date)).font(Theme.small).foregroundStyle(Theme.sub) }
-                        .padding(.horizontal, 10).padding(.vertical, 7).contentShape(Rectangle())
+                        .padding(.horizontal, 8).padding(.vertical, 8).contentShape(Rectangle())
                 }
                 .buttonStyle(PickerRowStyle())
                 .accessibilityLabel("\(p.label), \(TimeParser.long(p.date))")
             }
             TextField("Type a time, like Tuesday 3pm", text: $typed.v)
                 .textFieldStyle(.plain).focused($focus)
-                .padding(.horizontal, 10).frame(minHeight: 34)
-                .background(RoundedRectangle(cornerRadius: 9).fill(Theme.bg))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.acc, lineWidth: 1.5))
-                .padding(.horizontal, 6).padding(.top, 6)
+                .padding(.horizontal, 8).frame(minHeight: 28)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.acc, lineWidth: 1.5))
+                .padding(.horizontal, 4).padding(.top, 4)
                 .onSubmit { if case .ok(let d) = parsed { pick(d) } }
                 .accessibilityLabel("Type a time")
             Group {
@@ -233,9 +233,9 @@ struct TimePickerCard: View {
             }
             .font(Theme.small).padding(.horizontal, 12).padding(.top, 2).padding(.bottom, 2)
             .accessibilityAddTraits(.updatesFrequently)
-            Text(kind.worksWithMacOff ? "Works even when your Mac is off." : "Audrey Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 6)
+            Text(kind.worksWithMacOff ? "Works even when your Mac is off." : "Audrey Mail must be open for this to happen on time.").font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.bottom, 4)
         }
-        .padding(6).frame(width: 300)
+        .padding(4).frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
         .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
@@ -300,7 +300,7 @@ struct ScheduledList: View {
             ForEach(store.timing.data.scheduled.sorted { $0.at < $1.at }) { s in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text("To: \(Address.parse(s.to).display)").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                        Text("To: \(Address.parse(s.to).display)").font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         Tag(text: "Sends " + TimeParser.short(s.at))
                         if let p = s.problem { Tag(text: p, warm: true) }
                         Spacer(minLength: 8)
@@ -314,7 +314,7 @@ struct ScheduledList: View {
                             .help("Stop the timer. The email stays in Drafts.")
                     }.padding(.top, 4)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
                 .accessibilityElement(children: .contain)
             }
@@ -352,14 +352,14 @@ struct QuickReplyRow: View {
     let mail: Mail
     var body: some View {
         if !settings.quickReplies.isEmpty {
-            FlowRow(spacing: 6) {
+            FlowRow(spacing: 4) {
                 ForEach(Array(settings.quickReplies.enumerated()), id: \.offset) { i, t in
                     Button { store.quickReply(mail, t) } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             if i == 0 { Image(systemName: "bolt").font(.system(size: 11)) }
                             Text(t).font(Theme.small).lineLimit(1)
                         }
-                        .padding(.horizontal, 11).frame(minHeight: 28)
+                        .padding(.horizontal, 12).frame(minHeight: 28)
                         .background(Capsule().fill(Theme.card)).overlay(Capsule().stroke(Theme.line, lineWidth: 1.5))
                         .contentShape(Capsule())
                     }

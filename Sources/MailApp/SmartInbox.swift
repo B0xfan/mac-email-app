@@ -41,16 +41,16 @@ struct InboxViewSwitch: View {
             ForEach(Array(InboxView.allCases.enumerated()), id: \.element) { i, v in
                 let on = settings.inboxView == v
                 Button { settings.inboxView = v } label: {
-                    Text(v.title).font(.system(size: 13, weight: on ? .bold : .regular)).foregroundStyle(Theme.text)
-                        .padding(.horizontal, 11).padding(.vertical, 5).frame(minHeight: 28)
+                    Text(v.title).font(.system(size: 11, weight: on ? .bold : .regular)).foregroundStyle(Theme.text)
+                        .padding(.horizontal, 8).frame(minHeight: 22)
                         .background(on ? Theme.selStrong : Color.clear).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("\(v.title) view").accessibilityAddTraits(on ? .isSelected : [])
-                if i < InboxView.allCases.count - 1 { Rectangle().fill(Theme.line).frame(width: 1, height: 28) }
+                if i < InboxView.allCases.count - 1 { Rectangle().fill(Theme.line).frame(width: 1, height: 22) }
             }
         }
-        .fixedSize().background(Theme.bg).clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1.5))
+        .fixedSize().background(Theme.bg).clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1.5))
         .accessibilityElement(children: .contain).accessibilityLabel("Inbox view")
     }
 }
@@ -61,16 +61,16 @@ struct SmartTabButton: View {
     @StateObject private var hover = Box(false)
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Image(systemName: category.symbol).font(.system(size: 13))
-                Text(category.title).font(.system(size: 13, weight: selected ? .bold : .medium)).lineLimit(1)
+                Text(category.title).font(.system(size: 11, weight: selected ? .bold : .medium)).lineLimit(1)
                 if unread > 0 {
                     Text("\(unread)").font(Theme.label).foregroundStyle(selected ? Theme.accText : Theme.bg)
-                        .padding(.horizontal, 7).padding(.vertical, 1).background(Capsule().fill(selected ? Theme.acc : Theme.sub))
+                        .padding(.horizontal, 8).padding(.vertical, 1).background(Capsule().fill(selected ? Theme.acc : Theme.sub))
                 }
             }
             .foregroundStyle(selected ? Theme.acc : Theme.sub)
-            .padding(.horizontal, 4).padding(.vertical, 10).frame(maxWidth: .infinity)
+            .padding(.horizontal, 4).padding(.vertical, 8).frame(maxWidth: .infinity)
             .background(hover.v ? Theme.hovBg : Color.clear)
             .overlay(alignment: .bottom) { Rectangle().fill(selected ? Theme.acc : Color.clear).frame(height: 2) }
             .contentShape(Rectangle())
@@ -87,7 +87,7 @@ struct InboxBody: View {
     var body: some View {
         let pins = store.pinnedMails
         if !pins.isEmpty {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 Image(systemName: "pin").font(.system(size: 13))
                 Text("PINNED").font(Theme.label).tracking(0.7)
                 Spacer()

@@ -6,14 +6,41 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case accounts = "Accounts", signatures = "Signatures", quickReplies = "Quick Replies", away = "Away Message", rules = "Rules", sending = "Sending", inbox = "Inbox", layout = "Layout", swipe = "Swipe", menuBar = "Menu Bar", todo = "To-do", keyboard = "Keyboard"
     case claude = "Claude Access", appearance = "Appearance", home = "Home Screen", recent = "Recently Seen", defaultApp = "Default App", senders = "New Senders", privacy = "Privacy", storage = "Storage", updates = "Updates"
     var id: String { rawValue }
+}
+
+/// The seven pages in the Settings list; every section keeps its own heading on its page (design review finding 18).
+enum SettingsPage: String, CaseIterable, Identifiable {
+    case general = "General", writing = "Writing", inbox = "Inbox", appearance = "Appearance", keyboard = "Keyboard and Swipe", tools = "To-Do and Claude", privacy = "Privacy and Storage"
+    var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .accounts: return "person.crop.circle"; case .signatures: return "signature"; case .quickReplies: return "bolt"; case .away: return "paperplane.circle"; case .rules: return "line.3.horizontal.decrease"; case .sending: return "paperplane"
-        case .keyboard: return "keyboard"; case .layout: return "rectangle.split.2x1"; case .menuBar: return "menubar.rectangle"; case .todo: return "checklist"; case .swipe: return "hand.draw"; case .inbox: return "tray"; case .home: return "house"; case .recent: return "clock"
-        case .appearance: return "circle.lefthalf.filled"; case .claude: return "sparkles"; case .defaultApp: return "envelope"
-        case .senders: return "person.badge.shield.checkmark"; case .privacy: return "shield"; case .storage: return "internaldrive"; case .updates: return "arrow.down.circle"
+        case .general: return "person.crop.circle"; case .writing: return "paperplane"; case .inbox: return "tray"; case .appearance: return "circle.lefthalf.filled"
+        case .keyboard: return "keyboard"; case .tools: return "sparkles"; case .privacy: return "shield"
         }
     }
+    var blurb: String {
+        switch self {
+        case .general: return "Your account, the default email app and updates."
+        case .writing: return "Signatures, quick replies, your away message and sending."
+        case .inbox: return "How the inbox behaves and who reaches it."
+        case .appearance: return "How Audrey Mail looks on your Mac."
+        case .keyboard: return "Single-key shortcuts and trackpad swipes."
+        case .tools: return "Where tasks go, and what Claude can reach."
+        case .privacy: return "What emails can do when you open them, and how much mail Audrey Mail keeps on this Mac."
+        }
+    }
+    var sections: [SettingsSection] {
+        switch self {
+        case .general: return [.accounts, .defaultApp, .updates]
+        case .writing: return [.signatures, .quickReplies, .away, .sending]
+        case .inbox: return [.inbox, .rules, .senders, .recent]
+        case .appearance: return [.appearance, .layout, .home, .menuBar]
+        case .keyboard: return [.keyboard, .swipe]
+        case .tools: return [.todo, .claude]
+        case .privacy: return [.privacy, .storage]
+        }
+    }
+    static func holding(_ s: SettingsSection) -> SettingsPage { allCases.first { $0.sections.contains(s) } ?? .general }
 }
 
 struct SettingsView: View {
@@ -24,37 +51,45 @@ struct SettingsView: View {
     @ObservedObject private var claude = ClaudeAccess.shared
     @StateObject private var sec: Box<SettingsSection>
     @StateObject private var note = Box("")
+    @StateObject private var defaultNote = Box("")   // Accounts, on the same page, has its own note
     var openBlocked: () -> Void
     init(app: AppModel, openBlocked: @escaping () -> Void, start: SettingsSection = .accounts) {
         self.app = app; store = app.store; signIn = app.signIn; self.openBlocked = openBlocked; _sec = StateObject(wrappedValue: Box(start))
     }
 
     var body: some View {
+        let page = SettingsPage.holding(sec.v)
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 SideHead("Settings")
-                // The page list scrolls, so every page stays reachable in a short window; the open page is kept in view.
-                ScrollViewReader { proxy in
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(SettingsSection.allCases) { s in NavRow(symbol: s.symbol, title: s.rawValue, on: sec.v == s) { sec.v = s; note.v = "" }.id(s) }
-                        }
-                    }.onAppear { proxy.scrollTo(sec.v) }
-                }
+                ForEach(SettingsPage.allCases) { p in NavRow(symbol: p.symbol, title: p.rawValue, on: page == p) { if page != p { sec.v = p.sections[0]; note.v = "" } } }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12).padding(.vertical, 16).frame(width: 220).background(Theme.side)
+            .padding(8).frame(width: 200).background(Theme.side)
             .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
-            MaybeScroll {
-                VStack(alignment: .leading, spacing: 16) { panel }
-                    .padding(24).frame(maxWidth: 640, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-            }.background(Theme.bg)
+            ScrollViewReader { proxy in
+                MaybeScroll {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(page.rawValue).font(Theme.title).accessibilityAddTraits(.isHeader)
+                        Text(page.blurb).foregroundStyle(Theme.sub)
+                        ForEach(SnapshotMode.on ? [sec.v] : page.sections) { s in   // a snapshot cannot scroll: it draws the section it asked for
+                           
+                            VStack(alignment: .leading, spacing: 8) { panel(s) }.id(s).padding(.top, 8)
+                        }
+                    }
+                    .padding(.horizontal, 24).padding(.vertical, 16).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(Theme.bg)
+                .onAppear { proxy.scrollTo(sec.v, anchor: .top) }
+                .onChange(of: sec.v) { _, s in proxy.scrollTo(s, anchor: .top) }
+                .onReceive(app.store.$rulePrefill) { if $0 != nil { sec.v = .rules; proxy.scrollTo(SettingsSection.rules, anchor: .top) } }   // also when Rules is already the section, scrolled away from
+            }
         }
         .foregroundStyle(Theme.text).frame(minWidth: 820, minHeight: 480)
-        .onReceive(app.store.$rulePrefill) { if $0 != nil { sec.v = .rules } }
     }
 
-    @ViewBuilder var panel: some View {
-        switch sec.v {
+    @ViewBuilder func panel(_ section: SettingsSection) -> some View {
+        switch section {
         case .accounts:
             head("Accounts", "The email accounts connected to this app.")
             Card {
@@ -76,7 +111,7 @@ struct SettingsView: View {
             Card { VStack(alignment: .leading, spacing: 8) {
                 Text(app.store.accountEmail).font(Theme.bodyStrong)
                 TextEditor(text: $settings.signature).font(Theme.body).frame(minHeight: 90).scrollContentBackground(.hidden)
-                    .padding(6).background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg)).overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.sub))
+                    .padding(4).background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg)).overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.sub))
             } }
             Text("Saved as you type.").font(Theme.small).foregroundStyle(Theme.sub)
         case .quickReplies:
@@ -204,14 +239,14 @@ struct SettingsView: View {
             switchCard("Hide from Claude", "Keeps blocked senders, Spam and Trash away from Claude. Off: Claude is no longer kept away from them.", $settings.claudeHideBlocked)
             Card { VStack(alignment: .leading, spacing: 0) {
                 Text("Recent Claude activity").font(Theme.bodyStrong)
-                Text("What Claude looked at, newest first.").font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 6)
+                Text("What Claude looked at, newest first.").font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 4)
                 if claude.activity.isEmpty { Text("Nothing yet.").font(Theme.small).foregroundStyle(Theme.sub).padding(.vertical, 8) }
                 ForEach(claude.activity.prefix(8)) { e in
                     HStack(spacing: 12) {
                         Text(e.text).font(Theme.body).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                         Text(Fmt.long(e.at)).font(Theme.small).foregroundStyle(Theme.sub)
                     }
-                    .padding(.vertical, 10).overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                    .padding(.vertical, 8).overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading) }
         case .appearance:
@@ -228,7 +263,7 @@ struct SettingsView: View {
                 Text(isDefault ? "Audrey Mail already opens your email links." : "Right now another app opens your email links.").font(Theme.bodyStrong)
                 Button("Make This My Default Email App") { makeDefault() }.buttonStyle(MailButtonStyle(kind: .primary)).disabled(isDefault)
             } }
-            Text(note.v).font(Theme.small).foregroundStyle(Theme.sub)
+            Text(defaultNote.v).font(Theme.small).foregroundStyle(Theme.sub)
         case .senders:
             head("New Senders", "Decide who reaches your inbox the first time they write.")
             switchCard("Screen new senders", "When someone writes for the first time, their email waits in New Senders until you approve or block them.", $settings.screenNewSenders)
@@ -238,11 +273,11 @@ struct SettingsView: View {
                 Button("Open the Blocked List") { openBlocked() }.buttonStyle(MailButtonStyle(kind: .neutral))
             } }
         case .privacy:
-            head("Privacy", "Control what emails can do when you open them.")
+            head("Privacy")
             switchCard("Block trackers", "Removes hidden spy pictures that tell senders you opened their email. Off: they load with the email's other pictures.", $settings.blockTrackers)
             switchCard("Load images automatically", "Show normal pictures in emails. Turn off to choose email by email.", $settings.loadImages)
         case .storage:
-            head("Storage", "How much mail Audrey Mail keeps on this Mac.")
+            head("Storage")
             Card { HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Keep full email text for").font(Theme.bodyStrong)
@@ -289,11 +324,14 @@ struct SettingsView: View {
 
     func makeDefault() {
         let r = LSSetDefaultHandlerForURLScheme("mailto" as CFString, (Bundle.main.bundleIdentifier ?? "") as CFString)
-        note.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. To do it yourself, open Apple's Mail app, choose Settings, and pick Audrey Mail under Default email reader."
+        defaultNote.v = r == 0 ? "Done. Email links from other apps now open here." : "macOS did not allow the change. To do it yourself, open Apple's Mail app, choose Settings, and pick Audrey Mail under Default email reader."
     }
 
-    func head(_ t: String, _ s: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) { Text(t).font(Theme.title).accessibilityAddTraits(.isHeader); Text(s).foregroundStyle(Theme.sub) }
+    func head(_ t: String, _ s: String = "") -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(t.uppercased()).font(Theme.label).tracking(0.6).foregroundStyle(Theme.sub).accessibilityAddTraits(.isHeader)
+            if !s.isEmpty { Text(s).font(Theme.small).foregroundStyle(Theme.sub) }
+        }
     }
     func switchCard(_ t: String, _ d: String, _ b: Binding<Bool>) -> some View {
         Card { HStack(spacing: 16) {
@@ -374,7 +412,7 @@ struct QuickRepliesEditor: View {
                         Button("Remove") { settings.quickReplies.remove(at: i); editing.v = nil }.buttonStyle(LinkButtonStyle())
                     }
                 }
-                .padding(.vertical, 10).overlay(alignment: .top) { if i > 0 { Rectangle().fill(Theme.line).frame(height: 1) } }
+                .padding(.vertical, 8).overlay(alignment: .top) { if i > 0 { Rectangle().fill(Theme.line).frame(height: 1) } }
                 .contentShape(Rectangle())
                 .draggable(String(i))
                 .dropDestination(for: String.self) { items, _ in
@@ -387,7 +425,7 @@ struct QuickRepliesEditor: View {
                 }
             }
             Button("Add a Quick Reply") { settings.quickReplies.append("New quick reply"); text.v = "New quick reply"; editing.v = settings.quickReplies.count - 1 }
-                .buttonStyle(MailButtonStyle(kind: .primary, small: true)).padding(.top, 10)
+                .buttonStyle(MailButtonStyle(kind: .primary, small: true)).padding(.top, 8)
         } }
     }
     private func save(_ i: Int) {

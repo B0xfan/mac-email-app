@@ -159,7 +159,7 @@ struct SenderWarningLabel: View {
         let ibg = warning.red ? Color("#FEF5F5", "#3A1618") : Color("#FFF9EE", "#33250C")
         let border = warning.red ? Color("#E9A5A5", "#8A3B3E") : Color("#E2C48F", "#7A5A22")
         let fg = warning.red ? Color("#9B1C1C", "#FFB4B4") : Color("#7A4106", "#F5D08A")
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text(warning.label)
             Button { open.v.toggle() } label: {
                 Image(systemName: "info").font(.system(size: 8, weight: .heavy))
@@ -170,15 +170,15 @@ struct SenderWarningLabel: View {
             .buttonStyle(.plain)
             .accessibilityLabel("What does this mean?").accessibilityValue(open.v ? "Expanded" : "Collapsed")
         }
-        .font(.system(size: 12, weight: .semibold)).foregroundStyle(fg)
-        .padding(.leading, 10).padding(.trailing, 4).padding(.vertical, 2)
+        .font(.system(size: 11, weight: .semibold)).foregroundStyle(fg)
+        .padding(.leading, 8).padding(.trailing, 4).padding(.vertical, 2)
         .background(Capsule().fill(bg)).overlay(Capsule().stroke(border, lineWidth: 1))
         .fixedSize()
         .overlay(alignment: .topLeading) {
             if open.v {
-                Text(warning.message).font(.system(size: 13)).foregroundStyle(Color("#13282B", "#e8f3f3")).lineSpacing(2)
+                Text(warning.message).font(.system(size: 11)).foregroundStyle(Color("#13282B", "#e8f3f3")).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(width: 296, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 10)
+                    .frame(width: 296, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color("#FFFFFF", "#152a2d")))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
                     .shadow(color: Color("#13282B", "#000000").opacity(scheme == .dark ? 0.5 : 0.14), radius: 9, y: 6)

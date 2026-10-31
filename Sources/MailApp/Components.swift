@@ -30,15 +30,15 @@ struct MailButtonBody: View {
     var body: some View {
         let h = hover.v || configuration.isPressed
         configuration.label
-            .font(.system(size: small || compact ? 13 : 14, weight: compact ? .medium : .semibold))
+            .font(.system(size: 13, weight: compact ? .medium : .semibold))
             .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, compact ? 10 : small ? 12 : 16)
-            .frame(minHeight: compact ? 28 : 44)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 28)
             .foregroundStyle(fg)
-            .background(RoundedRectangle(cornerRadius: 10).fill(bg(h)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 8).fill(bg(h)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
             .shadow(color: .black.opacity(kind == .primary ? 0 : 0.06), radius: 1, y: 1)
-            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
             .onHover { hover.v = $0 }
     }
     private var fg: Color {
@@ -66,10 +66,10 @@ struct LinkButtonBody: View {
     @StateObject private var hover = Box(false)
     var body: some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold)).underline()
+            .font(.system(size: 13, weight: .semibold)).underline()
             .foregroundStyle(purple ? Theme.blk : Theme.acc)
-            .padding(.horizontal, 8).frame(minHeight: 44)
-            .background(RoundedRectangle(cornerRadius: 10).fill(hover.v ? Theme.hovCard : .clear))
+            .padding(.horizontal, 8).frame(minHeight: 28)
+            .background(RoundedRectangle(cornerRadius: 8).fill(hover.v ? Theme.hovCard : .clear))
             .onHover { hover.v = $0 }
     }
 }
@@ -82,10 +82,10 @@ struct IconButton: View {
     @StateObject private var hover = Box(false)
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .regular))
+            Image(systemName: symbol).font(.system(size: 15, weight: .regular))
                 .foregroundStyle(enabled ? Theme.text : Theme.dis)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 10).fill(hover.v && enabled ? Theme.hovSide : .clear))
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 8).fill(hover.v && enabled ? Theme.hovSide : .clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).disabled(!enabled)
@@ -136,8 +136,8 @@ struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         content.padding(padding)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
             .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
     }
 }
@@ -285,12 +285,12 @@ struct SearchChips: View {
     let read: PlainSearch.Result
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 ForEach(read.chips) { c in
                     Button { store.search = PlainSearch.removing(c, from: store.search); Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } } label: {
                         HStack(spacing: 4) { Text(c.label); Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
                             .font(Theme.small.weight(.semibold)).foregroundStyle(Theme.text)
-                            .padding(.horizontal, 11).padding(.vertical, 3)
+                            .padding(.horizontal, 12).padding(.vertical, 4)
                             .background(Capsule().fill(Theme.selStrong)).overlay(Capsule().stroke(Theme.acc, lineWidth: 1.5))
                     }
                     .buttonStyle(.plain).help("Remove \u{201C}\(c.label)\u{201D} from this search")

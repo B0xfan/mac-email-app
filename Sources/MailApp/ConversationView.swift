@@ -25,7 +25,7 @@ struct ConvoFolds: View {
                         }
                     } else {
                     Button { Task { await store.showConvoMessage(c) } } label: {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 8) {
                             Avatar(text: c.mine ? "Y" : c.from.initials, size: 26)
                             Text(c.who).font(Theme.bodyStrong).lineLimit(1)
                             Text(c.snippet).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)

@@ -96,18 +96,18 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 - **Set Aside.** Parks an email out of the inbox without deciding on it. Find it under **Set Aside**; **Back to Inbox** returns it.
 - **Archive.** Hover icon, A, or the toolbar button. A short **Undo** appears. Command-Z or Edit, Undo does the same, even after it has gone.
 - **Swipe.** Slide a row sideways with two fingers on the trackpad. By default right archives and left sets aside. You can change each side in Settings, Swipe.
-- **Select several emails.** In the Inbox, and in Set Aside, Sent, Archive, search results, folders, Smart Folders and saved searches, hold Command and click to add or remove one email. Hold Shift and click to select everything from the last email you clicked. Command-A selects every email in the list (in Smart, the tab you are on). Selected emails turn grey-blue with a check mark where the picture was; teal is only for the email you have open. With two or more selected, the reading pane says how many and offers Archive, Set Aside, Snooze, Pin, Mark read or unread, Add to to-do, Move to folder, Block senders and Move to Trash, each applied to all of them. Archive, Set Aside, Snooze and Pin are for the Inbox only. One **Undo** brings them all back. The top-bar buttons that need a single email (Reply, Reply all, Forward, Save as note, Link) turn grey. Press Escape, or click one email, to go back to normal.
+- **Select several emails.** In the Inbox, and in Set Aside, Sent, Archive, search results, folders, Smart Folders and saved searches, hold Command and click to add or remove one email. Hold Shift and click to select everything from the last email you clicked. Command-A selects every email in the list (in Smart, the tab you are on). Selected emails turn grey-blue with a check mark where the picture was; teal is only for the email you have open. With two or more selected, the reading pane says how many and offers Archive, Set Aside, Snooze, Pin, Mark read or unread, Add to to-do, Move to folder, Block senders and Move to Trash, each applied to all of them. Archive, Set Aside, Snooze and Pin are for the Inbox only. One **Undo** brings them all back. What needs a single email turns grey: Reply and Forward in the top bar, and Reply all, Save as note and Copy Link under **More**. Press Escape, or click one email, to go back to normal.
 - **Right-click an email** for Reply, Forward, Mark as Unread, Move to Trash, Pin, Set Aside, Snooze, Archive, Move to Folder, Move to Category and more.
 - **Recently Seen** lists emails you opened in the last 1 or 2 days (your choice in Settings).
-- **Check for new email.** The circular arrow in the top bar checks right now. Audrey Mail also checks by itself (Settings, Inbox).
-- **Lists you just left stay put.** Go back to Archive, Sent or a folder within two minutes and it shows at once, without asking Gmail again. The circular arrow (or Check now) reads the open list fresh, and so does any change you make. Gmail limits how fast one person can ask for mail. If you hit the limit, Audrey Mail slows down and waits by itself; if it still cannot get through you see "Gmail is busy right now. Audrey Mail will try again by itself on the next check."
+- **Check for new email.** **Check for New Email** in the **More** button (three dots in the top bar), or in the Mailbox menu, checks right now. Audrey Mail also checks by itself (Settings, Inbox).
+- **Lists you just left stay put.** Go back to Archive, Sent or a folder within two minutes and it shows at once, without asking Gmail again. **Check for New Email** reads the open list fresh, and so does any change you make. Gmail limits how fast one person can ask for mail. If you hit the limit, Audrey Mail slows down and waits by itself; if it still cannot get through you see "Gmail is busy right now. Audrey Mail will try again by itself on the next check."
 - **Home.** A welcome page with the time and counts. It appears after you have been idle (Settings, Home Screen), or click **Home** in the sidebar. Any click or key takes you back to your mail.
 
 ## Reading an email
 
 1. Click an email in the list. It opens beside the list. Several messages on the same subject show as one conversation.
 2. **Attachments** show under the email. Click the name to open it.
-3. **Reading pane.** The button at the right end of the top bar moves the reading pane beside the list or below it. When it is below, a **Back** arrow (or Escape) returns to the list.
+3. **Reading pane.** The **More** button in the top bar moves the reading pane beside the list or below it. When it is below, a **Back** arrow (or Escape) returns to the list.
 4. **Add note.** Under the subject you can write a private note that only you see. It stays on this Mac.
 5. **Print.** Command-P. For a conversation, choose **This email** or **Whole conversation**.
 6. **Pictures.** Normal pictures load. Hidden tracking pictures, which tell a sender you opened the email, are blocked unless you turn off **Block trackers** in Settings, and the email says how many. If you turn off automatic pictures in Settings, an email shows **Load Images** or **Always load from this sender**.
@@ -117,7 +117,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 ## Writing and replying
 
 - **New email:** Command-N, C, or the pencil button.
-- **Reply, Reply all, Forward:** the toolbar buttons, or R and F. Reply all adds everyone else from the email to the Cc line, and leaves out your own addresses.
+- **Reply, Forward:** the toolbar buttons, or R and F. **Reply all:** under the **More** button. Reply all adds everyone else from the email to the Cc line, and leaves out your own addresses.
 - **To, Cc and Bcc.** Typing in To suggests people from your Contacts and your mail. Use the arrows and Return to pick. Click **Cc** or **Bcc** at the right end of the To line to add that line.
 - **From.** Click the From line to send from another of your Gmail addresses.
 - **Formatting.** Bold, italic, underline, link, bulleted list, and attach file.
@@ -160,7 +160,7 @@ Hides an email until the time you pick, then it comes back to the top of the inb
 
 ## Link to an email
 
-Makes a link to one email that you can paste into a note, a to-do or a message. Use the link button in the email's header, or right-click the email. You can also drag the email from the list into a note or another app, which pastes its subject and the link.
+Makes a link to one email that you can paste into a note, a to-do or a message. Use **Copy Link** under the **More** button in the top bar, or right-click the email. You can also drag the email from the list into a note or another app, which pastes its subject and the link.
 
 - **Copy link for me.** Opens that email in Audrey Mail on this Mac, even if you archived it. It works only on a Mac with Audrey Mail and your account. If the email has been deleted, Audrey Mail says "That email is no longer in this account."
 - **Copy link to share.** Makes a web page with a plain-text copy of the email, and copies its address. Anyone who has the link can read it, with no sign-in. They cannot reply, and attachments and pictures are not included. The link stops working by itself after 30 days. Very long emails are shortened, and Audrey Mail tells you when that happened.
@@ -174,7 +174,7 @@ Makes a link to one email that you can paste into a note, a to-do or a message. 
 Saves the open email, or its whole conversation, as a note in your Obsidian vault.
 
 1. Open the email.
-2. Click the **Save as Note** button in the top bar, or press N.
+2. Choose **Save as Note** under the **More** button in the top bar, or press N.
 3. The note appears in your vault's Inbox folder. Its title is the subject without "Fwd:" or "Re:".
 
 Forwarded content is kept. Earlier quoted copies of the same text are dropped, so each message appears once, in order. Signatures are kept. Attachments are not saved.
@@ -288,28 +288,31 @@ Short answer buttons sit under an open email, such as "Thanks!". Click one to st
 
 Open Settings with Command-comma (Audrey Mail's Settings window is the Mac's standard one, so the usual shortcut opens it).
 
-| Page | What it does |
-| --- | --- |
-| Accounts | Shows the connected Gmail account. **Remove Account** asks first, then signs out and deletes the mail stored on this Mac (your emails stay in Gmail). |
-| Signatures | Your signature for new emails. |
-| Quick Replies | The short answers under an email. |
-| Away message | An automatic out-of-office reply: on or off, first and last day (or "Until I turn it off"), subject, message, and "Only reply to people in my contacts". Gmail sends it even when your Mac is off. A strip at the top of the inbox shows while it is on, with **Turn Off**. |
-| Rules | Your Gmail filters. |
-| Sending | How long you have to change your mind after you press Send. |
-| Inbox | How often Audrey Mail checks, and what opens after you archive. |
-| Layout | Reading pane position, preview lines, sender pictures, smaller sidebar. |
-| Swipe | What each swipe direction does. |
-| Menu bar | The small envelope at the top of the screen: what it counts. |
-| To-do | Where "Add to to-do" sends tasks, and the vault folder Save as note uses. |
-| Keyboard | Turns the single-key shortcuts on or off. |
-| Claude access | Lets the Claude app read your mail. Off until you turn it on. |
-| Appearance | Light, dark, or follow the Mac. |
-| Home Screen | When the welcome page appears. |
-| Recently Seen | 1 or 2 days. |
-| Default app | **Make This My Default Email App**. |
-| New senders | Turns the Approve or Block check on or off. |
-| Privacy | Block hidden tracking pictures, and load normal pictures automatically or choose email by email. |
-| Storage | How long Audrey Mail keeps the full text of emails on this Mac (30 days, 90 days, 6 months or 1 year; older mail keeps sender, subject and a short preview), how much space the stored mail takes, and **Clear Stored Mail**. |
+The list on the left has seven pages. Each page holds sections with their own headings, and this manual names the section, as in "Settings, Storage".
+
+| Page | Section | What it does |
+| --- | --- | --- |
+| General | Accounts | Shows the connected Gmail account. **Remove Account** asks first, then signs out and deletes the mail stored on this Mac (your emails stay in Gmail). |
+| General | Default app | **Make This My Default Email App**. |
+| General | Updates | Checks for new versions of Audrey Mail. |
+| Writing | Signatures | Your signature for new emails. |
+| Writing | Quick Replies | The short answers under an email. |
+| Writing | Away message | An automatic out-of-office reply: on or off, first and last day (or "Until I turn it off"), subject, message, and "Only reply to people in my contacts". Gmail sends it even when your Mac is off. A strip at the top of the inbox shows while it is on, with **Turn Off**. |
+| Writing | Sending | How long you have to change your mind after you press Send. |
+| Inbox | Inbox | How often Audrey Mail checks, and what opens after you archive. |
+| Inbox | Rules | Your Gmail filters. |
+| Inbox | New senders | Turns the Approve or Block check on or off. |
+| Inbox | Recently Seen | 1 or 2 days. |
+| Appearance | Appearance | Light, dark, or follow the Mac. |
+| Appearance | Layout | Reading pane position, preview lines, sender pictures, smaller sidebar. |
+| Appearance | Home Screen | When the welcome page appears. |
+| Appearance | Menu bar | The small envelope at the top of the screen: what it counts. |
+| Keyboard and Swipe | Keyboard | Turns the single-key shortcuts on or off. |
+| Keyboard and Swipe | Swipe | What each swipe direction does. |
+| To-Do and Claude | To-do | Where "Add to to-do" sends tasks, and the vault folder Save as note uses. |
+| To-Do and Claude | Claude access | Lets the Claude app read your mail. Off until you turn it on. |
+| Privacy and Storage | Privacy | Block hidden tracking pictures, and load normal pictures automatically or choose email by email. |
+| Privacy and Storage | Storage | How long Audrey Mail keeps the full text of emails on this Mac (30 days, 90 days, 6 months or 1 year; older mail keeps sender, subject and a short preview), how much space the stored mail takes, and **Clear Stored Mail**. |
 
 ### Your mail on your Mac
 
@@ -366,11 +369,11 @@ Single keys work only with the email list in front, not while writing, and only 
 | Escape | Back from an email (reading pane below) |
 | Any key | Leaves the Home screen |
 
-Reply all has no key; use the toolbar, the Message menu or Command-K. The **Message** and **Mailbox** menus list these actions and name their keys.
+Reply all has no key; use the **More** button, the Message menu or Command-K. The **Message** and **Mailbox** menus list these actions and name their keys.
 
 ## Using this help
 
-- **Open it:** Help, then **Audrey Mail Help** (Command-?), or the **?** button at the top right of the inbox, beside the reading pane button.
+- **Open it:** Help, then **Audrey Mail Help** (Command-?).
 - **Left side:** the list of sections. Click one to read it.
 - **Search:** type in the box at the top. Matching sections are listed as you type, with your words highlighted, and the sections that do not match are dimmed in the list. Click a result to open it. Press Escape to clear the search.
 - **Help, Keyboard Shortcuts** jumps straight to the shortcuts. **Help, Search help...** puts the cursor in the search box.

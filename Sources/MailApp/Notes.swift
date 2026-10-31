@@ -70,8 +70,8 @@ struct NoteButton: View {
         if NoteHeader.buttonShown(has: notes.has(t), editing: store.noteEdit == t) {
             let shown = store.noteOpen == t
             Button { if shown { store.noteOpen = nil; store.noteEdit = nil } else { store.noteOpen = t } } label: {
-                Label("Note", systemImage: "note.text").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accInk)
-                    .padding(.horizontal, 10).frame(minHeight: 28)
+                Label("Note", systemImage: "note.text").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accInk)
+                    .padding(.horizontal, 8).frame(minHeight: 28)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Theme.pinBg))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
             }
@@ -93,7 +93,7 @@ struct NoteStrip: View {
         let t = mail.threadID
         let editing = store.noteEdit == t
         if NoteHeader.stripShown(has: notes.has(t), open: store.noteOpen == t, editing: editing) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "note.text").foregroundStyle(Theme.dot).padding(.top, 2)
                 if editing {
                     TextField("Private note, only you see this", text: Binding(get: { draft.v }, set: { draft.v = $0; notes.set($0, for: mail) }), axis: .vertical)
@@ -107,7 +107,7 @@ struct NoteStrip: View {
                 }
                 Button("Remove") { notes.set("", for: mail); draft.v = ""; store.noteEdit = nil; store.noteOpen = nil }.buttonStyle(LinkButtonStyle())
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .padding(.horizontal, 12).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.pinBg))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.dot.opacity(0.5), lineWidth: 1))
         }

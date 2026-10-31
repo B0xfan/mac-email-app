@@ -70,7 +70,7 @@ struct ComposeView: View {
                                 Button((s.displayName ?? "").isEmpty ? s.sendAsEmail : "\(s.displayName!) (\(s.sendAsEmail))") { draft.v.from = v }
                             }
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 4) {
                                 Text(fromLabel).foregroundStyle(Theme.text).lineLimit(1)
                                 Spacer(minLength: 0)
                                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 11)).foregroundStyle(Theme.sub)
@@ -183,7 +183,7 @@ struct ComposeView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "icloud.and.arrow.up").font(.system(size: 20)).foregroundStyle(Theme.acc)
-                    .frame(width: 44, height: 44).background(RoundedRectangle(cornerRadius: 10).fill(Theme.side))
+                    .frame(width: 28, height: 28).background(RoundedRectangle(cornerRadius: 8).fill(Theme.side))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Too big to attach").font(Theme.heading).accessibilityAddTraits(.isHeader)
                     ForEach(bigAsk.v) { b in Text("\(b.url.lastPathComponent) is \(BigFile.size(b.size)). Gmail allows \(BigFile.threshold / 1_000_000) MB.").font(Theme.small).foregroundStyle(Theme.sub) }
@@ -192,11 +192,11 @@ struct ComposeView: View {
             Text("Send it as a download link instead? The file goes to your Google Drive and the email gets a link anyone can open.").font(Theme.body)
             VStack(alignment: .leading, spacing: 8) {
                 Text("Delete from Drive after").font(Theme.small.weight(.semibold))
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     ForEach(BigFileExpiry.allCases) { e in
                         let on = bigExpiry.v == e
                         Button(e.label) { bigExpiry.v = e }.buttonStyle(.plain).font(Theme.small.weight(.semibold))
-                            .foregroundStyle(on ? Theme.accText : Theme.text).padding(.horizontal, 14).frame(height: 34)
+                            .foregroundStyle(on ? Theme.accText : Theme.text).padding(.horizontal, 12).frame(height: 28)
                             .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.acc : Theme.card))
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Theme.acc : Theme.line, lineWidth: 1))
                             .accessibilityAddTraits(on ? .isSelected : [])
@@ -209,7 +209,7 @@ struct ComposeView: View {
                 Button("Send as Link") { bigFiles.v += bigAsk.v.map { var b = $0; b.expiry = bigExpiry.v; return b }; bigAsk.v = [] }.buttonStyle(MailButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
             }
         }
-        .padding(22).frame(width: 460).background(Theme.card)
+        .padding(24).frame(width: 460).background(Theme.card)
     }
 
     private func sendNow() { ready { d, html in store.send(d, bodyHTML: html) } }
@@ -257,14 +257,14 @@ struct ComposeView: View {
             Text(label).font(Theme.small).foregroundStyle(Theme.sub).frame(width: 56, alignment: .leading)
             c().frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12).frame(minHeight: 44)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.sub, lineWidth: 1))
+        .padding(.horizontal, 12).frame(minHeight: 28)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.sub, lineWidth: 1))
     }
 
     private func reveal(_ label: String, _ action: @escaping () -> Void) -> some View {
         Button(label, action: action).buttonStyle(.plain).font(Theme.small.weight(.medium)).foregroundStyle(Theme.acc)
-            .frame(minWidth: 36, minHeight: 32).contentShape(Rectangle()).accessibilityLabel("Add \(label) line")
+            .frame(minWidth: 28, minHeight: 28).contentShape(Rectangle()).accessibilityLabel("Add \(label) line")
     }
 
     private func fmt(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> some View {
@@ -285,14 +285,14 @@ struct SuggestionList: View {
                         if !p.name.isEmpty { Text(p.email).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1) }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 12).frame(minHeight: 40).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12).frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(i == picked ? Theme.selStrong : .clear))
                     .contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
         }
-        .padding(4).background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.line, lineWidth: 1))
+        .padding(4).background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
         .accessibilityLabel("Suggestions")
     }
 }
@@ -308,7 +308,7 @@ struct SendSplit: View {
                 Button { remind() } label: { Label("Remind me if no reply...", systemImage: "bell") }
             } label: {
                 Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accText)
-                    .frame(width: 36, height: 44).background(RoundedRectangle(cornerRadius: 10).fill(Theme.acc)).contentShape(Rectangle())
+                    .frame(width: 28, height: 28).background(RoundedRectangle(cornerRadius: 8).fill(Theme.acc)).contentShape(Rectangle())
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             .help("Send later, or remind me if nobody replies").accessibilityLabel("More sending choices")

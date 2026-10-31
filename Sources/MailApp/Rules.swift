@@ -142,7 +142,7 @@ struct RulesPanel: View {
                     Text("Leave as is").tag(MailRule.Importance.asIs); Text("Mark important").tag(MailRule.Importance.important); Text("Mark not important").tag(MailRule.Importance.notImportant)
                 }.labelsHidden().fixedSize()
             }
-            Text("This rule: " + d.v.summary(store.ruleNames)).font(Theme.small).padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            Text("This rule: " + d.v.summary(store.ruleNames)).font(Theme.small).padding(8).frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accSoft)).foregroundStyle(Theme.accInk)
             if let was = store.rules.first(where: { $0.id == d.v.id }), was.fromBlock, d.v.folder != was.rule?.folder || d.v.from.trimmingCharacters(in: .whitespaces).lowercased() != (was.rule?.from ?? "").trimmingCharacters(in: .whitespaces).lowercased() {
                 Text("Saving stops blocking new mail from this sender. Emails already in Blocked stay there.").font(Theme.small).foregroundStyle(Theme.sub)

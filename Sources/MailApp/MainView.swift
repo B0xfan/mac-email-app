@@ -11,7 +11,7 @@ struct MailRoot: View {
             if store.homeShown { HomeScreenView(store: store, fixedNow: store.homeNowOverride) }
             else { HStack(spacing: 0) {
                 SidebarView(store: store)
-                    .frame(width: store.sidebarCompact ? 72 : 244)
+                    .frame(width: store.sidebarCompact ? 72 : 220)
                     .background(Theme.side)
                     .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
                 VStack(spacing: 0) {
@@ -105,15 +105,15 @@ struct ToastView: View {
                     else if a == "Done" || a == "OK" { store.toast = nil }
                     else { Task { await store.undoNow() } }
                 }
-                .buttonStyle(.plain).font(.system(size: 13, weight: .semibold))
+                .buttonStyle(.plain).font(.system(size: 11, weight: .semibold))
                 .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 10).frame(minHeight: 26)
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.bg, lineWidth: 1))
+                .padding(.horizontal, 8).frame(minHeight: 24)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.bg, lineWidth: 1))
                 .contentShape(Rectangle())
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 6).frame(minHeight: 38)
-        .foregroundStyle(Theme.bg).background(RoundedRectangle(cornerRadius: 10).fill(Theme.text))
+        .padding(.horizontal, 12).padding(.vertical, 4).frame(minHeight: 28)
+        .foregroundStyle(Theme.bg).background(RoundedRectangle(cornerRadius: 8).fill(Theme.text))
         .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
         .accessibilityElement(children: .combine)
     }
@@ -140,18 +140,14 @@ struct SidebarView: View {
                     .onExitCommand { store.endSearchPeek() }
                     .onSubmit { Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } }
             }
-            .padding(.horizontal, 12).frame(minHeight: 44)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(searchFocus ? Theme.acc : Theme.sub, lineWidth: searchFocus ? 2 : 1))
+            .padding(.horizontal, 8).frame(minHeight: 28)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(searchFocus ? Theme.acc : Theme.sub, lineWidth: searchFocus ? 2 : 1))
             .padding(.bottom, 8)
             }
 
             MaybeScroll { VStack(alignment: .leading, spacing: 4) {
             NavRow(symbol: "house", title: "Home", on: false) { store.homeShown = true }
-            SideHead("Accounts")
-            NavRow(symbol: "tray.full", title: "All Inboxes", on: false) { Task { await store.select(.inbox) } }
-            if !store.accountEmail.isEmpty { NavRow(title: store.accountEmail, small: true, on: false) { Task { await store.select(.inbox) } } }
-            SideHead("Mailboxes")
             NavRow(symbol: "tray", title: "Inbox", on: store.mailbox == .inbox) { Task { await store.select(.inbox) } }
             NavRow(symbol: "clock", title: "Recently Seen", on: store.mailbox == .recent) { Task { await store.select(.recent) } }
             NavRow(symbol: "rectangle.stack", title: "Set Aside", badge: store.aside.count, on: store.mailbox == .setAside) { Task { await store.select(.setAside) } }
@@ -166,7 +162,7 @@ struct SidebarView: View {
             } }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 16)
+        .padding(8)
         .environment(\.compactSide, store.sidebarCompact)
     }
 }
@@ -179,10 +175,10 @@ struct SideHead: View {
     init(_ t: String) { self.t = t }
     @Environment(\.compactSide) private var compact
     var body: some View {
-        if compact { Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 6).padding(.horizontal, 8) }   // compact sidebar: a thin rule instead of the heading
+        if compact { Rectangle().fill(Theme.line).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 8) }   // compact sidebar: a thin rule instead of the heading
         else {
             Text(t.uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub)
-                .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 4).accessibilityAddTraits(.isHeader)
         }
     }
 }
@@ -190,7 +186,6 @@ struct SideHead: View {
 struct NavRow: View {
     var symbol: String? = nil
     let title: String
-    var small = false
     var badge = 0
     var badgeText: String? = nil
     var indent: CGFloat = 0
@@ -206,10 +201,10 @@ struct NavRow: View {
     @ViewBuilder private var compactBody: some View {
         if let symbol {
             Button(action: action) {
-                Image(systemName: symbol).font(.system(size: 17)).frame(maxWidth: .infinity, minHeight: 44)
+                Image(systemName: symbol).font(.system(size: 15)).frame(maxWidth: .infinity, minHeight: 28)
                     .overlay(alignment: .topTrailing) { if badge > 0 || badgeText != nil { Circle().fill(Theme.acc).frame(width: 9, height: 9).padding(8) } }
-                    .background(RoundedRectangle(cornerRadius: 10).fill(on || hot ? Theme.selStrong : (hover.v ? Theme.hovSide : .clear)))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(on || hot ? Theme.acc : .clear, lineWidth: 2))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(on || hot ? Theme.selStrong : (hover.v ? Theme.hovSide : .clear)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(on || hot ? Theme.acc : .clear, lineWidth: 2))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain).onHover { hover.v = $0 }.tip(title).accessibilityLabel(title)
@@ -219,18 +214,18 @@ struct NavRow: View {
     private var fullBody: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if let symbol { Image(systemName: symbol).frame(width: 18) }
-                Text(title).font(.system(size: small ? 13 : 14, weight: on ? .bold : (small ? .medium : .regular)))
-                    .foregroundStyle(small && !on ? Theme.sub : Theme.text).lineLimit(1)
+                if let symbol { Image(systemName: symbol).frame(width: 16) }
+                Text(title).font(.system(size: 13, weight: on ? .bold : .regular))
+                    .foregroundStyle(Theme.text).lineLimit(1)
                 Spacer(minLength: 0)
                 if badge > 0 || badgeText != nil {
                     Text(badgeText ?? "\(badge)").font(Theme.label).foregroundStyle(Theme.accText)
                         .padding(.horizontal, 8).background(Capsule().fill(Theme.acc))
                 }
             }
-            .padding(.leading, 12 + indent).padding(.trailing, 12).frame(minHeight: 44).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(on || hot ? Theme.selStrong : (hover.v ? Theme.hovSide : .clear)))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(on || hot ? Theme.acc : .clear, lineWidth: 2))
+            .padding(.leading, 8 + indent).padding(.trailing, 8).frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(on || hot ? Theme.selStrong : (hover.v ? Theme.hovSide : .clear)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(on || hot ? Theme.acc : .clear, lineWidth: 2))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hover.v = $0 }
@@ -302,41 +297,30 @@ struct ListDivider: View {
 
 // MARK: - Toolbar
 
-/// The link button: a small menu with the two kinds of link (approved drawing mockup-link-to-email.html).
-struct LinkMenuButton: View {
+/// What the toolbar has no room for (design review finding 17): the same actions the buttons had.
+struct MoreMenu: View {
     @ObservedObject var store: MailStore
-    let enabled: Bool
-    @State private var open = false
+    let canAct: Bool
     var body: some View {
-        IconButton(symbol: "link", label: enabled ? "Copy a link to this email" : "Link, open an email first", enabled: enabled) { open = true }
-            .popover(isPresented: $open, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 2) {
-                    row("envelope", "Copy Link for Me", "Opens this email in Audrey Mail") { if let m = store.openMail { store.copyLinkForMe(m) } }
-                    Divider()
-                    row("globe", "Copy Link to Share", "Anyone you send it to can read this email in a web page") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
-                }
-                .padding(6).frame(width: 290)
-            }
-    }
-    private func row(_ symbol: String, _ title: String, _ sub: String, _ go: @escaping () -> Void) -> some View {
-        Button { open = false; go() } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: symbol).frame(width: 18).padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(Theme.bodyStrong)
-                    Text(sub).font(Theme.small).foregroundStyle(Theme.sub).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        Menu {
+            Button("Reply All") { if let m = store.openMail { store.reply(m, all: true) } }.disabled(!canAct)
+            Button(store.settings.shortcuts ? "Save as Note (N)" : "Save as Note") { if let m = store.openMail { Task { await store.saveAsNote(m) } } }.disabled(!canAct || store.savingNote)
+            Menu("Copy Link") {
+                Button("Copy Link for Me") { if let m = store.openMail { store.copyLinkForMe(m) } }
+                Button("Copy Link to Share") { if let m = store.openMail { Task { await store.copyLinkToShare(m) } } }
+            }.disabled(!canAct)
+            Divider()
+            Button("Check for New Email") { Task { await store.refresh(reloadList: true) } }.disabled(store.loading || store.accountEmail.isEmpty)
+            Button(store.settings.readerOnTop ? "Show Reading Pane Beside List" : "Show Reading Pane on Top") { store.settings.readerOnTop.toggle() }
+        } label: {
+            Image(systemName: "ellipsis.circle").font(.system(size: 15, weight: .regular)).foregroundStyle(Theme.text).frame(width: 28, height: 28).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityLabel(title + ". " + sub)
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().tip("More").accessibilityLabel("More")
     }
 }
 
 struct ToolbarView: View {
     @ObservedObject var store: MailStore
-    @Environment(\.openWindow) private var openWindow
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
         let multi = store.isMulti, n = store.bulk.count, multiInbox = multi && store.mailbox == .inbox   // several selected: Archive, Set Aside, Snooze and To-do act on all, the one-email buttons go grey
@@ -349,11 +333,9 @@ struct ToolbarView: View {
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
             IconButton(symbol: "square.and.pencil", label: "New Email (C)") { store.newCompose() }
-            Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
+            Rectangle().fill(Theme.line).frame(width: 1, height: 20).padding(.horizontal, 8)
             IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
-            IconButton(symbol: "arrowshape.turn.up.left.2", label: canAct ? "Reply All" : "Reply All, \(one)", enabled: canAct) {
-                if let m = store.openMail { store.reply(m, all: true) } }
             IconButton(symbol: "arrowshape.turn.up.right", label: canAct ? "Forward (F)" : "Forward, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.forward(m) } }
             IconButton(symbol: "archivebox", label: archiveTip, enabled: canAct || multiInbox) {
@@ -364,16 +346,12 @@ struct ToolbarView: View {
                 if multi { store.bulkSnooze() } else if let m = store.openRow { store.picker = .snooze([m.id]) } }
             IconButton(symbol: canAct && store.openMail.map(store.isInTodo) == true ? "checkmark.circle" : "checklist", label: todoTip, enabled: canAct || multi) {
                 if multi { store.bulkTodo() } else if let m = store.openMail { store.todoMail = m } }
-            IconButton(symbol: "doc.text", label: "Save as Note (N)", enabled: canAct && !store.savingNote) {
-                if let m = store.openMail { Task { await store.saveAsNote(m) } } }
-            LinkMenuButton(store: store, enabled: canAct)
+            MoreMenu(store: store, canAct: canAct)
             if canAct, let m = store.openMail, store.foreignLanguage(m) != nil, !store.translationShown.contains(m.id) {
                 Button { Task { await store.translateOpen(m) } } label: { Label(store.translating.contains(m.id) ? "Translating..." : "Translate", systemImage: "globe") }
                     .buttonStyle(MailButtonStyle(kind: .primary, compact: true)).disabled(store.translating.contains(m.id)).fixedSize()
                     .help("Translate this email on this Mac. Nothing leaves the Mac.").accessibilityLabel("Translate this email")
             }
-            Rectangle().fill(Theme.line).frame(width: 1, height: 24).padding(.horizontal, 8)
-            CheckNowButton(store: store)
             if store.loading { Text("Checking...").font(Theme.small).foregroundStyle(Theme.sub).padding(.leading, 4) }
             if store.mailbox == .setAside { Text("Set Aside").font(Theme.bodyStrong).padding(.leading, 8) }
             switch store.mailbox { case .folder, .smart, .saved: Text(store.title).font(Theme.bodyStrong).lineLimit(1).padding(.leading, 8); default: EmptyView() }
@@ -388,37 +366,12 @@ struct ToolbarView: View {
                 Button("Move All Back to Inbox") { Task { await store.backToInbox(store.aside) } }.buttonStyle(MailButtonStyle(kind: .neutral, small: true))
             }
             if store.mailbox == .inbox { InboxViewSwitch(settings: store.settings) }
-            IconButton(symbol: "questionmark.circle", label: "Help") { openWindow.help() }
-            IconButton(symbol: store.settings.readerOnTop ? "rectangle.split.2x1" : "rectangle.split.1x2", label: store.settings.readerOnTop ? "Show the reading pane beside the list" : "Show the reading pane on top") { store.settings.readerOnTop.toggle() }
             if !store.status.isEmpty { Text(store.status).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1) }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 12).frame(height: 44)
         .background(Theme.side)
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
         .accessibilityElement(children: .contain)
-    }
-}
-
-struct CheckNowButton: View {
-    @ObservedObject var store: MailStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var hover = Box(false)
-    @StateObject private var angle = Box(0.0)
-    var body: some View {
-        Button { if !store.loading { Task { await store.refresh(reloadList: true) } } } label: {
-            Image(systemName: "arrow.clockwise").font(.system(size: 17, weight: .regular))
-                .rotationEffect(.degrees(angle.v))
-                .foregroundStyle(Theme.text).opacity(store.loading ? 0.45 : 1)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 10).fill(hover.v && !store.loading ? Theme.hovSide : .clear))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).onHover { hover.v = $0 }
-        .tip("Check for new email now").accessibilityLabel("Check for new email now")
-        .onChange(of: store.loading) { _, on in
-            if on && !reduceMotion { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { angle.v = 360 } }
-            else { withAnimation(.linear(duration: 0)) { angle.v = 0 } }
-        }
     }
 }
 
@@ -564,7 +517,7 @@ struct SearchMoreCard: View {
     var body: some View {
         switch store.searchMore {
         case .offer, .searching:
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Looking for something older?").font(Theme.bodyStrong)
                 Text("These are the results on this Mac. Gmail has more going back years.").font(Theme.small).foregroundStyle(Theme.sub)
                 Button(store.searchMore == .searching ? "Searching Gmail\u{2026}" : "Search all of Gmail too") { Task { await store.searchGmailToo() } }
@@ -619,7 +572,7 @@ struct MessageRow: View {
         .background(alignment: dx > 0 ? .leading : .trailing) {
             if dx != 0, a != .none { SwipeBar(action: a, text: a.label(for: mail), fromLeft: dx > 0).frame(width: abs(dx)) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .background(onSwipe == nil || SnapshotMode.on ? nil : SwipeCatcher(update: { d, w in
             rowWidth.v = w
             let c = Swipe.clamp(d, width: w)
@@ -645,31 +598,31 @@ struct MessageRow: View {
                     if let onTime { HoverIcon(symbol: "clock", label: "Change Time", on: false, action: onTime) }
                     if let onArchive { HoverIcon(symbol: "archivebox", label: "Archive", on: false, action: onArchive) }
                 }
-                .padding(2).background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.line, lineWidth: 1))
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 2).padding(.top, 6).padding(.trailing, 8)
+                .padding(2).background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2).padding(.top, 4).padding(.trailing, 8)
             }
         }
         .onHover { hover.v = $0 }
     }
     private var rowButton: some View {
         Button(action: tap) {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
             if picked {
                 ZStack {
                     Circle().fill(Theme.multiInk)
-                    Image(systemName: "checkmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(Theme.multi)
-                }.frame(width: 34, height: 34).accessibilityHidden(true)
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy)).foregroundStyle(Theme.multi)
+                }.frame(width: 20, height: 20).accessibilityHidden(true)
             } else if layout.senderPictures { Avatar(text: mail.from.initials, size: 34, email: mail.from.email, web: SenderCheck.siteIconOK(mail) && SenderPictures.shared.trusted(mail)) }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
-                    Text(fromText ?? mail.from.display).font(.system(size: 14, weight: mail.unread || selected ? .bold : .semibold)).lineLimit(1)
+                    Text(fromText ?? mail.from.display).font(.system(size: 13, weight: mail.unread || selected ? .bold : .semibold)).lineLimit(1)
                     if let tag { Tag(text: tag, warm: warmTag) }
                     if notes.has(mail.threadID) { Label("note", systemImage: "note.text").font(Theme.label).foregroundStyle(Theme.accInk).labelStyle(.titleAndIcon).help("You wrote a private note on this email") }
                     Spacer(minLength: 8)
-                    if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
-                    if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).padding(.horizontal, 7).frame(minHeight: 18).background(Capsule().fill(selected ? Theme.acc : Theme.sub)).foregroundStyle(selected ? Theme.accText : Theme.bg).accessibilityHidden(true) }
+                    if pinned { Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
+                    if let count { Text("\(count)").font(.system(size: 11, weight: .bold)).padding(.horizontal, 8).frame(minHeight: 18).background(Capsule().fill(selected ? Theme.acc : Theme.sub)).foregroundStyle(selected ? Theme.accText : Theme.bg).accessibilityHidden(true) }
                     Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub)
                 }
                 Text(mail.subject).font(Theme.body).lineLimit(1)
@@ -677,9 +630,9 @@ struct MessageRow: View {
                 if layout.previewLines > 0 { Text(mail.snippet).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub).lineLimit(layout.previewLines) }
             }
             }
-            .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 64).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(picked ? Theme.multi : selected ? Theme.selStrong : (hover.v ? Theme.hovBg : (pinned ? Theme.pinBg : .clear))))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(picked ? Theme.multiLine : selected ? Theme.acc : .clear, lineWidth: picked ? 1.5 : 2))
+            .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 56).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(picked ? Theme.multi : selected ? Theme.selStrong : (hover.v ? Theme.hovBg : (pinned ? Theme.pinBg : .clear))))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(picked ? Theme.multiLine : selected ? Theme.acc : .clear, lineWidth: picked ? 1.5 : 2))
             .contentShape(Rectangle())
             .draggable(MailLink.dragText(mail))   // drop it on a folder in the sidebar to file it; must sit INSIDE the Button, or the Button swallows the drag
         }
@@ -695,8 +648,8 @@ struct HoverIcon: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(on ? Theme.dot : Theme.text)
-                .frame(width: 30, height: 28)
-                .background(RoundedRectangle(cornerRadius: 7).fill(on || hover.v ? Theme.selStrong : .clear))
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 6).fill(on || hover.v ? Theme.selStrong : .clear))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).onHover { hover.v = $0 }.tip(label).accessibilityLabel(label)
@@ -758,8 +711,8 @@ struct NewSendersStrip: View {
                                     Text(m.from.display).font(Theme.bodyStrong).lineLimit(1)
                                     Text(m.subject).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
                                 }
-                                .padding(.horizontal, 8).padding(.vertical, 4).frame(minHeight: 44).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(store.selectedID == m.id ? Theme.selStrong : .clear))
+                                .padding(.horizontal, 8).padding(.vertical, 4).frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(store.selectedID == m.id ? Theme.selStrong : .clear))
                                 .contentShape(Rectangle())
                             }.buttonStyle(.plain)
                             ApproveBlock(store: store, mail: m, key: "row:\(m.id)", small: true)
@@ -817,8 +770,8 @@ struct MenuItem: View {
                 Text(title).font(Theme.bodyStrong)
                 Text(detail).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(2)
             }
-            .padding(.horizontal, 12).padding(.vertical, 4).frame(minHeight: 52, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(hover.v ? Theme.hovCard : .clear)).contentShape(Rectangle())
+            .padding(.horizontal, 12).padding(.vertical, 4).frame(minHeight: 44, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(hover.v ? Theme.hovCard : .clear)).contentShape(Rectangle())
         }.buttonStyle(.plain).onHover { hover.v = $0 }
     }
 }
@@ -860,7 +813,7 @@ struct ReadingContent: View {
         let loadImgs = HTMLSafety.shouldLoadImages(auto: store.settings.loadImages, senderAllowed: store.settings.imageSenders.contains(sender), loadedThisEmail: store.imagesLoaded.contains(mail.id))
         let warns = store.senderWarnings(mail)
         let tr = store.translationShown.contains(mail.id) ? store.translations[mail.id] : nil
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             if store.stackOpen, !embedded { ConvoFolds(store: store, shown: mail.id, older: true) }
             if store.selectedIsNewSender, !embedded {
                 Card(padding: 12) {
@@ -935,7 +888,7 @@ struct ReadingContent: View {
                 }
             }
             if store.settings.blockTrackers, report.trackers > 0 {
-                HStack(spacing: 6) { Image(systemName: "circle.dotted"); Text(report.line).font(.system(size: 12, weight: .medium)) }.foregroundStyle(Theme.sub)
+                HStack(spacing: 4) { Image(systemName: "circle.dotted"); Text(report.line).font(.system(size: 11, weight: .medium)) }.foregroundStyle(Theme.sub)
             }
             if let tr {
                 MaybeScroll {
@@ -944,8 +897,8 @@ struct ReadingContent: View {
                 }
             } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .html, let html = cleanHTML {
                 HTMLMessageView(html: html, blockRemote: !loadImgs)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(.white))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .background(RoundedRectangle(cornerRadius: 8).fill(.white))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if Self.bodyKind(cleanHTML: cleanHTML, mail) == .loading {
                 // Still loading the full message: show nothing rather than the snippet (it flashed "Sent from my iPhone").

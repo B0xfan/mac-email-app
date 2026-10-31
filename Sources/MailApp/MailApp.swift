@@ -166,7 +166,7 @@ struct RootView: View {
 struct SignInView: View {
     @ObservedObject var model: SignInModel
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 12) {
             Image(systemName: "envelope").font(.system(size: 36)).foregroundStyle(Theme.acc)
             Text("Audrey Mail").font(Theme.title)
             Button("Sign in with Google") { Task { await model.signIn() } }
