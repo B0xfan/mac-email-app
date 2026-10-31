@@ -80,7 +80,9 @@ final class MailStore: ObservableObject {
     @Published var blockMenuFor: String?
     @Published var unsubStage: UnsubStage = .idle
     @Published var compose: ComposeDraft? { didSet { if compose != nil && (oldValue == nil || oldValue?.mode != compose?.mode || oldValue?.threadID != compose?.threadID) { composeID = UUID() } } }
-    @Published var composeID = UUID()
+    @Published var composeID = UUID() { didSet { composeContents = nil } }   // the old view's contents must not be read for the new email; the new view sets it again
+    /// Set by the open ComposeView: only it knows what has been typed.
+    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool))?
     @Published var sendAs: [GSendAs] = []
     @Published var accountEmail = ""
     @Published var homeShown = false

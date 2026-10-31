@@ -1,6 +1,7 @@
 #if TESTHARNESS
 import SwiftUI
 import AppKit
+import WebKit
 import MailCore
 
 /// `MailApp --listtest <folder>`: draws the real main window off-screen (invisible) in "Unread first" with made-up mail, the way
@@ -224,6 +225,7 @@ enum ListTest {
         if await !commandKeys() { ok = false }
         if await !composeLinks() { ok = false }
         if await !composeCursor() { ok = false }
+        if await !composeReplace() { ok = false }
         // Design review finding 15: toasts are read aloud, once each
         var heard: [String] = []
         let realAnnounce = MailStore.announce
@@ -263,6 +265,38 @@ enum ListTest {
             check("compose cursor: \(to.isEmpty ? "with nobody to write to it starts on the To line" : "with an address filled in it does not") (\(String(describing: win.firstResponder.map { type(of: $0) })))", (win.firstResponder is NSTextView) == wantToLine)
             win.close()
         }
+        return ok
+    }
+
+    /// An email link over an open new email showed the old one. The real view, asked what it holds. Anything typed must not be lost.
+    static func composeReplace() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        func web(_ v: NSView) -> WKWebView? { (v as? WKWebView) ?? v.subviews.lazy.compactMap { web($0) }.first }
+        let store = Snapshots.sampleStore()
+        store.mailbox = .inbox; store.homeShown = false
+        store.newCompose()
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: MailRoot(store: store))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(1.5)
+        let emptySafe = await store.saveOpenComposeFirst()
+        check("compose replace: an untouched email needs no save", emptySafe && store.composeContents != nil)
+        await store.openIncoming(URL(string: "mailto:dana@example.com?subject=Hello")!)
+        await LiveTest.pump(1.5)
+        let shown = await store.composeContents?()
+        check("compose replace: the link's address and subject show over an open new email (\(shown?.draft.to ?? "nil"))", shown?.draft.to == "dana@example.com" && shown?.draft.subject == "Hello")
+        check("compose replace: a link with nothing typed since does not count as typed", shown?.changed == false)
+        if let v = win.contentView, let w = web(v) { _ = try? await w.evaluateJavaScript("document.getElementById('ed').innerText='typed words'") }
+        let typed = await store.composeContents?()
+        check("compose replace: typed words count as typed", typed?.changed == true)
+        await store.openIncoming(URL(string: "mailto:other@example.com")!)   // this store has no sign-in, so the save fails, as it does offline
+        await LiveTest.pump(1.5)
+        let kept = await store.composeContents?()
+        check("compose replace: a failed save refuses the new email, so typed words stay (\(kept?.draft.to ?? "nil"))", kept?.draft.to == "dana@example.com" && kept?.html.contains("typed words") == true && store.error != nil)
+        win.close()
         return ok
     }
 

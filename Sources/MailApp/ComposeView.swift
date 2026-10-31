@@ -11,6 +11,7 @@ struct ComposeView: View {
     @StateObject private var linkURL = Box("https://")
     @StateObject private var problem = Box<String?>(nil)
     @StateObject private var picked = Box(0)
+    @StateObject private var startText = Box<String?>(nil)   // the writing area as it opened, to tell whether anything was typed
     @StateObject private var bigFiles = Box<[BigFilePick]>([])   // too large to attach: sent as a Drive link at Send
     @StateObject private var bigAsk = Box<[BigFilePick]>([])     // just attached, waiting for the "Too big to attach" answer
     @StateObject private var bigExpiry = Box(BigFileExpiry.days7)
@@ -154,7 +155,21 @@ struct ComposeView: View {
                 }
             }
         }
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if draft.v.to.isEmpty { focus = .to } else { editor.focus() } } }   // nobody to write to yet: the To line first
+        .onAppear {
+            store.composeContents = { [store, draft, editor, startText] in
+                let html = await editor.html(), text = await editor.text()
+                // no text at all means the page is not there (a loaded one reads at least a line break), so nothing can have been typed
+                let bodyChanged = startText.v.map { text != $0 } ?? false
+                return (draft.v, html, !text.isEmpty && (draft.v != store.compose || bodyChanged))
+            }
+            Task { [editor, startText] in
+                for _ in 0..<100 where startText.v == nil {   // the page loads in the background; a slow first start can take seconds
+                    let t = await editor.text()
+                    if t.isEmpty { try? await Task.sleep(for: .milliseconds(100)) } else { startText.v = t }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if draft.v.to.isEmpty { focus = .to } else { editor.focus() } }   // nobody to write to yet: the To line first
+        }
         .sheet(isPresented: Binding(get: { !bigAsk.v.isEmpty }, set: { if !$0 { bigAsk.v = [] } })) { bigPanel }
         .alert("Insert link", isPresented: $linkPrompt.v) {
             TextField("https://", text: $linkURL.v)

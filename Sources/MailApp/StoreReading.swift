@@ -9,14 +9,15 @@ extension MailStore {
 
     func open(_ m: Mail) async {
         if mailbox == .drafts, let did = draftMap[m.id] {
+            if compose != nil, compose?.draftID == did { selectedID = m.id; return }   // already the open one: keep what is typed
+            guard let full = try? await gmail.message(id: m.id, full: true), await saveOpenComposeFirst() else { return }   // load first: a failed load must not leave a draft the open email does not know about
             selectedID = m.id
-            if let full = try? await gmail.message(id: m.id, full: true) {
-                var d = ComposeDraft(from: defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
-                d.draftID = did
-                d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
-                d.threadID = nil
-                compose = d
-            }
+            var d = ComposeDraft(from: defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
+            d.draftID = did
+            d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
+            d.threadID = nil
+            compose = d
+            composeID = UUID()   // same reason as handleMailto
             return
         }
         if selectedID == m.id, let o = openMail, o.id == m.id, o.html != nil || o.text != nil { return }   // a second click on the loaded open email leaves it as it is (John 2026-10-29); one that failed to load can be clicked again

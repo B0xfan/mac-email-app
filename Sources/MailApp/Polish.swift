@@ -238,6 +238,7 @@ extension MailStore {
             let mime = UTType(filenameExtension: f.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
             compose?.attachments.append(DraftAttachment(name: f.lastPathComponent, data: data, mime: mime))
         }
+        composeID = UUID()   // same reason as handleMailto
     }
 }
 

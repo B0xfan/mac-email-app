@@ -26,6 +26,14 @@ extension MailStore {
         compose?.to = to
         compose?.subject = c?.queryItems?.first(where: { $0.name.lowercased() == "subject" })?.value ?? ""
         compose?.restoredBodyHTML = TextTools.plainToHTML(c?.queryItems?.first(where: { $0.name.lowercased() == "body" })?.value ?? "")
+        composeID = UUID()   // an open new email looks the same to the store, so the writing view has to be told to start over
+    }
+
+    /// A link from outside: only one that will really open an email may save the open one first.
+    func openIncoming(_ url: URL) async {
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "mailto" || (scheme == "audreymail" && url.query != nil), await saveOpenComposeFirst() else { return }
+        if scheme == "mailto" { handleMailto(url) } else { handleShare(url) }
     }
 
     /// Every address that is John's own (the account and every "send as" address).
@@ -99,13 +107,23 @@ extension MailStore {
                              attachments: d.attachments.map { ($0.name, $0.data, $0.mime) })
     }
 
-    func saveDraft(_ d: ComposeDraft, bodyHTML: String) async {
+    @discardableResult func saveDraft(_ d: ComposeDraft, bodyHTML: String) async -> Bool {
         let raw = MIME.build(buildOutgoing(d, bodyHTML: bodyHTML))
         do {
             let id = try await gmail.saveDraft(raw, threadID: d.threadID, replacing: d.draftID)
             compose?.draftID = id
             showToast("Draft saved.", seconds: 4)
-        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not save the draft." }
+            return true
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not save the draft."; return false }
+    }
+
+    /// An email link, a share or a reopened draft is about to replace the open email. What was typed goes to Drafts first;
+    /// if that fails, false: the open email stays and the new one does not come in.
+    func saveOpenComposeFirst() async -> Bool {
+        guard compose != nil, let c = await composeContents?(), c.changed else { return true }
+        if await saveDraft(c.draft, bodyHTML: c.html) { return true }
+        error = "The email you were writing could not be saved, so it stays open. Save or send it, then try again."
+        return false
     }
 
     /// Send with the Undo Send delay. The mail leaves only when the delay runs out.
