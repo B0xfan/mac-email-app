@@ -26,7 +26,7 @@ struct MultiPanel: View {
                     Text("\(n) selected").font(Theme.title).accessibilityAddTraits(.isHeader)
                     Text(MultiPanel.names(ms)).font(Theme.small).foregroundStyle(Theme.sub).padding(.bottom, 4)
                     FlowRow(spacing: 8) {
-                        if store.mailbox == .inbox {   // elsewhere Archive's Undo would land them in the Inbox; the others have the same limit as for one email
+                        if store.mailbox == .inbox {   // Archive stays Inbox-only for several emails; the others have the same limit as for one email
                             act("Archive \(n)", "archivebox", .primary) { await store.bulkArchive() }
                             act("Set Aside", "rectangle.stack") { await store.bulkSetAside() }
                             act("Snooze...", "moon") { store.bulkSnooze() }

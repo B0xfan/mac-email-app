@@ -468,7 +468,7 @@ final class PhoneStore: ObservableObject {
         saveCache()
         enqueue { [weak self] in
             guard let self else { return }
-            do { try await self.gmail.modify(ids: ids, add: remove, remove: add) } catch { await self.fail(error, "Undo did not go through.") }
+            do { try await self.gmail.modify(ids: ids, add: remove.filter { m.labels.contains($0) || (fromInbox && $0 == "INBOX") }, remove: add) } catch { await self.fail(error, "Undo did not go through.") }   // only what it really had: Archive in a folder must not add the inbox
             self.pendingGone.remove(m.threadID)
         }
     }

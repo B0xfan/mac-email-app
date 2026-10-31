@@ -85,7 +85,9 @@ extension MailStore {
     }
 
     /// Archives any email in the list (row button or open email). Moves on to the next email only if this one was open.
-    func archive(_ m: Mail) async { await leaveInbox(m, add: [], text: "Archived.", aside: false) }
+    func archive(_ m: Mail) async {
+        await leaveInbox(m, add: [], text: "Archived.", aside: false, exactUndo: !m.inInbox && !inbox.contains { $0.id == m.id })   // Undo adds the Inbox only if it was there
+    }
 
     /// Shared by Archive and Set Aside: the email leaves the inbox (and the Set Aside list), toast with Undo,
     /// and the next email opens if this one was open.
@@ -97,6 +99,8 @@ extension MailStore {
         let before = listMails
         let idx = before.firstIndex { $0.id == m.id }
         let wasAside = aside.contains { $0.id == m.id }
+        let asideDay = asides.date(m)
+        let row: (box: Mailbox, at: Int, mail: Mail)? = keepOther ? nil : other.firstIndex { $0.id == m.id }.map { (box: mailbox, at: $0, mail: other[$0]) }
         do {
             var remove = ["INBOX"] + alsoRemove
             if wasAside, let l = asideLabelID, !setAside { remove.append(l) }
@@ -117,7 +121,9 @@ extension MailStore {
             saveCache()
             let sibs = m.siblings ?? [], keepSibs = exactUndo && !trashIt
             let folder: (add: [String], remove: [String])? = exactUndo ? (add: (m.labels.contains("INBOX") ? ["INBOX"] : []) + alsoRemove + (wasAside ? (asideLabelID.map { [$0] } ?? []) : []), remove: add) : nil
+            if wasAside { undoAsideDays[m.id] = asideDay }
             if batching {   // several selected emails: one undo step, one toast and one "next email", all made by batch()
+                if let row { undoRows.append(row) }
                 undoArchive += keepSibs ? [m.id] : [m.id] + sibs; undoSibs += keepSibs ? sibs : []; undoAside = setAside; undoUntrash = trashIt
                 if let f = folder { let o = undoFolder ?? (add: [], remove: []); undoFolder = (add: Array(Set(o.add + f.add)), remove: Array(Set(o.remove + f.remove))) }
                 return
@@ -125,6 +131,8 @@ extension MailStore {
             undoArchive = keepSibs ? [m.id] : [m.id] + sibs; undoSibs = keepSibs ? sibs : []; undoAside = setAside
             undoUntrash = trashIt
             undoFolder = folder
+            undoRows = row.map { [$0] } ?? []
+            undoReopen = !trashIt && add.isEmpty ? m.id : nil
             showToast(text, action: "Undo")
             // open the email that moved into its place; if it was last, the one above; if none, the empty pane
             let after = listMails
@@ -177,7 +185,7 @@ extension MailStore {
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
-    /// Undo brings the archived (or set-aside) email back to the inbox and reopens it.
+    /// Undo puts the email back where it was: Archive and Set Aside reopen it, and it goes to the Inbox only if it came from there.
     func undoLast() async {
         menuUndo?.removeAllActions(withTarget: self)
         var failed: String?
@@ -188,9 +196,12 @@ extension MailStore {
                 if undoUntrash { for id in ids { try await moveFromTrash(id: id) }; undoUntrash = false }
                 if !u.add.isEmpty || !u.remove.isEmpty { try await change(ids: ids, add: u.add, remove: u.remove) }
                 if !undoSibs.isEmpty { try await change(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
+                if let l = asideLabelID, u.add.contains(l) { for id in ids { if let d = undoAsideDays[id] { asides.record(id, at: d) } } }
             } catch { note(error) }
             toast = nil
             await refresh()
+            if failed == nil { putBackRows(ids) }
+            if failed == nil, undoReopen == ids[0], let back = (inbox + other + aside).first(where: { $0.id == ids[0] }) { await open(back) }
         } else if !undoArchive.isEmpty {
             let ids = undoArchive; undoArchive = []
             let fromAside = undoAside; undoAside = false
@@ -198,9 +209,18 @@ extension MailStore {
             if failed == nil && fromAside { ids.forEach { asides.forget($0) } }
             toast = nil
             await refresh()
+            if failed == nil { putBackRows(ids) }
             if failed == nil, let back = (inbox + other).first(where: { $0.id == ids[0] }) { await open(back) }
         }
         if let failed { error = failed }
+    }
+
+    /// The rows this undo step took out of the list on screen go back in their places (a plain refresh does not reread that list). Newest out, first back.
+    private func putBackRows(_ ids: [String]) {
+        for r in undoRows.reversed() where r.box == mailbox && ids.contains(r.mail.id) && !other.contains(where: { $0.id == r.mail.id }) {
+            other.insert(r.mail, at: min(r.at, other.count))
+        }
+        undoRows = []; undoAsideDays = [:]
     }
 
     /// Edit > Undo and Command-Z run the same undo as the toast's button. Only the newest step is kept, as with the toast; typing in the same window keeps its own undo steps.

@@ -129,6 +129,9 @@ final class MailStore: ObservableObject {
     var labelList: [GLabel] = []
     var undoFolder: (add: [String], remove: [String])?
     var undoUntrash = false
+    var undoRows: [(box: Mailbox, at: Int, mail: Mail)] = []   // rows the undo step took out of the open list
+    var undoAsideDays: [String: Date] = [:]   // the day each email was set aside, for its stamp
+    var undoReopen: String?   // Archive only: the email Undo opens again when it did not go back to the Inbox
 
     enum UnsubStage: Equatable { case idle, asking(String), done(String) }
 
