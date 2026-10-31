@@ -70,14 +70,14 @@ struct SettingsView: View {
             ScrollViewReader { proxy in
                 MaybeScroll {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(page.rawValue).font(Theme.title).accessibilityAddTraits(.isHeader).id("pageTop")
+                        Text(page.rawValue).font(Theme.title).accessibilityAddTraits(.isHeader)
                         Text(page.blurb).foregroundStyle(Theme.sub)
                         ForEach(SnapshotMode.on ? [sec.v] : page.sections) { s in   // a snapshot cannot scroll: it draws the section it asked for
                            
                             VStack(alignment: .leading, spacing: 8) { panel(s) }.id(s).padding(.top, 8)
                         }
                     }
-                    .padding(.horizontal, 24).padding(.vertical, 16).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24).padding(.vertical, 16).frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading).id("pageTop")
                 }
                 .background(Theme.bg)
                 .onAppear { show(sec.v, proxy) }
