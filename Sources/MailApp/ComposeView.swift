@@ -161,6 +161,10 @@ struct ComposeView: View {
                 // no page means nothing can have been typed
                 return (draft.v, html, text != nil && (draft.v != store.compose || (startText.v != nil && text != startText.v)))
             }
+            store.composeEditDraft = { [draft, showCc] edit in
+                edit(&draft.v)
+                if !draft.v.cc.isEmpty { showCc.v = true }
+            }
             Task { [editor, startText] in
                 for _ in 0..<100 where startText.v == nil {   // the page loads in the background; a slow first start can take seconds
                     if let t = await editor.loadedText() { startText.v = t } else { try? await Task.sleep(for: .milliseconds(100)) }

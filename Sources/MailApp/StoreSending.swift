@@ -69,10 +69,29 @@ extension MailStore {
 
     /// Right-click: a list row has no body and no message headers yet, so it opens first, as a click would. Then the reply quotes the whole email and joins its conversation.
     func openThenReply(_ m: Mail, all: Bool = false) async {
-        if let o = await openLoaded(m) { reply(o, all: all) }
+        if compose?.mode == .reply(m.id), let o = openMail, o.id == m.id, o.html != nil || o.text != nil { changeReplyWho(o, all: all); return }
+        guard await saveOpenComposeFirst(), let o = await openLoaded(m) else { return }
+        reply(o, all: all)
     }
     func openThenForward(_ m: Mail) async {
-        if let o = await openLoaded(m) { forward(o) }
+        guard compose?.mode != .forward(m.id), await saveOpenComposeFirst(), let o = await openLoaded(m) else { return }
+        forward(o)
+    }
+    /// Already answering this email: the words stay. Reply All adds whoever is missing; Reply empties a Cc line only if it is exactly what Reply All put there. A line edited by hand is otherwise left alone.
+    private func changeReplyWho(_ o: Mail, all: Bool) {
+        let who = replyRecipients(o, all: true)
+        let edit = { (d: inout ComposeDraft) in
+            if all {
+                let there = Set(Address.parseList([d.to, d.cc, d.bcc].joined(separator: ",")).map(\.email))
+                let kept = d.cc.trimmingCharacters(in: CharacterSet(charactersIn: ", "))
+                let add = Address.parseList(who.cc).map(\.email).filter { !there.contains($0) }
+                d.cc = ((kept.isEmpty ? [] : [kept]) + add).joined(separator: ", ")
+                if d.to.trimmingCharacters(in: .whitespaces).isEmpty { d.to = who.to }
+            } else if d.cc == who.cc { d.cc = "" }
+        }
+        // both copies get the same edit, so a switch alone is not "typed", and a rebuilt view keeps it
+        if compose != nil { edit(&compose!) }
+        composeEditDraft?(edit)
     }
     private func openLoaded(_ m: Mail) async -> Mail? {
         await open(m)
@@ -117,7 +136,7 @@ extension MailStore {
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not save the draft."; return false }
     }
 
-    /// An email link, a share or a reopened draft is about to replace the open email. What was typed goes to Drafts first;
+    /// An email link, a share, a reopened draft or a right-click Reply or Forward is about to replace the open email. What was typed goes to Drafts first;
     /// if that fails, false: the open email stays and the new one does not come in.
     func saveOpenComposeFirst() async -> Bool {
         guard compose != nil, let c = await composeContents?(), c.changed else { return true }

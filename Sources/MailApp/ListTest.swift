@@ -353,25 +353,38 @@ enum ListTest {
         await store.openThenReply(m)
         await LiveTest.pump(1.0)
         let one = await store.composeContents?()
-        check("reply over reply: Reply narrows it back to the sender, words kept (cc \(one?.draft.cc ?? "nil"))", one?.draft.to == sender && one?.draft.cc == "" && one?.html.contains("typed words") == true)
+        check("reply over reply: Reply takes off what Reply All added, words kept (cc \(one?.draft.cc ?? "nil"))", one?.draft.to == sender && one?.draft.cc == "" && one?.html.contains("typed words") == true)
+        store.composeEditDraft?({ $0.to = "Ana Named <ana@x.example>"; $0.cc = "dan"; $0.bcc = "bob@x.example" })   // as if typed by hand: a named address, a half-typed one, one of the others in Bcc
+        await store.openThenReply(m, all: true)
+        await LiveTest.pump(1.0)
+        let hand = await store.composeContents?()
+        check("reply over reply: Reply All leaves typed addresses as they are and skips who is in Bcc (to \(hand?.draft.to ?? "nil"), cc \(hand?.draft.cc ?? "nil"))", hand?.draft.to == "Ana Named <ana@x.example>" && hand?.draft.cc == "dan, cara@x.example" && hand?.draft.bcc == "bob@x.example")
+        await store.openThenReply(m)
+        await LiveTest.pump(1.0)
+        let kept = await store.composeContents?()
+        check("reply over reply: Reply leaves a Cc line edited by hand alone", kept?.draft.cc == "dan, cara@x.example")
         await store.openThenForward(m)   // this store has no sign-in, so the save fails, as it does offline
         await LiveTest.pump(1.0)
         let held = await store.composeContents?()
         check("reply over reply: a failed save refuses a Forward, so typed words stay", held?.draft.mode == .reply(m.id) && held?.html.contains("typed words") == true && store.error != nil)
         store.error = nil
-        await store.open(store.inbox[1])
+        await store.openThenReply(store.inbox[1])
         await LiveTest.pump(1.0)
-        let clicked = await store.composeContents?()
-        check("reply over reply: a failed save refuses a click on another email, so typed words stay", clicked?.html.contains("typed words") == true && store.selectedID == m.id && store.error != nil)
+        let other = await store.composeContents?()
+        check("reply over reply: a failed save refuses a right-click Reply to another email, so typed words stay", other?.draft.mode == .reply(m.id) && other?.html.contains("typed words") == true && store.selectedID == m.id && store.error != nil)
         store.error = nil
         store.compose = nil
         await LiveTest.pump(0.5)
         store.reply(m)
         await LiveTest.pump(1.5)
+        await store.openThenReply(m, all: true)
+        await LiveTest.pump(1.0)
+        let plain = await store.composeContents?()
+        check("reply over reply: Reply All alone does not count as typed", plain?.draft.cc == "bob@x.example, cara@x.example" && plain?.changed == false)
         await store.openThenForward(m)
         await LiveTest.pump(1.0)
         let fwd = await store.composeContents?()
-        check("reply over reply: with nothing typed a Forward simply replaces the Reply", fwd?.draft.mode == .forward(m.id) && store.error == nil)
+        check("reply over reply: with nothing typed a Forward simply replaces the Reply, with no save tried", fwd?.draft.mode == .forward(m.id) && store.error == nil)
         win.close()
         return ok
     }
