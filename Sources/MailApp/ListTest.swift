@@ -322,6 +322,57 @@ enum ListTest {
         let kept = await store.composeContents?()
         check("compose replace: a failed save refuses the new email, so typed words stay (\(kept?.draft.to ?? "nil"))", kept?.draft.to == "dana@example.com" && kept?.html.contains("typed words") == true && store.error != nil)
         win.close()
+        if await !replyOverReply() { ok = false }
+        return ok
+    }
+
+    /// Right-click Reply All with a Reply to that email open kept the open Reply, so Send went only to the sender. The real view, asked what it holds.
+    static func replyOverReply() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        func web(_ v: NSView) -> WKWebView? { (v as? WKWebView) ?? v.subviews.lazy.compactMap { web($0) }.first }
+        let store = Snapshots.sampleStore()
+        store.mailbox = .inbox; store.homeShown = false
+        let m = Mail(id: "group", from: Address(name: "Ana", email: "ana@x.example"), subject: "Plans", snippet: "Hi", date: Date(), text: "Hi", to: "marta@harborlane.example, bob@x.example, cara@x.example")
+        store.inbox.insert(m, at: 0)
+        store.openMail = m; store.selectedID = m.id
+        store.reply(m)
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: MailRoot(store: store))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(1.5)
+        let sender = m.from.email
+        if let v = win.contentView, let w = web(v) { _ = try? await w.evaluateJavaScript("document.getElementById('ed').innerText='typed words'") }
+        await store.openThenReply(m, all: true)
+        await LiveTest.pump(1.0)
+        let all = await store.composeContents?()
+        check("reply over reply: Reply All adds everyone on the email (to \(all?.draft.to ?? "nil"), cc \(all?.draft.cc ?? "nil"))", all?.draft.to == sender && all?.draft.cc == "bob@x.example, cara@x.example")
+        check("reply over reply: Reply All keeps the typed words and counts them as typed", all?.html.contains("typed words") == true && all?.changed == true)
+        await store.openThenReply(m)
+        await LiveTest.pump(1.0)
+        let one = await store.composeContents?()
+        check("reply over reply: Reply narrows it back to the sender, words kept (cc \(one?.draft.cc ?? "nil"))", one?.draft.to == sender && one?.draft.cc == "" && one?.html.contains("typed words") == true)
+        await store.openThenForward(m)   // this store has no sign-in, so the save fails, as it does offline
+        await LiveTest.pump(1.0)
+        let held = await store.composeContents?()
+        check("reply over reply: a failed save refuses a Forward, so typed words stay", held?.draft.mode == .reply(m.id) && held?.html.contains("typed words") == true && store.error != nil)
+        store.error = nil
+        await store.open(store.inbox[1])
+        await LiveTest.pump(1.0)
+        let clicked = await store.composeContents?()
+        check("reply over reply: a failed save refuses a click on another email, so typed words stay", clicked?.html.contains("typed words") == true && store.selectedID == m.id && store.error != nil)
+        store.error = nil
+        store.compose = nil
+        await LiveTest.pump(0.5)
+        store.reply(m)
+        await LiveTest.pump(1.5)
+        await store.openThenForward(m)
+        await LiveTest.pump(1.0)
+        let fwd = await store.composeContents?()
+        check("reply over reply: with nothing typed a Forward simply replaces the Reply", fwd?.draft.mode == .forward(m.id) && store.error == nil)
+        win.close()
         return ok
     }
 
