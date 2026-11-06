@@ -26,7 +26,7 @@ struct AudreyMailApp: App {
 
     var body: some Scene {
         let s = store
-        return WindowGroup { RootView(initialTab: initialTab).phoneEnvironment(s) }
+        return WindowGroup { RootView(initialTab: initialTab).phoneEnvironment(s).onOpenURL { s.openMailto($0) } }
             .backgroundTask(.appRefresh(Badge.taskID)) { Badge.schedule(); await s.refreshForIcon() }
     }
 }

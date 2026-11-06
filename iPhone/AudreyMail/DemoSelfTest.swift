@@ -189,6 +189,14 @@ enum DemoSelfTest {
         let found = (try? await store.searchGmail("flight")) ?? []
         check("search also asks Gmail", found.count == 4 && found.contains { $0.id == "a1" })
 
+        // an email link from another app (iPhone default mail app)
+        store.openMailto(URL(string: "mailto:ana@example.com,bo%40example.com?cc=cy@example.com&to=di@example.com&subject=Hi%20there&body=Line%20one%0ALine%20two")!)
+        let ml = store.composeSeed?.restore
+        check("an email link opens a new message with To, Cc, Subject and Body filled in", store.composeSeed?.mode == .new && ml?.to == ["ana@example.com", "bo@example.com", "di@example.com"] && ml?.cc == "cy@example.com" && ml?.subject == "Hi there" && ml?.text == "Line one\nLine two" && box.with { $0.sent.count } == 0)
+        store.composeSeed = nil
+        store.openMailto(URL(string: "https://example.com")!)
+        check("a web link does not open a message", store.composeSeed == nil)
+
         // archive, undo, trash
         let tom = row("m4")!
         store.archive(tom); await store.settle()

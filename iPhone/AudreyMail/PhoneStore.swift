@@ -608,6 +608,16 @@ final class PhoneStore: ObservableObject {
     func present(_ seed: ComposeSeed) {
         if composeSeed == nil { composeSeed = seed } else { waitingSeeds.append(seed) }
     }
+    /// An email link (mailto:) from another app opens a new message with its To, Cc, Bcc, Subject and Body filled in; nothing is sent.
+    func openMailto(_ url: URL) {
+        guard url.scheme?.lowercased() == "mailto", let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        guard state == .signedIn else { show("Sign in first, then open the email link again."); return }
+        func q(_ n: String) -> [String] { (c.queryItems ?? []).filter { $0.name.lowercased() == n }.compactMap(\.value) }
+        func list(_ s: [String]) -> [String] { s.flatMap { $0.split(separator: ",") }.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+        let to = list([c.path] + q("to"))
+        present(ComposeSeed(restoring: ComposeSnapshot(mode: .new, source: nil, to: to, cc: list(q("cc")).joined(separator: ", "), bcc: list(q("bcc")).joined(separator: ", "),
+                                                     subject: q("subject").first ?? "", text: q("body").first ?? "", attachments: [], draftID: nil, threadID: nil)))
+    }
     /// Called when a Write screen has closed.
     func showNextCompose() {
         guard composeSeed == nil, !waitingSeeds.isEmpty else { return }
