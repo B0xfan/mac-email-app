@@ -39,7 +39,8 @@ struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@Main
 final class PhoneStore: ObservableObject {
     enum State: Equatable { case loading, signedOut(again: Bool), signedIn }
 
-    @Published var state: State = .loading
+    @Published var state: State = .loading { didSet { if state == .signedIn, let u = waitingMailto { waitingMailto = nil; openMailto(u) } } }
+    private var waitingMailto: URL?   // an email link that arrived before the saved sign-in was read (a cold launch) or while signed out
     @Published var inbox: [Mail] = []
     @Published var tab: MailCategory = .people
     @Published var refreshing = false
@@ -611,7 +612,7 @@ final class PhoneStore: ObservableObject {
     /// An email link (mailto:) from another app opens a new message with its To, Cc, Bcc, Subject and Body filled in; nothing is sent.
     func openMailto(_ url: URL) {
         guard url.scheme?.lowercased() == "mailto", let c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        guard state == .signedIn else { show("Sign in first, then open the email link again."); return }
+        guard state == .signedIn else { waitingMailto = url; if state != .loading { show("Sign in first; the email link opens after that.") }; return }
         func q(_ n: String) -> [String] { (c.queryItems ?? []).filter { $0.name.lowercased() == n }.compactMap(\.value) }
         func list(_ s: [String]) -> [String] { s.flatMap { $0.split(separator: ",") }.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
         let to = list([c.path] + q("to"))

@@ -196,6 +196,10 @@ enum DemoSelfTest {
         store.composeSeed = nil
         store.openMailto(URL(string: "https://example.com")!)
         check("a web link does not open a message", store.composeSeed == nil)
+        let cold = DemoMode.makeStore(withServer: false)   // no pretend-server sign-up, so the checks below still see a clean one
+        cold.openMailto(URL(string: "mailto:ana@example.com")!)
+        await cold.start()
+        check("an email link that opens the app from closed waits for the sign-in, then opens the message", cold.composeSeed?.restore?.to == ["ana@example.com"])
 
         // archive, undo, trash
         let tom = row("m4")!
