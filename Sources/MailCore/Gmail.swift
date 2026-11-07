@@ -458,8 +458,8 @@ public final class GmailClient: @unchecked Sendable {
 
     public func deleteDraft(id: String) async throws { _ = try await send("/drafts/\(id)", method: "DELETE") }
 
-    public func drafts() async throws -> [(draftID: String, messageID: String)] {
-        let r = json(try await send("/drafts", query: [.init(name: "maxResults", value: "40")]))
+    public func drafts(max: Int = 40) async throws -> [(draftID: String, messageID: String)] {
+        let r = json(try await send("/drafts", query: [.init(name: "maxResults", value: String(Swift.min(Swift.max(max, 1), 500)))]))
         return (r["drafts"] as? [[String: Any]])?.compactMap {
             guard let id = $0["id"] as? String, let m = ($0["message"] as? [String: Any])?["id"] as? String else { return nil }
             return (id, m)

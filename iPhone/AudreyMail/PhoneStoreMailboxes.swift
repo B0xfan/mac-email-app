@@ -20,10 +20,18 @@ extension PhoneStore {
         guard let server else { scheduled = []; return }
         do {
             let jobs = try await server.pendingJobs()
-            await loadDrafts()
-            guard state == .signedIn else { return }
             let held = Set(heldList.map(\.draftID))
-            scheduled = drafts.compactMap { d in held.contains(d.id) ? nil : jobs[d.id].map { ScheduledRow(draft: d, at: Date(timeIntervalSince1970: TimeInterval($0))) } }.sorted { $0.at < $1.at }
+            // shortcut: matched against the newest 500 drafts (Gmail's most per call); raise it only if someone keeps more drafts than that
+            let mine = try await gmail.drafts(max: 500).filter { jobs[$0.draftID] != nil && !held.contains($0.draftID) }
+            let got = await gmail.messagesChecked(ids: mine.map(\.messageID))
+            guard state == .signedIn else { return }
+            // a half-read list would hide a send that is still waiting: keep what was shown and say so
+            if !got.failed.isEmpty { banner = "Some scheduled emails could not be loaded just now. Pull down to try again."; return }
+            let byID = Dictionary(got.mails.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            scheduled = mine.compactMap { d in
+                guard let m = byID[d.messageID], let at = jobs[d.draftID] else { return nil }
+                return ScheduledRow(draft: DraftRow(id: d.draftID, mail: m), at: Date(timeIntervalSince1970: TimeInterval(at)))
+            }.sorted { $0.at < $1.at }
         } catch { await fail(error, "Could not load your scheduled emails.") }
     }
 
