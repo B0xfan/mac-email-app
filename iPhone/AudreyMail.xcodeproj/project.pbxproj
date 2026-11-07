@@ -233,7 +233,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# A phone build without the Google iOS client prefix installs but can never sign in (TestFlight builds 10 and 11).\nif [ \"$PLATFORM_NAME\" = iphoneos ] && [ \"$GOOGLE_IOS_CLIENT_PREFIX\" = NOT-SET ]; then\n  echo \"error: GOOGLE_IOS_CLIENT_PREFIX is not set. Pass GOOGLE_IOS_CLIENT_PREFIX=<prefix> to xcodebuild (the A4 .env holds it).\"\n  exit 1\nfi\n";
+			shellScript = "# A phone build without the Google iOS client prefix installs but can never sign in (TestFlight builds 10 and 11).\nif [ \"$PLATFORM_NAME\" = iphoneos ] && [ \"$GOOGLE_IOS_CLIENT_PREFIX\" = NOT-SET ]; then\n  echo \"error: GOOGLE_IOS_CLIENT_PREFIX is not set. The project setting was reset to NOT-SET; put the Google iOS client prefix back.\"\n  exit 1\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -290,7 +290,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = LJZ32VB25F;
 				GENERATE_INFOPLIST_FILE = YES;
-				GOOGLE_IOS_CLIENT_PREFIX = "NOT-SET";
+				GOOGLE_IOS_CLIENT_PREFIX = 527377410365-qt2sp00biv7c1fc90tqgcrpd6n62cb0t;
 				INFOPLIST_FILE = AudreyMail/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Audrey Mail";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -316,7 +316,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = LJZ32VB25F;
 				GENERATE_INFOPLIST_FILE = YES;
-				GOOGLE_IOS_CLIENT_PREFIX = "NOT-SET";
+				GOOGLE_IOS_CLIENT_PREFIX = 527377410365-qt2sp00biv7c1fc90tqgcrpd6n62cb0t;
 				INFOPLIST_FILE = AudreyMail/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Audrey Mail";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
