@@ -5,7 +5,7 @@ import MailCore
 struct FolderOpen: Hashable { let mail: Mail; let folder: String }
 
 /// Where the inbox's Mailboxes button leads. Folder is a Gmail label id.
-enum MailboxRoute: Hashable { case mailboxes, drafts, blocked, snoozed, recent, aside, folder(String), smart(UUID), saved(UUID), sender(String) }   // sender: every email from one blocked address or company ("@domain")
+enum MailboxRoute: Hashable { case mailboxes, drafts, scheduled, sent, archive, starred, allMail, spam, trash, blocked, snoozed, recent, aside, folder(String), smart(UUID), saved(UUID), sender(String) }   // sender: every email from one blocked address or company ("@domain")
 
 // MARK: - Mailboxes: Drafts, Blocked, Snoozed, Folders, Smart Folders, saved searches
 
@@ -23,12 +23,19 @@ struct MailboxesView: View {
             Banner()
             Section {
                 NavigationLink(value: MailboxRoute.drafts) { row("doc.text", "Drafts", trailing: store.drafts.isEmpty ? "" : "\(store.drafts.count)") }
+                NavigationLink(value: MailboxRoute.scheduled) { row("paperplane.circle", "Scheduled") }
+                NavigationLink(value: MailboxRoute.sent) { row("paperplane", "Sent") }
+                NavigationLink(value: MailboxRoute.archive) { row("archivebox", "Archive") }
+                NavigationLink(value: MailboxRoute.starred) { row("star", "Starred") }
+                NavigationLink(value: MailboxRoute.allMail) { row("tray.full", "All Mail") }
                 NavigationLink(value: MailboxRoute.blocked) {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
                 NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed") }
                 NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
                 NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside") }
+                NavigationLink(value: MailboxRoute.spam) { row("xmark.octagon", "Spam") }
+                NavigationLink(value: MailboxRoute.trash) { row("trash", "Trash") }
             }.modifier(CardRows())
             Section {
                 ForEach(store.folders) { f in
@@ -209,6 +216,12 @@ struct FolderMailsView: View {
     private var source: MailListSource? {
         switch route {
         case .folder(let id): return .label(id)
+        case .sent: return .label("SENT")
+        case .starred: return .label("STARRED")
+        case .archive: return .query(GmailQuery.archive(blockLabel: PhoneStore.blockLabelName, snoozeLabel: store.snoozeLabelID.map { id in store.labelList.first { $0.id == id }?.name ?? "Snoozed" }))
+        case .allMail: return .query(GmailQuery.allMail)
+        case .spam: return .query(GmailQuery.spam)
+        case .trash: return .query(GmailQuery.trash)
         case .snoozed: return store.snoozeLabelID.map { .label($0) }
         case .recent: return store.recentSource()
         case .aside: return store.asideLabelID.map { .label($0) }
@@ -222,6 +235,12 @@ struct FolderMailsView: View {
         switch route {
         case .folder(let id): return store.folders.first { $0.id == id }?.leaf ?? "Folder"
         case .snoozed: return "Snoozed"
+        case .sent: return "Sent"
+        case .archive: return "Archive"
+        case .starred: return "Starred"
+        case .allMail: return "All Mail"
+        case .spam: return "Spam"
+        case .trash: return "Trash"
         case .recent: return "Recently Seen"
         case .aside: return "Set Aside"
         case .smart(let id): return store.organizer.smart.first { $0.id == id }?.name ?? "Smart Folder"
@@ -243,7 +262,7 @@ struct FolderMailsView: View {
         }
     }
     private var emptyText: String {
-        switch route { case .snoozed: return "Nothing snoozed"; case .recent: return "Nothing opened lately"; case .aside: return "Nothing set aside"; case .smart, .saved: return "No emails match"; case .sender: return "No emails from them"; default: return "Nothing in this folder" }
+        switch route { case .snoozed: return "Nothing snoozed"; case .recent: return "Nothing opened lately"; case .aside: return "Nothing set aside"; case .smart, .saved: return "No emails match"; case .sender: return "No emails from them"; case .sent: return "Nothing sent"; case .starred: return "No starred emails"; case .spam: return "No spam"; case .trash: return "Trash is empty"; default: return "Nothing in this folder" }
     }
     /// Snoozed: the soonest to come back first, as on the Mac.
     private var rows: [Mail] {
@@ -322,8 +341,30 @@ struct DraftsView: View {
     }
 }
 
+// MARK: - Scheduled (read from the Mail server, which holds every scheduled send; changed on the Mac)
+
+struct ScheduledView: View {
+    @EnvironmentObject var store: PhoneStore
+    var body: some View {
+        List {
+            Banner()
+            Section {
+                ForEach(store.scheduled) { s in DraftRowView(mail: s.draft.mail, sendAt: s.at) }
+                if store.scheduled.isEmpty { Text(store.server == nil ? "Scheduled emails need the Audrey Mail server." : "Nothing scheduled").foregroundStyle(Theme.sub) }
+            } header: { Text("Each one sends at its time, even when your Mac is off.").foregroundStyle(Theme.sub).textCase(nil) }
+              footer: { Text("To change the time or cancel one, use Audrey Mail on your Mac.").foregroundStyle(Theme.sub) }
+                .modifier(CardRows())
+        }
+        .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(Theme.bg)
+        .navigationTitle("Scheduled")
+        .task { await store.loadScheduled() }
+        .refreshable { await store.loadScheduled() }
+    }
+}
+
 private struct DraftRowView: View {
     let mail: Mail
+    var sendAt: Date? = nil   // Scheduled: when it sends, in place of the draft's date
     var body: some View {
         let to = Address.parseList(mail.to).first
         HStack(alignment: .top, spacing: 12) {
@@ -332,10 +373,10 @@ private struct DraftRowView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("To: " + (to?.display ?? "no one yet")).font(.system(size: 16, weight: .semibold)).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
+                    Text(sendAt.map(Fmt.long) ?? Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
                 }
                 HStack(spacing: 6) {
-                    Text("Draft").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.danger)
+                    Text(sendAt == nil ? "Draft" : "Scheduled").font(.system(size: 13, weight: .bold)).foregroundStyle(sendAt == nil ? Theme.danger : Theme.acc)
                     Text(mail.subject == "(no subject)" ? "No subject" : mail.subject).font(.system(size: 14.5)).lineLimit(1)
                 }
                 Text(mail.snippet).font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
@@ -343,7 +384,7 @@ private struct DraftRowView: View {
         }
         .foregroundStyle(Theme.text).frame(minHeight: 54, alignment: .top).contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Draft to \(to?.display ?? "no one yet"). \(mail.subject). \(Fmt.short(mail.date))")
+        .accessibilityLabel(sendAt.map { "Scheduled to \(to?.display ?? "no one yet"). \(mail.subject). Sends \(Fmt.long($0))" } ?? "Draft to \(to?.display ?? "no one yet"). \(mail.subject). \(Fmt.short(mail.date))")
     }
 }
 

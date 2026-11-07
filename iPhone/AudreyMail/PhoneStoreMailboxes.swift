@@ -15,6 +15,18 @@ extension PhoneStore {
         } catch { await fail(error, "Could not load your drafts.") }
     }
 
+    /// Scheduled: the server's waiting sends matched to the Gmail drafts they will send. An Undo Send hold from this phone is not a scheduled email.
+    func loadScheduled() async {
+        guard let server else { scheduled = []; return }
+        do {
+            let jobs = try await server.pendingJobs()
+            await loadDrafts()
+            guard state == .signedIn else { return }
+            let held = Set(heldList.map(\.draftID))
+            scheduled = drafts.compactMap { d in held.contains(d.id) ? nil : jobs[d.id].map { ScheduledRow(draft: d, at: Date(timeIntervalSince1970: TimeInterval($0))) } }.sorted { $0.at < $1.at }
+        } catch { await fail(error, "Could not load your scheduled emails.") }
+    }
+
     /// Opens a saved draft in the Write screen. Saving it again replaces the Gmail draft.
     func openDraft(_ r: DraftRow) async {
         do {

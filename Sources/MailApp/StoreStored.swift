@@ -10,6 +10,8 @@ extension MailStore {
         switch box {
         case .sent: return DBListSpec(all: ["SENT"], none: ["TRASH", "SPAM"])
         case .folder(let id): return DBListSpec(all: [id], none: ["TRASH", "SPAM"])
+        case .starred: return DBListSpec(all: ["STARRED"], none: ["TRASH", "SPAM"])
+        case .allMail: return DBListSpec(all: [], none: ["TRASH", "SPAM"])   // Spam and Trash are not copied to this Mac: those two always come from Gmail
         case .archive:
             // Gmail's own Archive: not in Inbox, Sent, Drafts, Trash, Spam, Blocked or Snoozed. Unless the label list has been read, Blocked and Snoozed are not known: ask Gmail then.
             guard !labelList.isEmpty else { return nil }

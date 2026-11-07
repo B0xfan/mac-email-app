@@ -158,6 +158,10 @@ struct SidebarView: View {
             NavRow(symbol: "paperplane", title: "Sent", on: store.mailbox == .sent) { Task { await store.select(.sent) } }
             NavRow(symbol: "doc", title: "Drafts", on: store.mailbox == .drafts) { Task { await store.select(.drafts) } }
             NavRow(symbol: "archivebox", title: "Archive", on: store.mailbox == .archive) { Task { await store.select(.archive) } }
+            NavRow(symbol: "star", title: "Starred", on: store.mailbox == .starred) { Task { await store.select(.starred) } }
+            NavRow(symbol: "tray.full", title: "All Mail", on: store.mailbox == .allMail) { Task { await store.select(.allMail) } }
+            NavRow(symbol: "xmark.octagon", title: "Spam", on: store.mailbox == .spam) { Task { await store.select(.spam) } }
+            NavRow(symbol: "trash", title: "Trash", on: store.mailbox == .trash) { Task { await store.select(.trash) } }
             if !store.sidebarCompact { OrganizerSidebar(store: store) }   // folders need room; the Command Center still goes to them
             } }
             Spacer(minLength: 0)
@@ -506,6 +510,9 @@ struct ListPane: View {
         case .folder: return "No emails in this folder."
         case .smart: return "No emails match these rules."
         case .saved: return "Nothing found."
+        case .starred: return "No starred emails."
+        case .spam: return "No spam."
+        case .trash: return "Trash is empty."
         default: return "Nothing here yet."
         }
     }

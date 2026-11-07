@@ -4,7 +4,7 @@ import AppKit
 import Combine
 import MailCore
 
-enum Mailbox: Hashable { case inbox, newSenders, blocked, sent, drafts, archive, search, recent, setAside, snoozed, scheduled, folder(String), smart(UUID), saved(UUID) }
+enum Mailbox: Hashable { case inbox, newSenders, blocked, sent, drafts, archive, starred, allMail, spam, trash, search, recent, setAside, snoozed, scheduled, folder(String), smart(UUID), saved(UUID) }
 
 struct ToastInfo: Equatable { var text: String; var action: String?; var link: URL? = nil; var id = UUID() }
 
@@ -52,7 +52,7 @@ final class MailStore: ObservableObject {
     static let keepListFor: TimeInterval = 120
     /// Lists that are plain Gmail lists; search, Drafts and Recently Seen change on their own and are always read fresh.
     func keptKey(_ box: Mailbox) -> String? {
-        switch box { case .sent, .archive, .folder, .smart, .saved: return "\(box)"; default: return nil }
+        switch box { case .sent, .archive, .starred, .allMail, .spam, .trash, .folder, .smart, .saved: return "\(box)"; default: return nil }
     }
     /// The Check button throws every kept list away (changes through Mail are caught by the write counter in the Gmail client).
     func forgetKeptLists() { keptLists = [:] }
@@ -246,7 +246,7 @@ final class MailStore: ObservableObject {
         case .setAside: return aside.sorted { asides.date($0) > asides.date($1) }
         case .snoozed: return snoozed.sorted { (timing.data.snoozes[$0.id] ?? .distantFuture) < (timing.data.snoozes[$1.id] ?? .distantFuture) }
         case .scheduled: return []
-        case .sent, .drafts, .archive, .search, .recent, .folder, .smart, .saved: return other
+        case .sent, .drafts, .archive, .starred, .allMail, .spam, .trash, .search, .recent, .folder, .smart, .saved: return other
         }
     }
     var newSenderCount: Int { newSenderRows.count }
@@ -511,7 +511,11 @@ final class MailStore: ObservableObject {
                     guard gen == otherGen else { return }
                     other = ids.compactMap { byID[$0] }
                 case .archive:
-                    src = .query("-in:inbox -in:sent -in:drafts -in:trash -in:spam -label:\"\(blockLabelName)\"" + (snoozeLabelID == nil ? "" : " -label:\"\(labelList.first { $0.id == snoozeLabelID }?.name ?? "Snoozed")\""))
+                    src = .query(GmailQuery.archive(blockLabel: blockLabelName, snoozeLabel: snoozeLabelID.map { id in labelList.first { $0.id == id }?.name ?? "Snoozed" }))
+                case .starred: src = .labels(["STARRED"])
+                case .allMail: src = .query(GmailQuery.allMail)
+                case .spam: src = .query(GmailQuery.spam)
+                case .trash: src = .query(GmailQuery.trash)
                 case .folder(let id): src = .labels([id])
                 case .smart(let id):
                     let sq = organizer.smart.first { $0.id == id }?.query ?? ""

@@ -99,6 +99,16 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
         return o["status"] as? String ?? "none"
     }
 
+    /// Every scheduled send waiting at the server for this person (made on the Mac or held here): draft id -> unix send time.
+    func pendingJobs() async throws -> [String: Int] {
+        let (c, o) = try await call("GET", "jobs")
+        guard c == 200, let list = o["jobs"] as? [[String: Any]] else { throw PhoneServerError.refused(c) }
+        return Dictionary(list.compactMap { r -> (String, Int)? in
+            guard r["status"] as? String == "pending", let id = r["draft_id"] as? String, let at = (r["send_at"] as? NSNumber)?.intValue else { return nil }
+            return (id, at)
+        }, uniquingKeysWith: { a, _ in a })
+    }
+
     // MARK: Snooze state (shared with the Mac: GET and PUT /timing-view)
 
     func writeTiming(base: Int, _ view: TimingView) async throws -> TimingViewWrite {

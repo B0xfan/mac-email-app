@@ -32,6 +32,7 @@ final class SenderBook {
 
 /// A saved Gmail draft, as a row in the Drafts list (`id` is the draft's id, `mail` its message).
 struct DraftRow: Identifiable { let id: String; var mail: Mail }
+struct ScheduledRow: Identifiable { let draft: DraftRow; let at: Date; var id: String { draft.id } }
 
 struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@MainActor () -> Void)?; var open: URL? = nil }   // open: where the "Open" button leads (a new to-do)
 
@@ -53,6 +54,7 @@ final class PhoneStore: ObservableObject {
     @Published var knownCache: [String: Bool] = [:]
     @Published var sendersChecked = false
     @Published var drafts: [DraftRow] = []
+    @Published var scheduled: [ScheduledRow] = []   // the drafts the Mail server will send, soonest first
     @Published var labelList: [GLabel] = []   // Gmail labels; the folders are made from them (PhoneStore+Mailboxes)
     @Published var folderMails: [Mail] = []   // the emails of the folder that is open
     @Published var folderLoading = false
@@ -202,7 +204,7 @@ final class PhoneStore: ObservableObject {
 
     private func clearLocal() {
         inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil; sendToast = nil
-        drafts = []; labelList = []; folderMails = []; folderSource = nil; folderNext = nil; blocked = []; blockedLoaded = false
+        drafts = []; scheduled = []; labelList = []; folderMails = []; folderSource = nil; folderNext = nil; blocked = []; blockedLoaded = false
         organizer = Organizer(); organizerBase = Organizer(); smartCounts = [:]; sharing = nil; heldTask?.cancel(); heldTask = nil; defaults.removeObject(forKey: HeldSend.key)
         Task { await server?.forgetKey() }   // the next account registers fresh
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
