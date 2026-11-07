@@ -152,6 +152,16 @@ public final class GmailClient: @unchecked Sendable {
     /// False for sending and filter creation: after a timeout or 5xx the call may have gone through, so a retry would send twice / make a second filter. A 429 means Gmail did nothing, so send() retries that for every call regardless.
     public static func retriesAfterUncertainFailure(method: String, path: String) -> Bool { !(method == "POST" && (path == "/messages/send" || path == "/drafts/send" || path == "/settings/filters")) }
 
+    /// Why no access token came back, in GmailClient's terms. Only an unreachable Google is "offline"; a refusal (a wrong client id, a revoked app) keeps Google's own reason.
+    public static func tokenFailure(_ error: Error) -> Error {
+        guard let a = error as? AuthError else { return GmailError.offline }
+        switch a {
+        case .signInAgain: return GmailError.signInAgain
+        case .network: return GmailError.offline
+        default: return a
+        }
+    }
+
     public func send(_ path: String, method: String = "GET", query: [URLQueryItem] = [], body: Data? = nil,
                       contentType: String = "application/json", retry: Int = 0) async throws -> Data {
         var c = URLComponents(string: Self.base + path)!
@@ -160,9 +170,7 @@ public final class GmailClient: @unchecked Sendable {
         req.httpMethod = method
         req.timeoutInterval = 30
         let token: String
-        do { token = try await auth.validAccessToken() }
-        catch AuthError.signInAgain { throw GmailError.signInAgain }
-        catch { throw GmailError.offline }
+        do { token = try await auth.validAccessToken() } catch { throw Self.tokenFailure(error) }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let body { req.httpBody = body; req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if method != "GET" { noteWrite() }   // before and after: a list kept meanwhile must not be trusted

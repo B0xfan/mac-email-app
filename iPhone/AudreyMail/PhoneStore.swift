@@ -232,12 +232,12 @@ final class PhoneStore: ObservableObject {
         await refresh()
     }
 
-    private enum Fresh { case ok, ended, offline }
+    private enum Fresh { case ok, ended, offline, refused(Error) }
     private func freshToken() async -> Fresh {
         await sign.invalidateAccessToken()
         do { _ = try await sign.validAccessToken(); return .ok }
         catch AuthError.signInAgain { return .ended }
-        catch { return .offline }
+        catch { let e = GmailClient.tokenFailure(error); if case GmailError.offline = e { return .offline }; return .refused(e) }
     }
 
     func fail(_ error: Error, _ fallback: String) async {
@@ -248,6 +248,7 @@ final class PhoneStore: ObservableObject {
             case .ok: banner = "Gmail did not answer just now. Pull down to try again."
             case .offline: banner = "Can't reach Google right now. Pull down to try again."
             case .ended: await expire()
+            case .refused(let e): banner = (e as? LocalizedError)?.errorDescription ?? fallback
             }
             return
         }
@@ -741,6 +742,7 @@ final class PhoneStore: ObservableObject {
             switch await freshToken() {
             case .ended: await expire(); throw GmailError.signInAgain
             case .offline: throw GmailError.offline
+            case .refused(let e): throw e
             case .ok: break
             }
             do { return try await op() }

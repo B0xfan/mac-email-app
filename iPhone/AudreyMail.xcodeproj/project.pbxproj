@@ -160,6 +160,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A00000000000000000000034 /* Build configuration list for PBXNativeTarget "AudreyMail" */;
 			buildPhases = (
+				A0000000000000000000009F /* Check Google sign-in id */,
 				A0000000000000000000002A /* Sources */,
 				A0000000000000000000002B /* Frameworks */,
 				A0000000000000000000002C /* Resources */,
@@ -217,6 +218,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A0000000000000000000009F /* Check Google sign-in id */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Check Google sign-in id";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# A phone build without the Google iOS client prefix installs but can never sign in (TestFlight builds 10 and 11).\nif [ \"$PLATFORM_NAME\" = iphoneos ] && [ \"$GOOGLE_IOS_CLIENT_PREFIX\" = NOT-SET ]; then\n  echo \"error: GOOGLE_IOS_CLIENT_PREFIX is not set. Pass GOOGLE_IOS_CLIENT_PREFIX=<prefix> to xcodebuild (the A4 .env holds it).\"\n  exit 1\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A0000000000000000000002A /* Sources */ = {

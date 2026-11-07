@@ -79,7 +79,7 @@ extension GmailClient {
     private func driveRequest(_ url: URL, _ method: String, json: [String: Any]? = nil) async throws -> URLRequest {
         var r = URLRequest(url: url); r.httpMethod = method; r.timeoutInterval = 60
         let token: String
-        do { token = try await auth.validAccessToken() } catch AuthError.signInAgain { throw GmailError.signInAgain } catch { throw GmailError.offline }
+        do { token = try await auth.validAccessToken() } catch { throw GmailClient.tokenFailure(error) }
         r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let json { r.httpBody = try? JSONSerialization.data(withJSONObject: json); r.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return r
