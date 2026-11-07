@@ -8,6 +8,12 @@ public enum GmailQuery {
         let c = s.filter { !$0.isWhitespace && !"\"(){}".contains($0) }
         return c.hasPrefix("@") ? c : "\"\(c)\""   // a whole-company "@domain" is Gmail's own syntax and stays bare
     }
+    /// Gmail's own lists that need search words, asked of Gmail the same way on the Mac and the phone.
+    public static let spam = "in:spam", trash = "in:trash", allMail = "-in:spam -in:trash"   // Spam and Trash by search words: a plain label list leaves them out
+    /// Gmail's own Archive: not in Inbox, Sent, Drafts, Trash or Spam, and not Blocked or Snoozed (Audrey Mail's own labels).
+    public static func archive(blockLabel: String, snoozeLabel: String?) -> String {
+        "-in:inbox -in:sent -in:drafts -in:trash -in:spam -label:\"\(blockLabel)\"" + (snoozeLabel.map { " -label:\"\($0)\"" } ?? "")
+    }
 }
 
 public struct GHeader: Decodable { public let name: String; public let value: String }
@@ -452,8 +458,8 @@ public final class GmailClient: @unchecked Sendable {
 
     public func deleteDraft(id: String) async throws { _ = try await send("/drafts/\(id)", method: "DELETE") }
 
-    public func drafts() async throws -> [(draftID: String, messageID: String)] {
-        let r = json(try await send("/drafts", query: [.init(name: "maxResults", value: "40")]))
+    public func drafts(max: Int = 40) async throws -> [(draftID: String, messageID: String)] {
+        let r = json(try await send("/drafts", query: [.init(name: "maxResults", value: String(Swift.min(Swift.max(max, 1), 500)))]))
         return (r["drafts"] as? [[String: Any]])?.compactMap {
             guard let id = $0["id"] as? String, let m = ($0["message"] as? [String: Any])?["id"] as? String else { return nil }
             return (id, m)

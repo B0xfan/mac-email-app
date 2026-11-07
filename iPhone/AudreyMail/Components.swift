@@ -252,7 +252,7 @@ struct SwipeButton: View {
     var needsInbox = false   // in a folder list, Archive only makes sense for an email that is still in the inbox
     @EnvironmentObject var store: PhoneStore
     var body: some View {
-        if choice != .none && !(choice == .archive && needsInbox && !mail.labels.contains("INBOX")) {
+        if choice != .none && !(choice == .archive && needsInbox && !mail.labels.contains("INBOX")) && !(choice == .trash && mail.labels.contains("TRASH")) {   // already in Trash: trashing again would change nothing
             Button { store.swipe(choice, mail) } label: { Label(title, systemImage: symbol) }.tint(tint)
             if choice == .archive {   // Snooze sits on the same swipe as Archive; a full swipe still archives
                 Button { store.snoozeTarget = mail } label: { Label("Snooze", systemImage: "clock") }.tint(Theme.accInk)

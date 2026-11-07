@@ -20,7 +20,7 @@ extension MailStore {
     /// Lists whose rows can be selected. Not Drafts (they open as new emails), Snoozed (Trash would not clear a snooze), or the lists that have no such rows.
     var canPick: Bool {
         switch mailbox {
-        case .inbox, .setAside, .sent, .archive, .search, .folder, .smart, .saved: return true
+        case .inbox, .setAside, .sent, .archive, .starred, .allMail, .search, .folder, .smart, .saved: return true
         default: return false
         }
     }

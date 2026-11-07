@@ -63,7 +63,8 @@ extension MailStore {
         add("check", "Check Now") { Task { await self.refresh(reloadList: true) } }
         add("home", "Go to Home", group: "Go") { self.homeShown = true }
         let places: [(String, String, Mailbox)] = [("Inbox", "inbox", .inbox), ("Recently Seen", "recent", .recent), ("Set Aside", "setaside", .setAside), ("Snoozed", "snoozed", .snoozed),
-            ("Scheduled", "scheduled", .scheduled), ("New Senders", "newsenders", .newSenders), ("Blocked", "blocked", .blocked), ("Sent", "sent", .sent), ("Drafts", "drafts", .drafts), ("Archive", "archive", .archive)]
+            ("Scheduled", "scheduled", .scheduled), ("New Senders", "newsenders", .newSenders), ("Blocked", "blocked", .blocked), ("Sent", "sent", .sent), ("Drafts", "drafts", .drafts), ("Archive", "archive", .archive),
+            ("Starred", "starred", .starred), ("All Mail", "allmail", .allMail), ("Spam", "spam", .spam), ("Trash", "trash", .trash)]
         for (n, id, box) in places { add("go-" + id, "Go to " + n, group: "Go") { Task { await self.select(box) } } }
         for f in folders { add("folder-" + f.id, "Go to " + f.name.replacingOccurrences(of: "/", with: " / "), group: "Go") { Task { await self.select(.folder(f.id)) } } }
         for s in organizer.smart { add("smart-\(s.id)", "Go to " + s.name, group: "Go") { Task { await self.select(.smart(s.id)) } } }

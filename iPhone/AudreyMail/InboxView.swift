@@ -37,8 +37,9 @@ struct InboxView: View {
                 switch route {
                 case .mailboxes: MailboxesView()
                 case .drafts: DraftsView()
+                case .scheduled: ScheduledView()
                 case .blocked: BlockedListView(path: $path)
-                case .folder, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: $path)
+                case .folder, .sent, .archive, .starred, .allMail, .spam, .trash, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: $path)
                 }
             }
         }

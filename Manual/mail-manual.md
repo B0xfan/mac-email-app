@@ -68,7 +68,7 @@ If you signed in for the first time with this version of Audrey Mail, Google alr
 
 ## The inbox
 
-The sidebar lists Home, Inbox, Recently Seen, Set Aside, Snoozed, Scheduled, New senders, Blocked, Sent, Drafts, Archive, then your folders. Numbers show what is waiting. The first button in the top bar (or Control-Command-S) hides the sidebar down to icons.
+The sidebar lists Home, Inbox, Recently Seen, Set Aside, Snoozed, Scheduled, New senders, Blocked, Sent, Drafts, Archive, Starred, All Mail, Spam, Trash, then your folders. Numbers show what is waiting. The first button in the top bar (or Control-Command-S) hides the sidebar down to icons.
 
 ### Smart, Classic and Unread
 

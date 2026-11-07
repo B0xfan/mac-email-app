@@ -259,6 +259,10 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, out(["api_key": srvKey!, "email": "alex.jordan@gmail.example", "device": body["device"] as? String ?? "mac"]))
         }
         guard let k = srvKey, req.value(forHTTPHeaderField: "Authorization") == "Bearer \(k)" else { srvLog.append("401"); return (401, "{}") }
+        if path == "jobs", method == "GET" {   // not logged: a read
+            let now = Int(Date().timeIntervalSince1970)
+            return (200, out(["signin_ok": true, "jobs": srvJobs.keys.sorted().map { ["draft_id": $0, "send_at": now + srvJobs[$0]!.seconds, "status": "pending"] as [String: Any] }]))
+        }
         if path.hasPrefix("jobs/") {
             let id = String(path.dropFirst("jobs/".count))
             if method == "PUT" {

@@ -18,7 +18,7 @@ extension SelfTest {
         check("help: every section has text and the names are unique", sections.allSatisfy { !$0.blocks.isEmpty } && Set(ids).count == ids.count)
         check("help: the sections the app points at exist", ["send-later", "keyboard-shortcuts", "searching-your-mail", "translate", "claude-access", "using-this-help", "what-works-when-your-mac-is-off"].allSatisfy { ids.contains($0) })
         check("help: the manual has no unchecked marker, no em dash and no vault link", !raw.contains("[CHECK") && !raw.contains("\u{2014}") && !raw.contains("[["))
-        let bare = try! NSRegularExpression(pattern: "(?<!Audrey )(?<!Stored )\\bMail\\b")   // "Mail" is only the internal name; John 2026-10-15: every visible mention says Audrey Mail
+        let bare = try! NSRegularExpression(pattern: "(?<!Audrey )(?<!Stored )(?<!All )\\bMail\\b")   // "All Mail" is Gmail's folder; "Mail" alone is only the internal name; John 2026-10-15: every visible mention says Audrey Mail
         check("help: the manual names the app Audrey Mail, never bare Mail", raw.contains("**Audrey Mail Help**") && bare.numberOfMatches(in: raw, range: NSRange(raw.startIndex..., in: raw)) == 0)
         // the same for every on-screen text in the code (only runs where the sources are present, as in the cloud build)
         let lit = try! NSRegularExpression(pattern: "\"(?:[^\"\\\\]|\\\\.)*\"")

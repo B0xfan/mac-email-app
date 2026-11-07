@@ -10,7 +10,7 @@ extension SelfTest {
     static func lsMailbox() -> FakeGmail {
         let f = FakeGmail()
         f.labelsJSON = lsLabels
-        let rows: [(String, [String], Int)] = [("i1", ["INBOX"], 300), ("i2", ["INBOX", "UNREAD"], 290), ("a1", [], 100), ("a2", [], 90), ("a3", [], 80), ("a4", ["Label_work"], 70), ("x1", ["Label_aside"], 50),
+        let rows: [(String, [String], Int)] = [("i1", ["INBOX"], 300), ("i2", ["INBOX", "UNREAD"], 290), ("a1", [], 100), ("a2", [], 90), ("a3", ["STARRED"], 80), ("a4", ["Label_work"], 70), ("x1", ["Label_aside"], 50),
                                 ("s1", ["SENT"], 200), ("s2", ["SENT"], 190), ("b1", ["Label_blk"], 60), ("z1", ["Label_snz"], 55), ("d1", ["DRAFT"], 40), ("t1", ["TRASH"], 30)]
         for (id, labels, d) in rows { f.put(id, labels, 1_700_000_000 + d) }
         f.drafts = [("D1", "d1")]
@@ -42,15 +42,20 @@ extension SelfTest {
         check("lists from this Mac: Archive is exactly Gmail's Archive (not Inbox, Sent, Drafts, Trash, Blocked or Snoozed), newest first, with no request to Gmail", archive == ["a1", "a2", "a3", "a4", "x1"] && f.requests == base)
         let sent = await ids(.sent), work = await ids(.folder("Label_work"))
         check("lists from this Mac: Sent and a folder open with no request to Gmail", sent == ["s1", "s2"] && work == ["a4"] && f.requests == base)
+        let lsStarred = await ids(.starred), lsAll = await ids(.allMail)
+        check("lists from this Mac: Starred and All Mail open with no request to Gmail; All Mail leaves out Trash", lsStarred == ["a3"] && lsAll.count == 12 && !lsAll.contains("t1") && f.requests == base)
+        _ = await ids(.trash)
+        check("lists from this Mac: Trash is not copied here, so it is always asked of Gmail", f.requests > base)
+        let lsBase2 = f.requests
         await st.select(.setAside); await st.select(.snoozed)
         let (aside, snoozed) = await MainActor.run { (st.aside.map(\.id), st.snoozed.map(\.id)) }
-        check("lists from this Mac: Set Aside and Snoozed open with no request to Gmail (the quiet check reads them from here too)", aside == ["x1"] && snoozed == ["z1"] && f.requests == base)
+        check("lists from this Mac: Set Aside and Snoozed open with no request to Gmail (the quiet check reads them from here too)", aside == ["x1"] && snoozed == ["z1"] && f.requests == lsBase2)
         await MainActor.run { st.seen.record("a2"); st.seen.record("i1") }
         let recent = await ids(.recent)
-        check("lists from this Mac: Recent opens with no request to Gmail", Set(recent) == ["a2", "i1"] && f.requests == base)
+        check("lists from this Mac: Recent opens with no request to Gmail", Set(recent) == ["a2", "i1"] && f.requests == lsBase2)
         let gets0 = f.gets.values.reduce(0, +)
         let drafts = await ids(.drafts)
-        check("lists from this Mac: Drafts asks Gmail only for the list of drafts (one request, so a draft saved a moment ago shows) and reads no message", drafts == ["d1"] && f.requests == base + 1 && f.gets.values.reduce(0, +) == gets0)
+        check("lists from this Mac: Drafts asks Gmail only for the list of drafts (one request, so a draft saved a moment ago shows) and reads no message", drafts == ["d1"] && f.requests == lsBase2 + 1 && f.gets.values.reduce(0, +) == gets0)
 
         // searching stays with Gmail; a half-known label list stays with Gmail; a re-copy after a gap stays with Gmail until it is done
         let r1 = f.requests

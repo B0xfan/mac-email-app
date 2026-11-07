@@ -350,6 +350,11 @@ enum DemoSelfTest {
         // drafts (Gmail drafts)
         await store.loadDrafts()
         check("Drafts lists the two Gmail drafts, newest first", store.drafts.map(\.id) == ["D1", "D2"] && store.drafts[0].mail.to.contains("Maya"))
+        box.with { $0.srvJobs["D2"] = (3600, 0); $0.srvJobs["DGONE2"] = (60, 0) }   // one scheduled draft, one job whose draft is gone
+        await store.loadScheduled()
+        let schedAt = store.scheduled.first?.at.timeIntervalSinceNow ?? 0
+        check("Scheduled lists the drafts the server will send, with the server's time, and nothing for a job without a draft", store.scheduled.map(\.id) == ["D2"] && abs(schedAt - 3600) < 120)
+        box.with { $0.srvJobs = [:] }
         await store.openDraft(store.drafts[0])
         let ds = store.composeSeed?.restore
         check("opening a draft brings back who it is to, the subject and the words, and keeps its Gmail draft", ds?.draftID == "D1" && ds?.to == ["maya.ortiz@example.com"] && ds?.subject == "Re: Saturday at the beach?" && ds?.text == "Sounds great! I will drive. Pick you up at 8?")
