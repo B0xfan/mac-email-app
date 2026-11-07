@@ -208,6 +208,10 @@ extension SelfTest {
         try? await Task.sleep(nanoseconds: 500_000_000)
         sending.cancel()
         check("gmail client: a call cancelled in flight throws a cancellation, not 'Could not reach Gmail'", await sending.value)
+        check("gmail client: Google refusing the token keeps its reason; only an unreachable Google reads as offline",
+              (GmailClient.tokenFailure(AuthError.denied("invalid_client")) as? AuthError)?.errorDescription?.contains("invalid_client") == true
+              && { if case GmailError.offline = GmailClient.tokenFailure(AuthError.network("x")) { return true }; return false }()
+              && { if case GmailError.signInAgain = GmailClient.tokenFailure(AuthError.signInAgain) { return true }; return false }())
         return ok
     }
 
