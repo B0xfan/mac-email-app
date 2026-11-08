@@ -757,7 +757,8 @@ enum SelfTest {
         fcalls = []
         await store.undoLast()
         let mtiUndo = fcalls.contains { $0.contains("batchModify") && $0.contains("fm1") && $0.contains("\"removeLabelIds\":[\"INBOX\"]") }
-        check("move to inbox: Undo takes the Inbox label off again", mtiUndo)
+        let mtiRowOut = await MainActor.run { store.other.first?.inInbox == false }
+        check("move to inbox: Undo takes the Inbox label off again, on the row shown too", mtiUndo && mtiRowOut)
         var mtiSpam = fm1; mtiSpam.labels = ["SPAM"]
         await MainActor.run { store.mailbox = .spam; store.other = [mtiSpam] }
         fcalls = []

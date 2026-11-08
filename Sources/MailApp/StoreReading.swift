@@ -172,10 +172,12 @@ extension MailStore {
         aside = ids.compactMap { have[$0] } + fresh
     }
 
-    /// Back to Inbox: the email returns to where it was by date.
     /// Search, Archive, folders, Starred, All Mail, Spam: an email not in the Inbox goes back in. The row stays (Spam drops it); Undo takes it out again.
+    /// A set-aside or snoozed email takes those paths instead, so it is not left in two places (or woken again later).
     func moveToInbox(_ m: Mail) async {
         guard !m.inInbox else { return }
+        if let l = asideLabelID, m.labels.contains(l) { await backToInbox([m]); applyLabels(m.id, add: ["INBOX"], remove: [l]); return }
+        if let l = snoozeLabelID, m.labels.contains(l) { await wake([m.id]); applyLabels(m.id, add: ["INBOX"], remove: [l]); return }
         let remove = m.labels.contains("SPAM") ? ["SPAM"] : []
         do {
             try await change(ids: [m.id], add: ["INBOX"], remove: remove)
@@ -191,6 +193,7 @@ extension MailStore {
         } catch { self.error = (error as? LocalizedError)?.errorDescription }
     }
 
+    /// Back to Inbox: the email returns to where it was by date.
     func backToInbox(_ ms: [Mail]) async {
         guard let l = asideLabelID, !ms.isEmpty else { return }
         do {
@@ -213,7 +216,7 @@ extension MailStore {
             let ids = undoArchive; undoArchive = []; undoFolder = nil
             do {
                 if undoUntrash { for id in ids { try await moveFromTrash(id: id) }; undoUntrash = false }
-                if !u.add.isEmpty || !u.remove.isEmpty { try await change(ids: ids, add: u.add, remove: u.remove) }
+                if !u.add.isEmpty || !u.remove.isEmpty { try await change(ids: ids, add: u.add, remove: u.remove); for id in ids { applyLabels(id, add: u.add, remove: u.remove) } }   // refresh does not reread a kept row (search, Sent)
                 if !undoSibs.isEmpty { try await change(ids: undoSibs, add: ["INBOX"]); undoSibs = [] }
                 if let l = asideLabelID, u.add.contains(l) { for id in ids { if let d = undoAsideDays[id] { asides.record(id, at: d) } } }
             } catch { note(error) }

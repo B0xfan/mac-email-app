@@ -447,14 +447,15 @@ struct ListPane: View {
                         ForEach(store.listMails) { m in
                             if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
                             let acts = store.mailbox != .drafts && store.mailbox != .trash && !m.labels.contains("TRASH") && !m.labels.contains("DRAFT")   // a draft opens as a new email; Trash has no way back yet
+                            let toInbox = acts && !m.inInbox && !m.labels.contains("SENT")   // your own sent email does not belong in the Inbox
                             MessageRow(mail: m, selected: store.selectedID == m.id, picked: store.picked.contains(m.id),
-                                       onSnooze: acts ? { store.picker = .snooze([m.id]) } : nil,
-                                       onBack: acts && !m.inInbox ? { Task { await store.moveToInbox(m) } } : nil,
+                                       onSnooze: acts && !m.labels.contains("SPAM") ? { store.picker = .snooze([m.id]) } : nil,   // a woken spam email would stay in Spam
+                                       onBack: toInbox ? { Task { await store.moveToInbox(m) } } : nil,
                                        onArchive: acts && m.inInbox ? { Task { await store.archive(m) } } : nil,
                                        swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
                                 .contextMenu {
                                     basicsMenu(store, m)
-                                    if acts && !m.inInbox { Button { Task { await store.moveToInbox(m) } } label: { Label("Move to Inbox", systemImage: "tray") } }
+                                    if toInbox { Button { Task { await store.moveToInbox(m) } } label: { Label("Move to Inbox", systemImage: "tray") } }
                                     moveToFolderMenu(store, m)
                                 }
                         }
