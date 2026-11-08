@@ -446,8 +446,17 @@ struct ListPane: View {
                         let firstExtra = store.extraFirstID
                         ForEach(store.listMails) { m in
                             if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
-                            MessageRow(mail: m, selected: store.selectedID == m.id, picked: store.picked.contains(m.id), swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
-                                .contextMenu { basicsMenu(store, m); moveToFolderMenu(store, m) }
+                            let acts = store.mailbox != .drafts && store.mailbox != .trash && !m.labels.contains("TRASH") && !m.labels.contains("DRAFT")   // a draft opens as a new email; Trash has no way back yet
+                            MessageRow(mail: m, selected: store.selectedID == m.id, picked: store.picked.contains(m.id),
+                                       onSnooze: acts ? { store.picker = .snooze([m.id]) } : nil,
+                                       onBack: acts && !m.inInbox ? { Task { await store.moveToInbox(m) } } : nil,
+                                       onArchive: acts && m.inInbox ? { Task { await store.archive(m) } } : nil,
+                                       swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
+                                .contextMenu {
+                                    basicsMenu(store, m)
+                                    if acts && !m.inInbox { Button { Task { await store.moveToInbox(m) } } label: { Label("Move to Inbox", systemImage: "tray") } }
+                                    moveToFolderMenu(store, m)
+                                }
                         }
                     }
                     if store.mailbox != .inbox, store.otherNext != nil { MoreRow(loading: store.loadingOtherMore, page: store.otherNext, resetKey: "", auto: { await store.autoMoreOther() }, manual: { store.resetAutoPages(); await store.loadMoreOther() }, reset: { store.resetAutoPages() }) }
@@ -596,7 +605,7 @@ struct MessageRow: View {
     private var rowContent: some View {
         ZStack(alignment: .topTrailing) {
             rowButton
-            if hover.v || (SnapshotMode.on && SnapshotMode.barRow == mail.id), onPin != nil || onBack != nil {
+            if hover.v || (SnapshotMode.on && SnapshotMode.barRow == mail.id), onPin != nil || onBack != nil || onArchive != nil {
                 HStack(spacing: 2) {
                     if let onPin { HoverIcon(symbol: pinned ? "pin.fill" : "pin", label: pinned ? "Unpin (P)" : "Pin (P)", on: pinned, action: onPin) }
                     if let onAside { HoverIcon(symbol: "rectangle.stack", label: "Set Aside (S)", on: false, action: onAside) }

@@ -204,6 +204,14 @@ enum ListTest {
         store.syncProgress = SyncProgress()
         check("12-first copy: the progress bar shows while the copy runs and is gone before and after it (teal pixel rows \(barRows))", barRows[1] - barRows[0] >= 4 && abs(barRows[2] - barRows[0]) <= 1)
 
+        // hover buttons on a search result that is not in the Inbox (John 2026-11-07), for a look
+        var lt16 = mail("arch", "Alaska Airlines", hoursAgo: 50, unread: false); lt16.labels = []
+        SnapshotMode.on = true; SnapshotMode.barRow = "arch"
+        store.other = [lt16]; store.search = "alaska airlines"; store.mailbox = .search
+        await LiveTest.pump(0.8)
+        LiveTest.grab(win, "\(dir)/list-16-search-hover.png")
+        SnapshotMode.on = false; SnapshotMode.barRow = nil
+
         // Settings > Storage, drawn in a window that is never shown (the picture goes with the others, for a look)
         let app = AppModel.current ?? AppModel()
         let sw = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 960, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)

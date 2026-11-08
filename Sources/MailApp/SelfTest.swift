@@ -745,6 +745,26 @@ enum SelfTest {
         await store.moveToFolder(fm1, fIt)
         let inSent = await MainActor.run { (store.other.map(\.id), store.other.first?.labels.contains("L2")) }
         check("move to folder from Sent: row stays in Sent and gets the label", inSent.0 == ["fm1"] && inSent.1 == true)
+        // Move to Inbox from search results: the row stays, the email joins the Inbox, Undo takes it out again
+        var mtiMail = fm1; mtiMail.labels = ["L2"]
+        await MainActor.run { store.mailbox = .search; store.other = [mtiMail]; store.inbox = [fm2] }
+        fcalls = []
+        await store.moveToInbox(mtiMail)
+        let mtiAfter = await MainActor.run { (store.other.map(\.id), store.inbox.map(\.id).contains("fm1"), store.other.first?.inInbox, store.toast?.text) }
+        let mtiCalled = fcalls.contains { $0.contains("batchModify") && $0.contains("fm1") && $0.contains("\"addLabelIds\":[\"INBOX\"]") }
+        check("move to inbox from search: adds the Inbox label, row stays in the results, email is in the Inbox, says so",
+              mtiCalled && mtiAfter.0 == ["fm1"] && mtiAfter.1 && mtiAfter.2 == true && mtiAfter.3 == "Moved to the Inbox.")
+        fcalls = []
+        await store.undoLast()
+        let mtiUndo = fcalls.contains { $0.contains("batchModify") && $0.contains("fm1") && $0.contains("\"removeLabelIds\":[\"INBOX\"]") }
+        check("move to inbox: Undo takes the Inbox label off again", mtiUndo)
+        var mtiSpam = fm1; mtiSpam.labels = ["SPAM"]
+        await MainActor.run { store.mailbox = .spam; store.other = [mtiSpam] }
+        fcalls = []
+        await store.moveToInbox(mtiSpam)
+        let mtiSpamAfter = await MainActor.run { store.other.isEmpty }
+        let mtiSpamCalled = fcalls.contains { $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"SPAM\"]") }
+        check("move to inbox from Spam: also takes the Spam label off and leaves the Spam list", mtiSpamAfter && mtiSpamCalled)
         await MainActor.run { store.mailbox = .inbox; store.toast = nil }
         // rename keeps sub-folders under the renamed parent
         fcalls = []

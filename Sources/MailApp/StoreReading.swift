@@ -173,6 +173,24 @@ extension MailStore {
     }
 
     /// Back to Inbox: the email returns to where it was by date.
+    /// Search, Archive, folders, Starred, All Mail, Spam: an email not in the Inbox goes back in. The row stays (Spam drops it); Undo takes it out again.
+    func moveToInbox(_ m: Mail) async {
+        guard !m.inInbox else { return }
+        let remove = m.labels.contains("SPAM") ? ["SPAM"] : []
+        do {
+            try await change(ids: [m.id], add: ["INBOX"], remove: remove)
+            applyLabels(m.id, add: ["INBOX"], remove: remove)
+            var x = m; x.labels.removeAll { remove.contains($0) }; x.labels.append("INBOX")
+            if !inbox.contains(where: { $0.id == m.id }) { inbox.append(x); inbox.sort { $0.date > $1.date } }
+            undoRows = []
+            if mailbox == .spam, let at = other.firstIndex(where: { $0.id == m.id }) { undoRows = [(box: mailbox, query: search, at: at, mail: m)]; other.remove(at: at) }
+            saveCache()
+            undoArchive = [m.id]; undoSibs = []; undoAside = false; undoUntrash = false; undoReopen = nil
+            undoFolder = (add: remove, remove: ["INBOX"])
+            showToast("Moved to the Inbox.", action: "Undo")
+        } catch { self.error = (error as? LocalizedError)?.errorDescription }
+    }
+
     func backToInbox(_ ms: [Mail]) async {
         guard let l = asideLabelID, !ms.isEmpty else { return }
         do {
