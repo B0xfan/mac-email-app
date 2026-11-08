@@ -657,6 +657,17 @@ enum SelfTest {
         await store.backToInbox([sa2])
         let st3 = await MainActor.run { (store.aside.count, store.inbox.map(\.id)) }
         check("set aside: Move all back empties the list", st3.0 == 0 && st3.1 == ["sa1", "sa2"])
+        // Move to Inbox on a set-aside email found by search: it leaves Set Aside too, not only joins the Inbox
+        await store.setAside(sa1)
+        let saAway = await MainActor.run { store.aside.first { $0.id == "sa1" } }
+        await MainActor.run { store.mailbox = .search; store.other = saAway.map { [$0] } ?? [] }
+        calls = []
+        if let saAway { await store.moveToInbox(saAway) }
+        let saMti = await MainActor.run { (store.aside.isEmpty, store.inbox.contains { $0.id == "sa1" }, store.other.first?.inInbox, store.toast?.text) }
+        let saMtiCalled = calls.contains { $0.contains("\"addLabelIds\":[\"INBOX\"]") && $0.contains("\"removeLabelIds\":[\"Label_9\"]") }
+        check("move to inbox from search, set-aside email: leaves Set Aside, joins the Inbox, row updated, says so",
+              saAway != nil && saMti.0 && saMti.1 && saMti.2 == true && saMti.3 == "Moved to the Inbox." && saMtiCalled)
+        await MainActor.run { store.mailbox = .setAside; store.other = [] }
         let nowD = Date(), c = Calendar.current
         check("set aside: time words", AsideBook.label(nowD) == "Set aside today" && AsideBook.label(c.date(byAdding: .day, value: -1, to: nowD)!) == "Set aside yesterday"
               && AsideBook.label(c.date(byAdding: .day, value: -3, to: nowD)!).hasPrefix("Set aside ") && AsideBook.label(c.date(byAdding: .day, value: -10, to: nowD)!) == "Set aside last week")

@@ -176,8 +176,15 @@ extension MailStore {
     /// A set-aside or snoozed email takes those paths instead, so it is not left in two places (or woken again later).
     func moveToInbox(_ m: Mail) async {
         guard !m.inInbox else { return }
-        if let l = asideLabelID, m.labels.contains(l) { await backToInbox([m]); applyLabels(m.id, add: ["INBOX"], remove: [l]); return }
-        if let l = snoozeLabelID, m.labels.contains(l) { await wake([m.id]); applyLabels(m.id, add: ["INBOX"], remove: [l]); return }
+        // backToInbox and wake show their own error; only on success does the row change and say so (no Undo here: the old one must not run instead)
+        func moved(_ add: [String], _ l: String, _ go: () async -> Void) async {
+            let shown = error; error = nil
+            await go()
+            guard error == nil else { return }
+            error = shown; applyLabels(m.id, add: add, remove: [l]); undoArchive = []; undoFolder = nil; showToast("Moved to the Inbox.")
+        }
+        if let l = asideLabelID, m.labels.contains(l) { await moved(["INBOX"], l) { await backToInbox([m]) }; return }
+        if let l = snoozeLabelID, m.labels.contains(l) { await moved(["INBOX", "UNREAD"], l) { await wake([m.id]) }; return }   // wake brings it back unread
         let remove = m.labels.contains("SPAM") ? ["SPAM"] : []
         do {
             try await change(ids: [m.id], add: ["INBOX"], remove: remove)
