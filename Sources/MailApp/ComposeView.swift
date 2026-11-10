@@ -72,6 +72,9 @@ struct ComposeView: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Text(fromLabel).foregroundStyle(Theme.text).lineLimit(1)
+                                if case .reply = draft.v.mode, draft.v.from != store.defaultFrom {
+                                    Text("picked for you: the email came to this address").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
+                                }
                                 Spacer(minLength: 0)
                                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 11)).foregroundStyle(Theme.sub)
                             }.contentShape(Rectangle())

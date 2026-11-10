@@ -847,7 +847,14 @@ struct ReadingContent: View {
                     HStack(spacing: 8) {
                         Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)
                         ForEach(warns, id: \.label) { SenderWarningLabel(warning: $0) }
-                        Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
+                        if let e = GSendAs.extraAddress(of: mail, in: store.sendAs, account: store.accountEmail) {
+                            HStack(spacing: 5) {
+                                Text("\(mail.from.email), to").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
+                                AddressTag(email: e)
+                            }
+                        } else {
+                            Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
+                        }
                     }.id(mail.id)   // a bubble left open does not carry over to the next email
                     if store.mailbox != .recent { Text(Fmt.long(mail.date)).font(Theme.small).foregroundStyle(Theme.sub) }
                 }

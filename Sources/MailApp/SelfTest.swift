@@ -63,6 +63,18 @@ enum SelfTest {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
 
+        // Extra addresses: an email to john@dateline.app names it and its reply starts from it; mail to the main account stays "to me"
+        let addrs = [GSendAs(sendAsEmail: "jhesch@gmail.com", displayName: "John Hesch", isDefault: true, signature: nil),
+                     GSendAs(sendAsEmail: "john@dateline.app", displayName: "John Hesch", isDefault: false, signature: nil)]
+        let toExtra = Mail(id: "x1", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "John <John@Dateline.app>")
+        let toMain = Mail(id: "x2", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "jhesch@gmail.com, john@dateline.app")
+        let toList = Mail(id: "x3", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "team@x.example")
+        check("an email to an extra address names it, and its reply starts from it",
+              GSendAs.extraAddress(of: toExtra, in: addrs, account: "jhesch@gmail.com") == "john@dateline.app"
+              && GSendAs.replyFrom(toExtra, in: addrs, account: "jhesch@gmail.com") == "John Hesch <john@dateline.app>")
+        check("an email to the main address, or to none of John's, names no extra address",
+              GSendAs.extraAddress(of: toMain, in: addrs, account: "jhesch@gmail.com") == nil && GSendAs.replyFrom(toList, in: addrs, account: "jhesch@gmail.com") == nil)
+
         // RFC 7636 appendix B vector
         check("PKCE challenge matches RFC 7636 vector",
               PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")

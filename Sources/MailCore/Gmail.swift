@@ -51,6 +51,19 @@ public struct GSendAs: Decodable {
     public let isDefault: Bool?
     public let signature: String?
     public init(sendAsEmail: String, displayName: String?, isDefault: Bool?, signature: String?) { self.sendAsEmail = sendAsEmail; self.displayName = displayName; self.isDefault = isDefault; self.signature = signature }
+    /// "Name <address>", the From header value.
+    public var fromLine: String { (displayName ?? "").isEmpty ? sendAsEmail : "\(displayName!) <\(sendAsEmail)>" }
+
+    /// The extra "send as" address an email came to (To, then Cc), lowercased; nil when it came to the main account or to none of them.
+    public static func extraAddress(of m: Mail, in list: [GSendAs], account: String) -> String? {
+        let mine = Set(list.map { $0.sendAsEmail.lowercased() })
+        let hit = (Address.parseList(m.to) + Address.parseList(m.cc)).map { $0.email.lowercased() }.first { mine.contains($0) || $0 == account.lowercased() }
+        return hit == account.lowercased() ? nil : hit
+    }
+    /// The From for a reply: the extra address the email came to, else nil (the default address).
+    public static func replyFrom(_ m: Mail, in list: [GSendAs], account: String) -> String? {
+        extraAddress(of: m, in: list, account: account).flatMap { e in list.first { $0.sendAsEmail.lowercased() == e }?.fromLine }
+    }
 }
 
 public struct GThreadMessage: Equatable { public let id: String; public let labels: [String]; public let date: Date

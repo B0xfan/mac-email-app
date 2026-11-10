@@ -274,3 +274,12 @@ struct SwipeButton: View {
         switch choice { case .archive: return Theme.acc; case .trash: return Theme.danger; case .pin: return Theme.dot; case .aside: return Theme.blk; default: return Theme.sub }
     }
 }
+
+/// One of John's extra addresses, named on an email that came to it ("to john@dateline.app").
+struct AddressTag: View {
+    let email: String
+    var body: some View {
+        Text(email).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.acc).lineLimit(1).truncationMode(.middle)
+            .padding(.horizontal, 8).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 6).fill(Theme.side))
+    }
+}

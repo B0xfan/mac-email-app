@@ -57,7 +57,7 @@ extension MailStore {
         let quote = "\(DateFormatter.long.string(from: m.date)), \(who.display) wrote:"
         let subj = m.subject.lowercased().hasPrefix("re:") ? m.subject : "Re: \(m.subject)"
         let who2 = replyRecipients(m, all: all)
-        var d = ComposeDraft(from: defaultFrom, to: who2.to, cc: who2.cc, subject: subj, mode: .reply(m.id))
+        var d = ComposeDraft(from: GSendAs.replyFrom(m, in: sendAs, account: accountEmail) ?? defaultFrom, to: who2.to, cc: who2.cc, subject: subj, mode: .reply(m.id))
         d.quoteHeader = quote
         d.quoteHTML = m.html ?? TextTools.plainToHTML(m.text ?? m.snippet)
         d.quotePlain = m.text ?? TextTools.htmlToPlain(m.html ?? m.snippet)

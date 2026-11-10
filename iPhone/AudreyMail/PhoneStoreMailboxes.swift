@@ -45,7 +45,8 @@ extension PhoneStore {
             present(ComposeSeed(restoring: ComposeSnapshot(
                 mode: .new, source: nil, to: Address.parseList(full.to).map(\.email).filter { $0.contains("@") }, cc: full.cc, bcc: full.bcc ?? "",
                 subject: full.subject == "(no subject)" ? "" : full.subject, text: body, attachments: [], draftID: r.id, threadID: full.threadID,
-                inReplyTo: full.references.split(separator: " ").last.map(String.init) ?? "", references: full.references, signed: false)))   // a reply draft stays a reply; its text already holds any signature
+                inReplyTo: full.references.split(separator: " ").last.map(String.init) ?? "", references: full.references, signed: false,
+                from: sendAs.first { $0.sendAsEmail.lowercased() == full.from.email.lowercased() }?.fromLine ?? "")))   // a reply draft stays a reply; its text already holds any signature
         } catch { await fail(error, "This draft could not be opened.") }
     }
 

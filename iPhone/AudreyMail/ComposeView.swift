@@ -16,6 +16,7 @@ struct ComposeSnapshot {
     var threadID: String?   // a resumed draft keeps its conversation
     var inReplyTo = "", references = ""   // ... and stays a reply
     var signed = true   // the signature from Settings is added when sent; a draft opened from Gmail already holds whatever it had
+    var from = ""      // the From header; "" = the default address
 }
 
 struct ComposeSeed: Identifiable {
@@ -46,6 +47,7 @@ struct ComposeView: View {
     @State private var quote: (header: String, html: String, plain: String)?   // worked out once per kind of message, not on every key
     @State private var auto: (to: [String], cc: String, subject: String) = ([], "", "")   // what the app filled in, so a kind switch never overwrites the user's own edits
     @State private var subject = ""
+    @State private var from = ""   // "" = the default address
     @State private var text = ""
     @State private var attachments: [ComposeAttachment] = []
     @State private var sending = false
@@ -86,6 +88,19 @@ struct ComposeView: View {
             if let problem { BannerView(text: problem) }
             ScrollView {
                 VStack(spacing: 0) {
+                    if store.sendAs.count > 1 {
+                        field("From") {
+                            Menu {
+                                ForEach(store.sendAs, id: \.sendAsEmail) { s in Button(s.sendAsEmail) { from = s.fromLine } }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(Address.parse(fromValue).email).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 12)).foregroundStyle(Theme.sub)
+                                }.contentShape(Rectangle())
+                            }.accessibilityLabel("From, \(Address.parse(fromValue).email)")
+                        }
+                    }
                     field("To") {
                         HStack {
                             ForEach(chips, id: \.self) { c in
@@ -192,6 +207,7 @@ struct ComposeView: View {
         if first || chips == auto.to { chips = to }
         if first || cc == auto.cc { cc = ccNew }
         if first || subject == auto.subject { subject = subj }
+        if first, mode != .forward { from = GSendAs.replyFrom(m, in: store.sendAs, account: store.accountEmail) ?? "" }
         auto = (to, ccNew, subj)
         if first, mode != .forward { focus = true }
     }
@@ -234,12 +250,12 @@ struct ComposeView: View {
     }
 
     private func snapshot() -> ComposeSnapshot {
-        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID, inReplyTo: inReplyTo, references: references, signed: useSignature)
+        ComposeSnapshot(mode: mode, source: seed.source, to: chips, cc: cc, bcc: bcc, subject: subject, text: text, attachments: attachments, draftID: draftID, threadID: threadID, inReplyTo: inReplyTo, references: references, signed: useSignature, from: from)
     }
 
     /// Puts back what a snapshot holds (Undo Send, a failed send, a draft that is opened again).
     private func apply(_ r: ComposeSnapshot) {
-        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID; inReplyTo = r.inReplyTo; references = r.references; useSignature = r.signed
+        chips = r.to; cc = r.cc; bcc = r.bcc; subject = r.subject; text = r.text; attachments = r.attachments; draftID = r.draftID; threadID = r.threadID; inReplyTo = r.inReplyTo; references = r.references; useSignature = r.signed; from = r.from
         quote = makeQuote()
         problem = seed.notice
         focus = true
@@ -257,7 +273,7 @@ struct ComposeView: View {
             html += "<br><br><div>" + TextTools.plainToHTML(q.header) + "</div><blockquote style=\"margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex\">\(q.html)</blockquote>"
             plain += "\n\n" + q.header + "\n" + q.plain.split(separator: "\n", omittingEmptySubsequences: false).map { "> " + $0 }.joined(separator: "\n")
         }
-        var out = MIME.Outgoing(from: store.defaultFrom, to: chips.joined(separator: ", "), cc: cc, bcc: bcc, subject: subject, html: html, text: plain, attachments: attachments.map { ($0.name, $0.data, $0.mime) })
+        var out = MIME.Outgoing(from: fromValue, to: chips.joined(separator: ", "), cc: cc, bcc: bcc, subject: subject, html: html, text: plain, attachments: attachments.map { ($0.name, $0.data, $0.mime) })
         if let m = seed.source, mode != .forward {
             out.inReplyTo = m.messageIDHeader
             out.references = (m.references + " " + m.messageIDHeader).trimmingCharacters(in: .whitespaces)
@@ -266,6 +282,7 @@ struct ComposeView: View {
         }
         return out
     }
+    private var fromValue: String { from.isEmpty ? store.defaultFrom : from }
     private var conversation: String? { mode == .forward ? nil : seed.source?.threadID ?? threadID }
 
     /// The email waits out the Undo Send delay in the store; this screen closes at once.

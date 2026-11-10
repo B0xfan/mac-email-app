@@ -335,3 +335,12 @@ struct MoreRow: View {
             .onDisappear { reset() }   // scrolled away: the next time it comes into view it may load again
     }
 }
+
+/// One of John's extra addresses, named on an email that came to it ("to john@dateline.app").
+struct AddressTag: View {
+    let email: String
+    var body: some View {
+        Text(email).font(Theme.small.weight(.semibold)).foregroundStyle(Theme.acc).lineLimit(1).textSelection(.enabled)
+            .padding(.horizontal, 7).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.hovBg))
+    }
+}
