@@ -287,11 +287,13 @@ extension MailStore {
     func saveAttachmentAs(_ a: Attachment, of m: Mail) async {
         let p = NSSavePanel(); p.nameFieldStringValue = Self.safeName(a.name); p.canCreateDirectories = true
         guard p.runModal() == .OK, let dest = p.url, let src = await attachmentURL(a, of: m) else { return }
+        let fm = FileManager.default, tmp = dest.deletingLastPathComponent().appendingPathComponent(".audreymail-\(UUID().uuidString)")
         do {
-            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
-            try FileManager.default.copyItem(at: src, to: dest)
-            toast = ToastInfo(text: "Saved \(dest.lastPathComponent).", action: "Show in Finder", link: dest.deletingLastPathComponent())
-        } catch { error = "Could not save \(dest.lastPathComponent) there. Pick another folder and try again." }
+            // Copy next to it first, then swap: a failed copy never costs the file being replaced.
+            try fm.copyItem(at: src, to: tmp)
+            if fm.fileExists(atPath: dest.path) { _ = try fm.replaceItemAt(dest, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: dest) }
+            showToast("Saved \(dest.lastPathComponent).", action: "Show in Finder", link: dest.deletingLastPathComponent())
+        } catch { try? fm.removeItem(at: tmp); error = "Could not save \(dest.lastPathComponent) there. Pick another folder and try again." }
     }
 
     /// Save every attachment of the email into a folder John picks; a name already there gets a number, nothing is replaced.
@@ -299,13 +301,13 @@ extension MailStore {
         let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.allowsMultipleSelection = false
         p.prompt = "Save All"; p.message = "Choose where to save the \(m.attachments.count) attachments."
         guard p.runModal() == .OK, let dir = p.url else { return }
-        var saved = 0
-        for a in m.attachments {
-            guard let src = await attachmentURL(a, of: m) else { break }   // the download error is already shown
-            do { try FileManager.default.copyItem(at: src, to: Self.freeName(a.name, in: dir)); saved += 1 }
-            catch { error = "Could not save \(a.name) there. Pick another folder and try again."; break }
+        var saved = 0, failed: [String] = []
+        for a in m.attachments {   // one failure skips that file only
+            guard let src = await attachmentURL(a, of: m) else { failed.append(a.name); continue }
+            do { try FileManager.default.copyItem(at: src, to: Self.freeName(a.name, in: dir)); saved += 1 } catch { failed.append(a.name) }
         }
-        if saved > 0 { toast = ToastInfo(text: "Saved \(saved) of \(m.attachments.count) attachments.", action: "Show in Finder", link: dir) }
+        if failed.isEmpty { showToast("Saved all \(saved) attachments.", action: "Show in Finder", link: dir) }
+        else { error = "Saved \(saved) of \(m.attachments.count) attachments. Could not save: \(failed.joined(separator: ", ")). Check the connection and try again." }
     }
 
     /// An attachment's name made safe as a file name.
