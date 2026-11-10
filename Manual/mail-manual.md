@@ -106,7 +106,7 @@ Audrey Mail puts each email in a tab by itself. If it picks wrong, right-click t
 ## Reading an email
 
 1. Click an email in the list. It opens beside the list. Several messages on the same subject show as one conversation.
-2. **Attachments** show under the email. Click the name to open it.
+2. **Attachments** show under the email. Click the name to open it. Click the arrow next to it to save it: a save dialog opens so you pick the place. When an email has two or more attachments, **Save All** asks for a folder and saves them all there. A file that is already in that folder is never replaced; the new one gets a number.
 3. **Reading pane.** The **More** button in the top bar moves the reading pane beside the list or below it. When it is below, a **Back** arrow (or Escape) returns to the list.
 4. **Add note.** Under the subject you can write a private note that only you see. It stays on this Mac.
 5. **Print.** Command-P. For a conversation, choose **This email** or **Whole conversation**.

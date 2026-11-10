@@ -283,6 +283,45 @@ extension MailStore {
         if let url = await attachmentURL(a, of: m) { NSWorkspace.shared.open(url) }
     }
 
+    /// Save one attachment where John picks in a save dialog (the dialog itself asks before replacing a file).
+    func saveAttachmentAs(_ a: Attachment, of m: Mail) async {
+        let p = NSSavePanel(); p.nameFieldStringValue = Self.safeName(a.name); p.canCreateDirectories = true
+        guard p.runModal() == .OK, let dest = p.url, let src = await attachmentURL(a, of: m) else { return }
+        do {
+            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
+            try FileManager.default.copyItem(at: src, to: dest)
+            toast = ToastInfo(text: "Saved \(dest.lastPathComponent).", action: "Show in Finder", link: dest.deletingLastPathComponent())
+        } catch { error = "Could not save \(dest.lastPathComponent) there. Pick another folder and try again." }
+    }
+
+    /// Save every attachment of the email into a folder John picks; a name already there gets a number, nothing is replaced.
+    func saveAllAttachments(of m: Mail) async {
+        let p = NSOpenPanel(); p.canChooseFiles = false; p.canChooseDirectories = true; p.canCreateDirectories = true; p.allowsMultipleSelection = false
+        p.prompt = "Save All"; p.message = "Choose where to save the \(m.attachments.count) attachments."
+        guard p.runModal() == .OK, let dir = p.url else { return }
+        var saved = 0
+        for a in m.attachments {
+            guard let src = await attachmentURL(a, of: m) else { break }   // the download error is already shown
+            do { try FileManager.default.copyItem(at: src, to: Self.freeName(a.name, in: dir)); saved += 1 }
+            catch { error = "Could not save \(a.name) there. Pick another folder and try again."; break }
+        }
+        if saved > 0 { toast = ToastInfo(text: "Saved \(saved) of \(m.attachments.count) attachments.", action: "Show in Finder", link: dir) }
+    }
+
+    /// An attachment's name made safe as a file name.
+    nonisolated static func safeName(_ name: String) -> String {
+        let n = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        return n.isEmpty || n == "." || n == ".." ? "attachment" : n
+    }
+
+    /// Where `name` can go in `dir` without replacing a file: "a.pdf", then "a 2.pdf", "a 3.pdf"...
+    nonisolated static func freeName(_ name: String, in dir: URL) -> URL {
+        let clean = safeName(name), base = (clean as NSString).deletingPathExtension, ext = (clean as NSString).pathExtension
+        var u = dir.appendingPathComponent(clean), i = 2
+        while FileManager.default.fileExists(atPath: u.path) { u = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(i)" : "\(base) \(i).\(ext)"); i += 1 }
+        return u
+    }
+
     /// The kept copy of an attachment for the button; nil after an error has been shown.
     func attachmentURL(_ a: Attachment, of m: Mail) async -> URL? {
         if let url = await saveAttachment(a, of: m) { return url }
@@ -314,9 +353,7 @@ extension MailStore {
     /// Where attachments John downloaded are kept: Audrey Mail's folder, one folder per email and one per attachment (two attachments may share a name). Removed with the account.
     static var attachmentsFolder: URL { JSONStore.folder.appendingPathComponent("Attachments") }
     static func attachmentFile(_ a: Attachment, of m: Mail, in base: URL) -> URL {
-        var name = a.name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-        if name.isEmpty || name == "." || name == ".." { name = "attachment" }
-        return base.appendingPathComponent(m.id).appendingPathComponent(String(m.attachments.firstIndex(of: a) ?? 0)).appendingPathComponent(name)
+        base.appendingPathComponent(m.id).appendingPathComponent(String(m.attachments.firstIndex(of: a) ?? 0)).appendingPathComponent(safeName(a.name))
     }
 
     static var attachmentTemp: URL { FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-Attachments") }

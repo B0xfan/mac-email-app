@@ -684,6 +684,15 @@ enum SelfTest {
               && Folders.problem("travel", existing: ["Travel"]) != nil && Folders.problem("Travel", existing: ["Travel"], ignoring: "Travel") == nil && Folders.problem("/x", existing: []) != nil && Folders.problem("Taxes/2026", existing: ["Travel"]) == nil)
         var sf = SmartFolder(name: "Invoices", matchAll: true, rules: [SmartRule(field: .from, value: "tomas"), SmartRule(field: .subject, value: "september invoice"), SmartRule(field: .attachment)])
         check("smart folder: all rules join with spaces, phrases quoted, attachment rule", sf.query == "from:tomas subject:\"september invoice\" has:attachment")
+        let saveDir = FileManager.default.temporaryDirectory.appendingPathComponent("AudreyMail-SaveTest-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: saveDir, withIntermediateDirectories: true)
+        let firstFree = MailStore.freeName("Tomo 2026.pdf", in: saveDir)
+        FileManager.default.createFile(atPath: firstFree.path, contents: Data("x".utf8))
+        FileManager.default.createFile(atPath: saveDir.appendingPathComponent("notes").path, contents: Data("x".utf8))
+        check("save all: a free name keeps the name, a taken one gets a number before the extension, nothing is replaced",
+              firstFree.lastPathComponent == "Tomo 2026.pdf" && MailStore.freeName("Tomo 2026.pdf", in: saveDir).lastPathComponent == "Tomo 2026 2.pdf"
+              && MailStore.freeName("notes", in: saveDir).lastPathComponent == "notes 2" && MailStore.freeName("a/b:c.zip", in: saveDir).lastPathComponent == "a-b-c.zip")
+        try? FileManager.default.removeItem(at: saveDir)
         sf.matchAll = false
         check("smart folder: any rule uses Gmail's OR group", sf.query == "{from:tomas subject:\"september invoice\" has:attachment}")
         check("smart folder: empty rules never mean every email; odd characters cannot add operators",

@@ -930,8 +930,23 @@ struct ReadingContent: View {
             if !embedded, !store.selectedIsNewSender, store.mailbox != .drafts { QuickReplyRow(store: store, mail: store.openMail ?? mail) }   // a reply answers the newest message
             if !mail.attachments.isEmpty {
                 HStack(spacing: 8) {
+                    // The name opens the file; the arrow saves it where John picks (approved mockup 2026-11-10).
                     ForEach(mail.attachments) { a in
-                        Button { Task { await store.openAttachment(a, of: mail) } } label: { Label(a.name, systemImage: "paperclip") }
+                        HStack(spacing: 0) {
+                            Button { Task { await store.openAttachment(a, of: mail) } } label: { Label(a.name, systemImage: "paperclip").padding(.horizontal, 8).frame(maxHeight: .infinity).contentShape(Rectangle()) }
+                                .buttonStyle(.plain).help("Open")
+                            Theme.sub.opacity(0.4).frame(width: 1)
+                            Button { Task { await store.saveAttachmentAs(a, of: mail) } } label: { Image(systemName: "arrow.down.to.line").padding(.horizontal, 8).frame(maxHeight: .infinity).contentShape(Rectangle()) }
+                                .buttonStyle(.plain).help("Save").accessibilityLabel("Save \(a.name)")
+                        }
+                        .font(.system(size: 13, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        .foregroundStyle(Theme.text).frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.sub, lineWidth: 1))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    if mail.attachments.count > 1 {
+                        Button { Task { await store.saveAllAttachments(of: mail) } } label: { Label("Save All", systemImage: "arrow.down.to.line") }
                             .buttonStyle(MailButtonStyle(kind: .neutral, small: true))
                     }
                 }
