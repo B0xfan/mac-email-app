@@ -72,6 +72,9 @@ enum SelfTest {
         check("an email to an extra address names it, and its reply starts from it",
               GSendAs.extraAddress(of: toExtra, in: addrs, account: "jhesch@gmail.com") == "john@dateline.app"
               && GSendAs.replyFrom(toExtra, in: addrs, account: "jhesch@gmail.com") == "John Hesch <john@dateline.app>")
+        let sent = Mail(id: "x4", from: Address(name: "John", email: "john@dateline.app"), subject: "s", snippet: "s", date: Date(), to: "sam@x.example")
+        check("replying to John's own email keeps the address he sent it from",
+              GSendAs.replyFrom(sent, in: addrs, account: "jhesch@gmail.com") == "John Hesch <john@dateline.app>")
         check("an email to the main address, or to none of John's, names no extra address",
               GSendAs.extraAddress(of: toMain, in: addrs, account: "jhesch@gmail.com") == nil && GSendAs.replyFrom(toList, in: addrs, account: "jhesch@gmail.com") == nil)
 

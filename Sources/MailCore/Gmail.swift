@@ -50,19 +50,25 @@ public struct GSendAs: Decodable {
     public let displayName: String?
     public let isDefault: Bool?
     public let signature: String?
+    public var verificationStatus: String? = nil   // "pending" until the address's confirmation code is entered; the main address has none
     public init(sendAsEmail: String, displayName: String?, isDefault: Bool?, signature: String?) { self.sendAsEmail = sendAsEmail; self.displayName = displayName; self.isDefault = isDefault; self.signature = signature }
     /// "Name <address>", the From header value.
     public var fromLine: String { (displayName ?? "").isEmpty ? sendAsEmail : "\(displayName!) <\(sendAsEmail)>" }
 
-    /// The extra "send as" address an email came to (To, then Cc), lowercased; nil when it came to the main account or to none of them.
+    /// The first of John's addresses among these, lowercased.
+    private static func own(_ addrs: [Address], _ list: [GSendAs], _ account: String) -> String? {
+        let mine = Set(list.map { $0.sendAsEmail.lowercased() } + [account.lowercased()])
+        return addrs.map { $0.email.lowercased() }.first { mine.contains($0) }
+    }
+    /// The extra "send as" address an email was sent To, lowercased; nil when it went to the main account or to none of them (Cc keeps the normal line).
     public static func extraAddress(of m: Mail, in list: [GSendAs], account: String) -> String? {
-        let mine = Set(list.map { $0.sendAsEmail.lowercased() })
-        let hit = (Address.parseList(m.to) + Address.parseList(m.cc)).map { $0.email.lowercased() }.first { mine.contains($0) || $0 == account.lowercased() }
+        let hit = own(Address.parseList(m.to), list, account)
         return hit == account.lowercased() ? nil : hit
     }
-    /// The From for a reply: the extra address the email came to, else nil (the default address).
+    /// The From for a reply: the address John sent it from (his own email), else the one of his it came to (To, then Cc); nil = the default address.
     public static func replyFrom(_ m: Mail, in list: [GSendAs], account: String) -> String? {
-        extraAddress(of: m, in: list, account: account).flatMap { e in list.first { $0.sendAsEmail.lowercased() == e }?.fromLine }
+        let hit = own([m.from], list, account) ?? own(Address.parseList(m.to) + Address.parseList(m.cc), list, account)
+        return hit.flatMap { e in list.first { $0.sendAsEmail.lowercased() == e }?.fromLine }
     }
 }
 
@@ -425,7 +431,7 @@ public final class GmailClient: @unchecked Sendable {
     public func sendAs() async throws -> [GSendAs] {
         let d = try await send("/settings/sendAs")
         struct R: Decodable { let sendAs: [GSendAs]? }
-        return (try? JSONDecoder().decode(R.self, from: d))?.sendAs ?? []
+        return ((try? JSONDecoder().decode(R.self, from: d))?.sendAs ?? []).filter { ($0.verificationStatus ?? "accepted") == "accepted" }   // an address still waiting for its code cannot send yet
     }
 
     // MARK: Sending and drafts

@@ -9,7 +9,7 @@ extension MailStore {
 
     var defaultFrom: String {
         let d = sendAs.first(where: { $0.isDefault == true }) ?? sendAs.first
-        if let d { return (d.displayName ?? "").isEmpty ? d.sendAsEmail : "\(d.displayName!) <\(d.sendAsEmail)>" }
+        if let d { return d.fromLine }
         return accountEmail
     }
 

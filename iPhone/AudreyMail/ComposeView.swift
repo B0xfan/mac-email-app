@@ -207,7 +207,7 @@ struct ComposeView: View {
         if first || chips == auto.to { chips = to }
         if first || cc == auto.cc { cc = ccNew }
         if first || subject == auto.subject { subject = subj }
-        if first, mode != .forward { from = GSendAs.replyFrom(m, in: store.sendAs, account: store.accountEmail) ?? "" }
+        if mode != .forward, first || from.isEmpty { from = GSendAs.replyFrom(m, in: store.sendAs, account: store.accountEmail) ?? "" }
         auto = (to, ccNew, subj)
         if first, mode != .forward { focus = true }
     }

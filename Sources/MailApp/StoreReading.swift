@@ -12,7 +12,7 @@ extension MailStore {
             if compose != nil, compose?.draftID == did { selectedID = m.id; return }   // already the open one: keep what is typed
             guard let full = try? await gmail.message(id: m.id, full: true), await saveOpenComposeFirst() else { return }   // load first: a failed load must not leave a draft the open email does not know about
             selectedID = m.id
-            var d = ComposeDraft(from: defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
+            var d = ComposeDraft(from: sendAs.first { $0.sendAsEmail.lowercased() == full.from.email.lowercased() }?.fromLine ?? defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
             d.draftID = did
             d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
             d.threadID = nil

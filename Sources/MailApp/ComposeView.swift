@@ -66,13 +66,12 @@ struct ComposeView: View {
                     field("From") {
                         Menu {
                             ForEach(store.sendAs, id: \.sendAsEmail) { s in
-                                let v = (s.displayName ?? "").isEmpty ? s.sendAsEmail : "\(s.displayName!) <\(s.sendAsEmail)>"
-                                Button((s.displayName ?? "").isEmpty ? s.sendAsEmail : "\(s.displayName!) (\(s.sendAsEmail))") { draft.v.from = v }
+                                Button((s.displayName ?? "").isEmpty ? s.sendAsEmail : "\(s.displayName!) (\(s.sendAsEmail))") { draft.v.from = s.fromLine }
                             }
                         } label: {
                             HStack(spacing: 4) {
                                 Text(fromLabel).foregroundStyle(Theme.text).lineLimit(1)
-                                if case .reply = draft.v.mode, draft.v.from != store.defaultFrom {
+                                if case .reply = draft.v.mode, draft.v.from != store.defaultFrom, let o = store.openMail, GSendAs.replyFrom(o, in: store.sendAs, account: store.accountEmail) == draft.v.from {
                                     Text("picked for you: the email came to this address").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
                                 }
                                 Spacer(minLength: 0)

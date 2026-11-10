@@ -207,7 +207,7 @@ struct MessageBlock: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(m.from.display).font(.system(size: 16, weight: .bold))
                         if let e = GSendAs.extraAddress(of: m, in: store.sendAs, account: store.accountEmail) {
-                            HStack(spacing: 6) { Text("to"); AddressTag(email: e); Text("· \(Fmt.long(m.date))") }.font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
+                            HStack(spacing: 6) { Text("to"); AddressTag(email: e); Text("· \(Fmt.long(m.date))").fixedSize() }.font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
                         } else {
                             Text("\(toLine(m)) · \(Fmt.long(m.date))").font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
                         }
