@@ -293,7 +293,7 @@ extension MailStore {
             try fm.copyItem(at: src, to: tmp)
             if fm.fileExists(atPath: dest.path) { _ = try fm.replaceItemAt(dest, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: dest) }
             showToast("Saved \(dest.lastPathComponent).", action: "Show in Finder", link: dest.deletingLastPathComponent())
-        } catch { try? fm.removeItem(at: tmp); error = "Could not save \(dest.lastPathComponent) there. Pick another folder and try again." }
+        } catch { try? fm.removeItem(at: tmp); self.error = "Could not save \(dest.lastPathComponent) there. Pick another folder and try again." }
     }
 
     /// Save every attachment of the email into a folder John picks; a name already there gets a number, nothing is replaced.
