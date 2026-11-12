@@ -49,7 +49,7 @@ struct InboxView: View {
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""
             if ["read", "write", "leave", "todo", "grouped"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
-            if ["newsletter", "unsub"].contains(s), let m = store.inbox.first(where: { $0.id == "mm1" }) { path.append(m) }
+            if ["newsletter", "unsub"].contains(s), let m = store.inbox.first(where: { $0.id == "mm1" }) { store.book.approve(all: [m.from.email]); path.append(m) }   // an approved sender, so the picture shows the Unsubscribe button
             if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
             if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
             if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
