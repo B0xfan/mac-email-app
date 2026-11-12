@@ -516,7 +516,7 @@ enum DemoMode {
             let now = Int(Date().timeIntervalSince1970)
             box.with { b in b.srvTVVersion = 1; b.srvTV = ["snoozes": ["z1": now + 5 * 3600, "z2": now + 2 * 86400], "surfaced": ["m3": now - 300], "back_tag": ["m3"], "no_reply": [String]()] }
         }
-        if s == "newsletter" { box.with { b in b.msgs.append(DemoMailbox.Msg(id: "mm1", thread: "Tmm1", labels: ["INBOX", "UNREAD"], from: "Market & More <news@marketandmore.example>", subject: "Enjoy 20% off Natural Brand this week", body: DemoNewsletter.html, date: Date().addingTimeInterval(-3600))) } }
+        if ["newsletter", "unsub"].contains(s) { box.with { b in b.msgs.append(DemoMailbox.Msg(id: "mm1", thread: "Tmm1", labels: ["INBOX", "UNREAD"], from: "Market & More <news@marketandmore.example>", subject: "Enjoy 20% off Natural Brand this week", body: DemoNewsletter.html, date: Date().addingTimeInterval(-3600), unsub: true)) } }
         if s == "undooffline" { box.with { $0.srvDown = true } }
         if s.hasPrefix("set-") || s.hasPrefix("settings") {
             box.with { b in demoRules(b); b.vacation = ["enableAutoReply": true, "responseSubject": "Away this week", "responseBodyPlainText": "Hi, I am away until November 9 with little signal. I will reply when I am back.", "restrictToContacts": false,

@@ -108,6 +108,13 @@ public struct UnsubscribeInfo: Hashable, Codable {
         return UnsubscribeInfo(https: https, mailto: mailto, oneClick: one && https != nil)
     }
 
+    /// The address, subject and words of an email-only unsubscribe, decoded (as sent by the Mac and the phone).
+    public static func mailtoParts(_ mt: URL) -> (to: String, subject: String, body: String) {
+        let c = URLComponents(url: mt, resolvingAgainstBaseURL: false)
+        let q = { (n: String) in c?.queryItems?.first(where: { $0.name.lowercased() == n })?.value }
+        return (c?.path ?? "", q("subject") ?? "unsubscribe", q("body") ?? "")
+    }
+
     /// An email with no unsubscribe header: the first https link whose text says Unsubscribe. Only ever opened in the browser on a click.
     public static func bodyLink(html: String?) -> URL? {
         guard let html, html.range(of: "unsubscribe", options: .caseInsensitive) != nil,
@@ -298,6 +305,7 @@ public enum HTMLSafety {
 
 public enum MIME {
     public static func encodeHeader(_ s: String) -> String {
+        let s = s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")   // a line break would start a new header (e.g. a Bcc: smuggled in by a sender's unsubscribe subject)
         if s.unicodeScalars.allSatisfy({ $0.isASCII }) { return s }
         return "=?UTF-8?B?" + Data(s.utf8).base64EncodedString() + "?="
     }

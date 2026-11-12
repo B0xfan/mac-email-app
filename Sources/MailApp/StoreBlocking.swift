@@ -129,10 +129,7 @@ extension MailStore {
                 let (_, resp) = try await URLSession.shared.data(for: r)
                 guard let c = (resp as? HTTPURLResponse)?.statusCode, (200..<400).contains(c) else { throw GmailError.http(0, "The sender's unsubscribe page said no.") }
             } else if let mt = info.mailto {
-                let c = URLComponents(url: mt, resolvingAgainstBaseURL: false)
-                let to = mt.absoluteString.dropFirst("mailto:".count).split(separator: "?").first.map(String.init) ?? ""
-                let subj = c?.queryItems?.first(where: { $0.name.lowercased() == "subject" })?.value ?? "unsubscribe"
-                let body = c?.queryItems?.first(where: { $0.name.lowercased() == "body" })?.value ?? ""
+                let (to, subj, body) = UnsubscribeInfo.mailtoParts(mt)
                 let from = defaultFrom
                 let raw = MIME.build(.init(from: from, to: to, subject: subj, html: TextTools.plainToHTML(body), text: body))
                 try await gmail.sendRaw(raw, threadID: nil)

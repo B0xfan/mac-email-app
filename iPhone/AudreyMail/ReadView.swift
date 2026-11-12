@@ -21,6 +21,9 @@ struct ReadView: View {
     @State private var todoOpen = false
     @State private var open: Set<String> = []   // the messages of a grouped conversation that are shown open
     @State private var started = false
+    @State private var unsubAsk: String?    // after Unsubscribe: "also move their old emails?", as on the Mac
+    @State private var unsubDone: String?
+    @State private var unsubBusy = false   // one tap, one unsubscribe: the button goes away while it is sent
 
     /// With "Group emails into conversations" on, the whole conversation: older messages above, newer below, each folded to one line until tapped.
     private var stack: [ConvMsg]? {
@@ -39,7 +42,7 @@ struct ReadView: View {
                         VStack(spacing: 10) {
                             ForEach(s) { c in
                                 if open.contains(c.id) {
-                                    if c.id == mail.id { MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed, onHeaderTap: { fold(c.id) }) }
+                                    if c.id == mail.id { MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed, onHeaderTap: { fold(c.id) }, onUnsubscribe: unsubAction(m), notice: unsubNotice(m)) }
                                     else { MessageBlock(mail: Mail(id: c.id, from: c.from, subject: c.subject, snippet: c.snippet, date: c.date), selfLoading: true, onHeaderTap: { fold(c.id) }) }
                                 } else {
                                     FoldedLine(c: c) { unfold(c.id) }
@@ -47,7 +50,7 @@ struct ReadView: View {
                             }
                         }
                     } else {
-                        MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed)
+                        MessageBlock(mail: mail, preloaded: full, prepared: prepared, failed: failed, onUnsubscribe: unsubAction(m), notice: unsubNotice(m))
                     }
                     if !prefs.quickReplies.isEmpty {
                         FlowLayout(spacing: 6) {
@@ -79,6 +82,7 @@ struct ReadView: View {
                 Menu {
                     Button { store.markUnread(mail); dismiss() } label: { Label("Mark as unread", systemImage: "envelope.badge") }
                     if PhoneStore.canSnooze(mail) { Button { snoozing = true } label: { Label("Snooze…", systemImage: "clock") } }   // only an inbox email: Undo would put any other into the inbox
+                    if let u = unsubAction(m) { Button(action: u) { Label("Unsubscribe", systemImage: "bell.slash") } }
                     Button { blockTarget = m } label: { Label("Block sender", systemImage: "nosign") }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("More")
             }
@@ -119,7 +123,38 @@ struct ReadView: View {
         if DemoMode.screen == "block" { blockTarget = full }
         if DemoMode.screen == "move" { moving = true }
         if DemoMode.screen == "todo" { todoOpen = true }
+        if DemoMode.screen == "unsub" { unsubAsk = f.from.display }
         #endif
+    }
+
+    /// Unsubscribe, as on the Mac: through the email's unsubscribe header, or else the email's own Unsubscribe link opened in Safari (never on spam).
+    /// Nil once the question is showing or answered, and before the email is read in full.
+    private func unsubAction(_ m: Mail) -> (() -> Void)? {
+        guard full != nil, unsubAsk == nil, unsubDone == nil, !unsubBusy, !store.isNew(m) else { return nil }   // as on the Mac: not for a new sender still being screened
+        if m.unsubscribe != nil { return { unsubBusy = true; Task { if await store.unsubscribe(m) { unsubAsk = m.from.display }; unsubBusy = false } } }
+        guard !m.labels.contains("SPAM"), let link = UnsubscribeInfo.bodyLink(html: m.html) else { return nil }
+        return { UIApplication.shared.open(link) }
+    }
+
+    private func unsubNotice(_ m: Mail) -> AnyView? {
+        if let who = unsubAsk {
+            return AnyView(VStack(alignment: .leading, spacing: 10) {
+                Text("Unsubscribed from \(who). Also move their old emails to Blocked?").font(.system(size: 15, weight: .semibold)).fixedSize(horizontal: false, vertical: true)
+                Button {
+                    guard !unsubBusy else { return }
+                    unsubBusy = true   // the question stays up if the move fails, so it can be tried again
+                    Task { if await store.block(m, announce: false) { unsubAsk = nil; unsubDone = "Done. Their old emails were moved to Blocked." }; unsubBusy = false }
+                } label: { Text("Move Old Emails Too").font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).background(RoundedRectangle(cornerRadius: 12).fill(Theme.acc)).foregroundStyle(Theme.accText) }
+                .buttonStyle(.plain)
+                Button { unsubAsk = nil; unsubDone = "Done. Their old emails stay where they are." } label: {
+                    Text("Keep Old Emails").font(.system(size: 16, weight: .semibold)).frame(maxWidth: .infinity, minHeight: 44).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1.5)).foregroundStyle(Theme.text)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14).background(RoundedRectangle(cornerRadius: 14).fill(Theme.card)).overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line, lineWidth: 1.5)))
+        }
+        if let t = unsubDone { return AnyView(Text(t).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)) }
+        return nil
     }
 
     private func unfold(_ id: String) { if prefs.foldOthers { open = [id] } else { open.insert(id) } }
@@ -183,6 +218,8 @@ struct MessageBlock: View {
     var selfLoading = false      // another message of a conversation: the block reads its own email
     var failed: String? = nil
     var onHeaderTap: (() -> Void)? = nil   // set inside a grouped conversation: tapping the sender folds the message
+    var onUnsubscribe: (() -> Void)? = nil   // the open email only: an Unsubscribe button beside the sender, as on the Mac
+    var notice: AnyView? = nil               // shown under the sender line (the unsubscribe question)
     @EnvironmentObject var store: PhoneStore
     @EnvironmentObject var prefs: PhoneSettings
     @State private var loadedFull: Mail?
@@ -201,6 +238,7 @@ struct MessageBlock: View {
     var body: some View {
         let m = full ?? mail
         VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
             Button { onHeaderTap?() } label: {
                 HStack(spacing: 12) {
                     Avatar(address: m.from, people: MailCategory.guess(m) == .people)
@@ -216,8 +254,19 @@ struct MessageBlock: View {
                 }.contentShape(Rectangle())
             }
             .buttonStyle(.plain).foregroundStyle(Theme.text).allowsHitTesting(onHeaderTap != nil)
+            if let onUnsubscribe {
+                Button(action: onUnsubscribe) {
+                    Text("Unsubscribe").font(.system(size: 14, weight: .semibold)).padding(.horizontal, 12).frame(minHeight: 34)
+                        .background(Capsule().fill(Theme.card)).overlay(Capsule().stroke(Theme.line, lineWidth: 1.5))
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).foregroundStyle(Theme.text).fixedSize()   // the sender name wraps, the button keeps its size
+                .accessibilityLabel("Unsubscribe from \(m.from.display)")
+            }
+            }
             .padding(.bottom, 12)
             Rectangle().fill(Theme.line).frame(height: 1)
+            if let notice { notice.padding(.top, 12) }
             bodyView(m).padding(.top, 14)
             if !m.attachments.isEmpty {
                 VStack(spacing: 8) {

@@ -410,6 +410,31 @@ final class PhoneStore: ObservableObject {
         }
     }
 
+    // MARK: - Unsubscribe (only ever on a tap, like the Mac)
+
+    /// Tells the sender through the email's unsubscribe header. True when it went through (the screen then asks about their old emails).
+    func unsubscribe(_ m: Mail) async -> Bool {
+        guard let info = m.unsubscribe else { return false }
+        do {
+            if info.oneClick, let url = info.https {
+                var r = URLRequest(url: url); r.httpMethod = "POST"; r.timeoutInterval = 20
+                r.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+                r.httpBody = Data("List-Unsubscribe=One-Click".utf8)
+                let (_, resp) = try await URLSession.shared.data(for: r)
+                guard let c = (resp as? HTTPURLResponse)?.statusCode, (200..<400).contains(c) else { throw GmailError.http(0, "The sender's unsubscribe page said no.") }
+            } else if let mt = info.mailto {
+                let (to, subj, body) = UnsubscribeInfo.mailtoParts(mt)
+                try await sendNow(MIME.build(.init(from: defaultFrom, to: to, subject: subj, html: TextTools.plainToHTML(body), text: body)), threadID: nil)
+            } else if let url = info.https {
+                _ = await UIApplication.shared.open(url)
+            }
+            return true
+        } catch {
+            await fail(error, "Could not unsubscribe.")
+            return false
+        }
+    }
+
     func blockAllNewSenders() async {
         let rows = newSenderRows
         guard !rows.isEmpty else { return }

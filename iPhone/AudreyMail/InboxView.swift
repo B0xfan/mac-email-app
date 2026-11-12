@@ -49,7 +49,7 @@ struct InboxView: View {
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""
             if ["read", "write", "leave", "todo", "grouped"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
-            if s == "newsletter", let m = store.inbox.first(where: { $0.id == "mm1" }) { path.append(m) }
+            if ["newsletter", "unsub"].contains(s), let m = store.inbox.first(where: { $0.id == "mm1" }) { path.append(m) }
             if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
             if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
             if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
@@ -147,7 +147,11 @@ struct InboxView: View {
             .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
             .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m) }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m) }
-            .contextMenu { Button { store.snoozeTarget = m } label: { Label("Snooze…", systemImage: "clock") } }
+            .contextMenu {
+                // John 2026-11-12: unpin without archiving, so the email stays in the inbox
+                Button { store.togglePin(m) } label: { Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin") }
+                Button { store.snoozeTarget = m } label: { Label("Snooze…", systemImage: "clock") }
+            }
     }
 }
 

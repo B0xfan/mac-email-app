@@ -196,6 +196,20 @@ enum DemoSelfTest {
         store.composeSeed = nil
         store.openMailto(URL(string: "https://example.com")!)
         check("a web link does not open a message", store.composeSeed == nil)
+        // Unsubscribe (John 2026-11-12), as on the Mac: an email-only unsubscribe header sends the sender a short email from John's account
+        let usMail = Mail(id: "us1", from: Address(name: "List", email: "list@x.example"), subject: "News", snippet: "s", date: Date(),
+                          unsubscribe: UnsubscribeInfo(mailto: URL(string: "mailto:leave@x.example?subject=stop%20please"), oneClick: false))
+        let usOK = await store.unsubscribe(usMail)
+        let usRaw = box.with { $0.sent.last ?? "" }
+        let usCount = box.with { $0.sent.count }
+        check("Unsubscribe by email sends one email to the sender's unsubscribe address with its subject", usOK && usCount == 1 && usRaw.contains("To: leave@x.example") && usRaw.contains("stop please"))
+        let usNone = await store.unsubscribe(Mail(id: "us2", from: Address(name: "P", email: "p@x.example"), subject: "Hi", snippet: "s", date: Date()))
+        let usAfter = box.with { $0.sent.count }
+        check("an email with no unsubscribe header sends nothing", !usNone && usAfter == 1)
+        let usParts = UnsubscribeInfo.mailtoParts(URL(string: "mailto:a%2Bb@x.example?subject=stop%0D%0ABcc:%20c@y.example")!)
+        let usHdr = String(decoding: MIME.build(.init(from: "me@x.example", to: usParts.to, subject: usParts.subject, html: "", text: "")), as: UTF8.self)
+        check("an unsubscribe address is decoded, and a line break in its subject cannot add a Bcc", usParts.to == "a+b@x.example" && !usHdr.contains("\r\nBcc:") && !usHdr.contains("\nBcc:"))
+        box.with { $0.sent.removeAll(); $0.writes.removeAll() }   // the checks below count sends from zero
         let cold = DemoMode.makeStore(withServer: false)   // no pretend-server sign-up, so the checks below still see a clean one
         cold.openMailto(URL(string: "mailto:ana@example.com")!)
         await cold.start()
@@ -485,6 +499,12 @@ enum DemoSelfTest {
         box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m3" }) { b.msgs[i].labels.append("Label_pinned"); b.msgs[i].hid += 1 } }
         await store.refresh()
         check("an email pinned on the Mac shows in the Pinned group, newest first", store.pinnedMails.map(\.id) == ["m3"] && store.isPinned(row("m3")!))
+        // press-and-hold Unpin (John 2026-11-12): the email leaves the Pinned group but stays in the inbox; Pin puts it back
+        await store.togglePin(row("m3")!).value
+        let upInInbox = row("m3").map { !store.isPinned($0) && $0.labels.contains("INBOX") } ?? false
+        check("Unpin from the hold menu takes it out of Pinned and leaves it in the inbox", upInInbox && store.pinnedMails.isEmpty)
+        await store.togglePin(row("m3")!).value
+        check("Pin from the hold menu pins it again", store.pinnedMails.map(\.id) == ["m3"])
         check("a pinned email shows once: it is not in the tabs or their numbers", !store.shown.contains { $0.id == "m3" } && store.groups.flatMap(\.mails).allSatisfy { $0.id != "m3" })
         let tabWas = store.tab
         store.setTab(.notifications)
