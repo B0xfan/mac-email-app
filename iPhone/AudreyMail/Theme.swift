@@ -27,7 +27,13 @@ enum Theme {
     static let selStrong = Color("#a8d4d7", "#2c6f75")
     static let blk = Color("#7a3e8e", "#d9a8ea")
     static let blkText = Color("#ffffff", "#2a1033")
-    static let blkSoft = Color("#f1e4f6", "#2e1a36")   // the pill behind an extra address ("dateline.app")
+    /// One color pair (text, pill) per extra "send as" address, in address order; a fifth address reuses the first.
+    static let extraTags: [(ink: Color, soft: Color)] = [
+        (Color("#7a3e8e", "#d9a8ea"), Color("#f1e4f6", "#2e1a36")),   // purple
+        (Color("#2f5aa8", "#a9c4f5"), Color("#e3ebfa", "#17233a")),   // blue
+        (Color("#2e6b2f", "#a8dca0"), Color("#e2f2df", "#18301a")),   // green
+        (Color("#9a2f5a", "#f2a6c4"), Color("#f9e3ec", "#36182a")),   // rose
+    ]
     static let accSoft = Color("#fbebd3", "#35260f")
     static let accInk = Color("#7a4208", "#f5c98b")
     static let danger = Color("#a3261c", "#ff9d92")

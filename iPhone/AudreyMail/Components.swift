@@ -22,7 +22,7 @@ struct MailRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
                     if let tag { RowTag(text: tag) }
-                    if let extra { AddressTag(email: extra.split(separator: "@").last.map(String.init) ?? extra, small: true) }
+                    if let extra { AddressTag(email: store.addressLabel(extra), color: store.addressColor(extra), small: true).layoutPriority(-1) }
                     Spacer(minLength: 4)
                     if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk).padding(.horizontal, 7).background(Capsule().fill(Theme.accSoft)).accessibilityHidden(true) }
                     if prefs.isInTodo(mail) { Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.acc).accessibilityHidden(true) }
@@ -278,19 +278,21 @@ struct SwipeButton: View {
     }
 }
 
-/// The address an email came to ("to john@dateline.app"): purple for an extra address, teal for the main one; `small` is the inbox row's pill ("dateline.app").
+/// The address an email came to ("to john@dateline.app"): each extra address in its own color, teal for the main one; `small` is the inbox row's pill ("dateline.app").
 struct AddressTag: View {
     let email: String
+    var color = 0          // index into Theme.extraTags
     var main = false
     var small = false
     var body: some View {
+        let c = Theme.extraTags[color % Theme.extraTags.count]
         if small {
-            Text(email).font(.system(size: 11, weight: .bold)).lineLimit(1).fixedSize()
+            Text(email).font(.system(size: 11, weight: .bold)).lineLimit(1).truncationMode(.middle)
                 .padding(.horizontal, 8).padding(.vertical, 1)
-                .background(Capsule().fill(Theme.blkSoft)).foregroundStyle(Theme.blk).accessibilityHidden(true)
+                .background(Capsule().fill(c.soft)).foregroundStyle(c.ink).accessibilityHidden(true)
         } else {
-            Text(email).font(.system(size: 14, weight: .semibold)).foregroundStyle(main ? Theme.acc : Theme.blk).lineLimit(1).truncationMode(.middle)
-                .padding(.horizontal, 8).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 6).fill(main ? Theme.side : Theme.blkSoft))
+            Text(email).font(.system(size: 14, weight: .semibold)).foregroundStyle(main ? Theme.acc : c.ink).lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 8).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 6).fill(main ? Theme.side : c.soft))
         }
     }
 }

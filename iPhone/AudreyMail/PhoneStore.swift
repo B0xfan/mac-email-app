@@ -391,6 +391,22 @@ final class PhoneStore: ObservableObject {
 
     /// The extra "send as" address an email came to (john@dateline.app), nil for the main one.
     func extraAddress(_ m: Mail) -> String? { GSendAs.extraAddress(of: m, in: sendAs, account: accountEmail) }
+    /// Which of John's addresses the opened email names: an extra one, or the main one when he has more than one (one address alone keeps "to me").
+    func cameTo(_ m: Mail) -> String? {
+        if let e = extraAddress(m) { return e }
+        guard myAddresses.count > 1, Address.parseList(m.to).contains(where: { $0.email.lowercased() == accountEmail.lowercased() }) else { return nil }
+        return accountEmail
+    }
+    /// The inbox label for an extra address: its domain ("dateline.app"), or the whole address when another of John's addresses shares that domain.
+    func addressLabel(_ e: String) -> String {
+        let domain = { (a: String) in a.split(separator: "@").last.map { String($0).lowercased() } ?? a.lowercased() }
+        return myAddresses.filter { domain($0) == domain(e) }.count > 1 ? e : domain(e)
+    }
+    /// Which color an extra address gets: its place among the extra addresses, sorted so it stays the same on every device.
+    func addressColor(_ e: String) -> Int {
+        let extras = myAddresses.subtracting([accountEmail.lowercased()]).sorted()
+        return (extras.firstIndex(of: e.lowercased()) ?? 0) % Theme.extraTags.count
+    }
     var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
 
     @discardableResult

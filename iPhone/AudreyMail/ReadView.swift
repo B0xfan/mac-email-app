@@ -244,10 +244,8 @@ struct MessageBlock: View {
                     Avatar(address: m.from, people: MailCategory.guess(m) == .people)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(m.from.display).font(.system(size: 16, weight: .bold))
-                        if let e = store.extraAddress(m) {
-                            HStack(spacing: 6) { Text("to"); AddressTag(email: e); Text("· \(Fmt.long(m.date))").fixedSize() }.font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
-                        } else if !store.accountEmail.isEmpty, Address.parseList(m.to).contains(where: { $0.email.lowercased() == store.accountEmail.lowercased() }) {
-                            HStack(spacing: 6) { Text("to"); AddressTag(email: store.accountEmail, main: true); Text("· \(Fmt.long(m.date))").fixedSize() }.font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
+                        if let e = store.cameTo(m) {
+                            HStack(spacing: 6) { Text("to"); AddressTag(email: e, color: store.addressColor(e), main: e == store.accountEmail); Text("· \(Fmt.long(m.date))").fixedSize() }.font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
                         } else {
                             Text("\(toLine(m)) · \(Fmt.long(m.date))").font(.system(size: 14)).foregroundStyle(Theme.sub).lineLimit(1)
                         }

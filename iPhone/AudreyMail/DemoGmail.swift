@@ -56,6 +56,7 @@ final class DemoMailbox: @unchecked Sendable {
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
         msgs[msgs.count - 1].to = "Alex Jordan <alex@jordanstudio.example>"   // came to the extra address: the inbox row shows its label
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
+        msgs[msgs.count - 1].to = "Alex Jordan <alex@trailclub.example>"   // a third address on its own domain: labeled "trailclub.example" in another color
         add("m4", ["INBOX", "Label_receipts"], "Tom Becker <tom.becker@example.com>", "Invoice for the fence", "Attached. No rush, pay whenever suits you.", t(3 * d))
         msgs[msgs.count - 1].atts = [("Invoice-0231.pdf", "application/pdf", 86_016), ("fence-finished.jpg", "image/jpeg", 2_202_009)]
         add("m5", ["INBOX", "UNREAD", "Label_receipts"], "Northwind Bank <noreply@northwind-bank.example>", "Your October statement is ready", "Sign in to the bank's own site to view it.", t(2 * h))
@@ -153,7 +154,7 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: made)) ?? Data("{}".utf8), as: UTF8.self))
         case ("GET", "/settings/vacation"): return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
         case ("PUT", "/settings/vacation"): vacation = body; writes.append("vacation \(body["enableAutoReply"] as? Bool == true ? "on" : "off")"); return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
-        case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true},{"sendAsEmail":"alex@jordanstudio.example","displayName":"Alex Jordan","isDefault":false}]}"#)
+        case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true},{"sendAsEmail":"alex@jordanstudio.example","displayName":"Alex Jordan","isDefault":false},{"sendAsEmail":"hello@jordanstudio.example","displayName":"Jordan Studio","isDefault":false},{"sendAsEmail":"alex@trailclub.example","displayName":"Alex Jordan","isDefault":false}]}"#)
         case ("POST", "/messages/batchModify"):
             let ids = body["ids"] as? [String] ?? [], add = body["addLabelIds"] as? [String] ?? [], rem = body["removeLabelIds"] as? [String] ?? []
             if failModify { return (400, #"{"error":{"code":400,"message":"Invalid"}}"#) }
