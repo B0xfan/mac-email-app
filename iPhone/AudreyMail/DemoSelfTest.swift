@@ -230,6 +230,14 @@ enum DemoSelfTest {
         box.with { b in if let i = b.msgs.firstIndex(where: { $0.id == "m4" }) { b.msgs[i].labels = ["INBOX", "UNREAD"]; b.msgs[i].hid += 5 } }
         await store.refresh()
         check("an archived conversation that gets a new reply shows in the inbox again", row("m4") != nil)
+        // the oldest inbox email archived on the Mac or in Gmail leaves the phone too, also when the whole inbox fits on one page (John 2026-11-15)
+        let oldestRow = store.inbox.min { $0.date < $1.date }!
+        box.with { b in for i in b.msgs.indices where b.msgs[i].thread == oldestRow.threadID { b.msgs[i].labels.removeAll { $0 == "INBOX" } } }
+        await store.refresh()
+        let oldestGone = !store.inbox.contains { $0.threadID == oldestRow.threadID }
+        check("the oldest inbox email archived elsewhere leaves the phone's inbox", oldestGone)
+        box.with { b in for i in b.msgs.indices where b.msgs[i].thread == oldestRow.threadID { b.msgs[i].labels.append("INBOX") } }
+        await store.refresh()
 
         // reading marks read
         let full = try? await store.fullMessage(row("m1")!)
