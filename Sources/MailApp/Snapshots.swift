@@ -47,6 +47,31 @@ enum Snapshots {
         return (try? png.write(to: URL(fileURLWithPath: path))) != nil
     }
 
+    /// The extra-address pills and "to" line, light and dark. Also drawn by the cloud's --listtest (the --snapshot set is not run there).
+    static func addressShots(into dir: String) -> Bool {
+        let was = SnapshotMode.on; SnapshotMode.on = true; defer { SnapshotMode.on = was }
+        var ok = true
+        for dark in [false, true] {
+            func shot<V: View>(_ name: String, _ v: V) { let good = render(v, size: CGSize(width: 1280, height: 800), dark: dark, to: "\(dir)/\(name)-\(dark ? "dark" : "light").png"); print(good ? "wrote \(name)" : "FAILED \(name)"); if !good { ok = false } }
+            // Extra addresses: each one's inbox pill in its own color; the opened email names the address it came to
+            let adr = sampleStore()
+            adr.sendAs += ["marta@fernworks.example", "hello@fernworks.example", "marta@trailclub.example"].map { GSendAs(sendAsEmail: $0, displayName: "Marta Okafor", isDefault: false, signature: nil) }
+            adr.inbox.insert(contentsOf: [
+                Mail(id: "fern", from: Address(name: "Lena Ortiz", email: "lena@studio-ortiz.example"), subject: "Logo files for the Fernworks site", snippet: "Here are the final logo files in every size you asked for.", date: Date().addingTimeInterval(-0.2 * 3600), labels: ["INBOX", "UNREAD"],
+                     text: "Hi Marta,\n\nHere are the final logo files in every size you asked for.\n\nLena", to: "marta@fernworks.example"),
+                Mail(id: "hello", from: Address(name: "Ravi Menon", email: "ravi@menon.example"), subject: "Do you take on small projects?", snippet: "We are a two-person shop looking for help with a site.", date: Date().addingTimeInterval(-0.3 * 3600), to: "hello@fernworks.example"),
+                Mail(id: "trail", from: Address(name: "Trail Club Riders", email: "rides@trailclub.example"), subject: "Saturday ride moved to 8 AM", snippet: "Meet at the north lot, coffee after.", date: Date().addingTimeInterval(-0.4 * 3600), to: "marta@trailclub.example"),
+            ], at: 0)
+            for a in ["lena@studio-ortiz.example", "ravi@menon.example", "rides@trailclub.example"] { adr.book.approve(a) }
+            adr.openMail = adr.inbox[0]; adr.selectedID = "fern"
+            shot("35-address-labels", MailRoot(store: adr))
+            let mainTo = Mail(id: "mainto", from: Address(name: "Priya Raman", email: "priya@harborlane.example"), subject: "Venue walkthrough on Thursday", snippet: "Can you make it at 10?", date: Date().addingTimeInterval(-3600), labels: ["INBOX"], text: "Hi Marta,\n\nCan you make it at 10?\n\nPriya", to: "Marta <marta@harborlane.example>")
+            adr.inbox.append(mainTo); adr.openMail = mainTo; adr.selectedID = "mainto"
+            shot("36-address-main", MailRoot(store: adr))
+        }
+        return ok
+    }
+
     static func run(into dir: String) -> Bool {
         _ = NSApplication.shared
         SnapshotMode.on = true
@@ -197,6 +222,7 @@ enum Snapshots {
                 shot("12-settings-\(name)", SettingsView(app: app, openBlocked: {}, start: sec))
             }
         }
+        if !addressShots(into: dir) { ok = false }
         return ok
     }
 }

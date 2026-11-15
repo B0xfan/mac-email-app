@@ -264,6 +264,7 @@ enum ListTest {
             file?.update()   // a menu only refreshes its grey items when asked or opened
             check("menus: Print is grey with no email open (finding 10)", file?.item(withTitle: "Print...")?.isEnabled == false)
         } else { print("SKIP menus: no menu bar in this run") }
+        if !Snapshots.addressShots(into: dir) { ok = false }   // the extra-address pills, light and dark
         return ok
     }
 

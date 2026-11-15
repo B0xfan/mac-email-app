@@ -86,6 +86,13 @@ final class MailStore: ObservableObject {
     var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
     @Published var sendAs: [GSendAs] = []
     @Published var accountEmail = ""
+    /// Which of John's addresses an opened email names (an extra one, or the main one when he has several); nil keeps "to me".
+    func cameTo(_ m: Mail) -> String? { GSendAs.cameTo(m, in: sendAs, account: accountEmail) }
+    func addressColor(_ e: String) -> Int { GSendAs.color(e, in: sendAs, account: accountEmail) }
+    /// The inbox row's pill for an email sent to an extra address ("dateline.app"); nil for the main one.
+    func rowTag(_ m: Mail) -> (text: String, color: Int)? {
+        GSendAs.extraAddress(of: m, in: sendAs, account: accountEmail).map { (GSendAs.label($0, in: sendAs, account: accountEmail), addressColor($0)) }
+    }
     @Published var homeShown = false
     var homeNowOverride: Date?   // drawn-screen tests only
     /// "Unread only" filter on: emails opened while it was on stay in the list (they turn read on opening) until they leave the Inbox. Cleared when the filter goes off.

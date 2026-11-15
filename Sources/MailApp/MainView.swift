@@ -418,7 +418,7 @@ struct ListPane: View {
                             .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading)
                             .accessibilityAddTraits(.isHeader)
                         ForEach(g.mails) { m in
-                            MessageRow(mail: m, selected: store.selectedID == m.id, stamp: "Opened " + RecentGroups.openedText(store.openedAt(m.id) ?? m.date)) { Task { await store.open(m) } }
+                            MessageRow(mail: m, toTag: store.rowTag(m), selected: store.selectedID == m.id, stamp: "Opened " + RecentGroups.openedText(store.openedAt(m.id) ?? m.date)) { Task { await store.open(m) } }
                         }
                     }
                     if !store.listMails.isEmpty {
@@ -430,7 +430,7 @@ struct ListPane: View {
                     else if store.mailbox == .scheduled { ScheduledList(store: store) }
                     else if store.mailbox == .setAside {
                         ForEach(store.listMails) { m in
-                            MessageRow(mail: m, selected: store.selectedID == m.id, stamp: AsideBook.label(store.asides.date(m)), picked: store.picked.contains(m.id),
+                            MessageRow(mail: m, toTag: store.rowTag(m), selected: store.selectedID == m.id, stamp: AsideBook.label(store.asides.date(m)), picked: store.picked.contains(m.id),
                                        onBack: { Task { await store.backToInbox([m]) } }, onArchive: { Task { await store.archive(m) } },
                                        swipeRight: store.swipeFor(settings.swipeRight), swipeLeft: store.swipeFor(settings.swipeLeft), onSwipe: { a in Task { await store.swipe(m, a) } }) { let f = NSEvent.modifierFlags; Task { await store.rowClicked(m, command: f.contains(.command), shift: f.contains(.shift)) } }
                                 .contextMenu {
@@ -448,7 +448,7 @@ struct ListPane: View {
                             if m.id == firstExtra { Text("From Gmail (older mail)".uppercased()).font(Theme.label).tracking(0.7).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 2).frame(maxWidth: .infinity, alignment: .leading).accessibilityAddTraits(.isHeader) }
                             let acts = store.mailbox != .drafts && store.mailbox != .trash && !m.labels.contains("TRASH") && !m.labels.contains("DRAFT")   // a draft opens as a new email; Trash has no way back yet
                             let toInbox = acts && !m.inInbox && !m.labels.contains("SENT")   // your own sent email does not belong in the Inbox
-                            MessageRow(mail: m, selected: store.selectedID == m.id, picked: store.picked.contains(m.id),
+                            MessageRow(mail: m, toTag: store.rowTag(m), selected: store.selectedID == m.id, picked: store.picked.contains(m.id),
                                        onSnooze: acts && !m.labels.contains("SPAM") ? { store.picker = .snooze([m.id]) } : nil,   // a woken spam email would stay in Spam
                                        onBack: toInbox ? { Task { await store.moveToInbox(m) } } : nil,
                                        onArchive: acts && m.inInbox ? { Task { await store.archive(m) } } : nil,
@@ -555,6 +555,7 @@ struct SearchMoreCard: View {
 
 struct MessageRow: View {
     let mail: Mail
+    var toTag: (text: String, color: Int)? = nil   // the extra address it came to ("dateline.app"); nil for the main one
     let selected: Bool
     var stamp: String? = nil
     var tag: String? = nil                // "Back Sun 8:00 AM", "No reply yet"
@@ -634,13 +635,14 @@ struct MessageRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if mail.unread { Circle().fill(Theme.dot).frame(width: 8, height: 8) }
-                    Text(fromText ?? mail.from.display).font(.system(size: 13, weight: mail.unread || selected ? .bold : .semibold)).lineLimit(1)
+                    Text(fromText ?? mail.from.display).font(.system(size: 13, weight: mail.unread || selected ? .bold : .semibold)).lineLimit(1).frame(minWidth: toTag == nil ? 0 : 90, alignment: .leading)
                     if let tag { Tag(text: tag, warm: warmTag) }
+                    if let toTag { AddressTag(email: toTag.text, color: toTag.color, small: true).layoutPriority(1) }
                     if notes.has(mail.threadID) { Label("note", systemImage: "note.text").font(Theme.label).foregroundStyle(Theme.accInk).labelStyle(.titleAndIcon).help("You wrote a private note on this email") }
                     Spacer(minLength: 8)
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
                     if let count { Text("\(count)").font(.system(size: 11, weight: .bold)).padding(.horizontal, 8).frame(minHeight: 18).background(Capsule().fill(selected ? Theme.acc : Theme.sub)).foregroundStyle(selected ? Theme.accText : Theme.bg).accessibilityHidden(true) }
-                    Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub)
+                    Text(stamp ?? Fmt.short(mail.date)).font(Theme.small).foregroundStyle(selected ? Theme.text : Theme.sub).fixedSize()
                 }
                 Text(mail.subject).font(Theme.body).lineLimit(1)
                 if let below { Tag(text: below, warm: true) }
@@ -655,7 +657,7 @@ struct MessageRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(picked ? .isSelected : [])
-        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(mail.subject)\(below.map { ", " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")")
+        .accessibilityLabel("\(picked ? "Selected, " : "")\(notes.has(mail.threadID) ? "Has a private note, " : "")\(pinned ? "Pinned, " : "")\(count.map { "\($0) messages, " } ?? "")\(mail.unread ? "Unread, " : "")\(fromText ?? mail.from.display), \(tag.map { $0 + ", " } ?? "")\(toTag.map { "to \($0.text), " } ?? "")\(mail.subject)\(below.map { ", " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")")
     }
 }
 
@@ -847,10 +849,10 @@ struct ReadingContent: View {
                     HStack(spacing: 8) {
                         Text(mail.from.display).font(Theme.bodyStrong).lineLimit(1)
                         ForEach(warns, id: \.label) { SenderWarningLabel(warning: $0) }
-                        if let e = GSendAs.extraAddress(of: mail, in: store.sendAs, account: store.accountEmail) {
+                        if let e = store.cameTo(mail) {
                             HStack(spacing: 5) {
                                 Text("\(mail.from.email), to").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)
-                                AddressTag(email: e)
+                                AddressTag(email: e, color: store.addressColor(e), main: e.lowercased() == store.accountEmail.lowercased())
                             }
                         } else {
                             Text("\(mail.from.email), to me").font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1).textSelection(.enabled)

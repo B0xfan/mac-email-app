@@ -279,7 +279,7 @@ struct SnoozedList: View {
         VStack(spacing: 8) {
             PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread. Audrey Mail must be open for this to happen on time.")
             ForEach(store.listMails) { m in
-                MessageRow(mail: m, selected: store.selectedID == m.id, tag: store.timing.data.snoozes[m.id].map { "Back " + TimeParser.short($0) },
+                MessageRow(mail: m, toTag: store.rowTag(m), selected: store.selectedID == m.id, tag: store.timing.data.snoozes[m.id].map { "Back " + TimeParser.short($0) },
                            onBack: { Task { await store.wake([m.id]) } }, onTime: { store.picker = .changeSnooze(m.id) }) { Task { await store.open(m) } }
                     .contextMenu {
                         Button { Task { await store.wake([m.id]) } } label: { Label("Bring Back Now", systemImage: "tray") }

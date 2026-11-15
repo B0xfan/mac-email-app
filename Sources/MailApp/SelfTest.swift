@@ -78,6 +78,21 @@ enum SelfTest {
         check("an email to the main address, or to none of John's, names no extra address",
               GSendAs.extraAddress(of: toMain, in: addrs, account: "jhesch@gmail.com") == nil && GSendAs.replyFrom(toList, in: addrs, account: "jhesch@gmail.com") == nil)
 
+        // Inbox pills and the opened email's "to" line (shared with the iPhone)
+        let addrs3 = addrs + [GSendAs(sendAsEmail: "hello@dateline.app", displayName: "John Hesch", isDefault: false, signature: nil),
+                              GSendAs(sendAsEmail: "john@trailclub.example", displayName: "John Hesch", isDefault: false, signature: nil)]
+        check("an extra address alone on its domain shows the domain; two on one domain show the whole address",
+              GSendAs.label("john@dateline.app", in: addrs, account: "jhesch@gmail.com") == "dateline.app"
+              && GSendAs.label("john@dateline.app", in: addrs3, account: "jhesch@gmail.com") == "john@dateline.app")
+        check("each extra address gets its own color, the same on every device",
+              Set(addrs3.dropFirst().map { GSendAs.color($0.sendAsEmail, in: addrs3, account: "jhesch@gmail.com") }).count == 3)
+        let toMainOnly = Mail(id: "x5", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "jhesch@gmail.com")
+        let oneAddr = [addrs[0]]
+        check("the opened email names the main address when there are several, and keeps \"to me\" with one",
+              GSendAs.cameTo(toMainOnly, in: addrs, account: "jhesch@gmail.com") == "jhesch@gmail.com"
+              && GSendAs.cameTo(toMainOnly, in: oneAddr, account: "jhesch@gmail.com") == nil
+              && GSendAs.cameTo(toExtra, in: addrs, account: "jhesch@gmail.com") == "john@dateline.app")
+
         // RFC 7636 appendix B vector
         check("PKCE challenge matches RFC 7636 vector",
               PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")

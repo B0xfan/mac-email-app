@@ -29,6 +29,13 @@ enum Theme {
     static let accPress = Color("#0a555c", "#8adce2")
     static let accText = Color("#ffffff", "#062a2e")
     static let blk = Color("#7a3e8e", "#d9a8ea")
+    /// One color pair (text, pill) per extra "send as" address, in address order; a fifth address reuses the first (same as the iPhone).
+    static let extraTags: [(ink: Color, soft: Color)] = [
+        (Color("#7a3e8e", "#d9a8ea"), Color("#f1e4f6", "#2e1a36")),   // purple
+        (Color("#2f5aa8", "#a9c4f5"), Color("#e3ebfa", "#17233a")),   // blue
+        (Color("#2e6b2f", "#a8dca0"), Color("#e2f2df", "#18301a")),   // green
+        (Color("#9a2f5a", "#f2a6c4"), Color("#f9e3ec", "#36182a")),   // rose
+    ]
     static let line = Color("#c9d8d8", "#2a4446")
     static let revSoft = Color("#f1e6f5", "#2c1b33")
     static let revInk = Color("#6a2f7e", "#e6c4f2")

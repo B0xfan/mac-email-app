@@ -65,6 +65,24 @@ public struct GSendAs: Decodable {
         let hit = own(Address.parseList(m.to), list, account)
         return hit == account.lowercased() ? nil : hit
     }
+    /// All of John's addresses, lowercased: the account plus every "send as" one.
+    public static func mine(_ list: [GSendAs], account: String) -> Set<String> { Set(([account] + list.map(\.sendAsEmail)).map { $0.lowercased() }) }
+    /// Which of John's addresses the opened email names: an extra one, or the main one when he has more than one (one address alone keeps "to me").
+    public static func cameTo(_ m: Mail, in list: [GSendAs], account: String) -> String? {
+        if let e = extraAddress(of: m, in: list, account: account) { return e }
+        guard mine(list, account: account).count > 1, Address.parseList(m.to).contains(where: { $0.email.lowercased() == account.lowercased() }) else { return nil }
+        return account
+    }
+    /// The inbox label for an extra address: its domain ("dateline.app"), or the whole address when another of John's addresses shares that domain.
+    public static func label(_ e: String, in list: [GSendAs], account: String) -> String {
+        let domain = { (a: String) in a.lowercased().split(separator: "@").last.map(String.init) ?? "" }
+        return mine(list, account: account).filter { domain($0) == domain(e) }.count > 1 ? e : domain(e)
+    }
+    /// Which color an extra address gets: its place among the extra addresses, sorted so it stays the same on every device.
+    public static func color(_ e: String, in list: [GSendAs], account: String) -> Int {
+        let extras = list.filter { $0.verificationStatus != "pending" }.map { $0.sendAsEmail.lowercased() }.filter { $0 != account.lowercased() }.sorted()   // an unconfirmed address does not shift the others' colors
+        return extras.firstIndex(of: e.lowercased()) ?? 0
+    }
     /// The From for a reply: the address John sent it from (his own email), else the one of his it came to (To, then Cc); nil = the default address.
     public static func replyFrom(_ m: Mail, in list: [GSendAs], account: String) -> String? {
         let hit = own([m.from], list, account) ?? own(Address.parseList(m.to) + Address.parseList(m.cc), list, account)

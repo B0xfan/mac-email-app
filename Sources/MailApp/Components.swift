@@ -336,11 +336,21 @@ struct MoreRow: View {
     }
 }
 
-/// One of John's extra addresses, named on an email that came to it ("to john@dateline.app").
+/// The address an email came to ("to john@dateline.app"): each extra address in its own color, teal for the main one; `small` is the inbox row's pill ("dateline.app").
 struct AddressTag: View {
     let email: String
+    var color = 0          // index into Theme.extraTags
+    var main = false
+    var small = false
     var body: some View {
-        Text(email).font(Theme.small.weight(.semibold)).foregroundStyle(Theme.acc).lineLimit(1).textSelection(.enabled)
-            .padding(.horizontal, 7).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(Theme.hovBg))
+        let c = Theme.extraTags[color % Theme.extraTags.count]
+        if small {
+            Text(email).font(.system(size: 10.5, weight: .bold)).lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 7).padding(.vertical, 1)
+                .background(Capsule().fill(c.soft)).foregroundStyle(c.ink).accessibilityHidden(true)
+        } else {
+            Text(email).font(Theme.small.weight(.semibold)).foregroundStyle(main ? Theme.acc : c.ink).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                .padding(.horizontal, 7).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(main ? Theme.hovBg : c.soft))
+        }
     }
 }
