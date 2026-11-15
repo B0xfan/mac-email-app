@@ -20,14 +20,14 @@ struct MailRow: View {
             Avatar(address: mail.from, people: people)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
+                    Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1).frame(minWidth: extra == nil ? 0 : 90, alignment: .leading)
                     if let tag { RowTag(text: tag) }
-                    if let extra { AddressTag(email: store.addressLabel(extra), color: store.addressColor(extra), small: true).frame(maxWidth: 170).layoutPriority(1) }
+                    if let extra { AddressTag(email: store.addressLabel(extra), color: store.addressColor(extra), small: true).layoutPriority(1) }
                     Spacer(minLength: 4)
                     if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk).padding(.horizontal, 7).background(Capsule().fill(Theme.accSoft)).accessibilityHidden(true) }
                     if prefs.isInTodo(mail) { Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.acc).accessibilityHidden(true) }
                     if pinned { Image(systemName: "pin.fill").font(.system(size: 12)).foregroundStyle(Theme.dot).accessibilityHidden(true) }
-                    Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub)
+                    Text(Fmt.short(mail.date)).font(.system(size: 13)).foregroundStyle(Theme.sub).fixedSize()
                 }
                 Text(mail.subject).font(.system(size: 14.5, weight: mail.unread ? .bold : .regular)).lineLimit(1)
                 if let below { RowTag(text: below) }
