@@ -389,6 +389,8 @@ final class PhoneStore: ObservableObject {
 
     // MARK: - Blocking (always a Gmail filter plus the Blocked label, so it holds on the Mac and in Gmail)
 
+    /// The extra "send as" address an email came to (john@dateline.app), nil for the main one.
+    func extraAddress(_ m: Mail) -> String? { GSendAs.extraAddress(of: m, in: sendAs, account: accountEmail) }
     var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
 
     @discardableResult

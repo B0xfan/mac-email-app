@@ -11,8 +11,10 @@ struct MailRow: View {
     var fromText: String? = nil   // "You, to Maya" on a "No reply yet" row
     var count: Int? = nil         // the number of messages when emails are grouped into conversations
     @EnvironmentObject var prefs: PhoneSettings
+    @EnvironmentObject var store: PhoneStore
     var body: some View {
         let people = MailCategory.guess(mail) == .people
+        let extra = store.extraAddress(mail)
         HStack(alignment: .top, spacing: 12) {
             Circle().fill(mail.unread ? Theme.acc : Color.clear).frame(width: 10, height: 10).padding(.top, 8).accessibilityHidden(true)
             Avatar(address: mail.from, people: people)
@@ -20,6 +22,7 @@ struct MailRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
                     if let tag { RowTag(text: tag) }
+                    if let extra { AddressTag(email: extra.split(separator: "@").last.map(String.init) ?? extra, small: true) }
                     Spacer(minLength: 4)
                     if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk).padding(.horizontal, 7).background(Capsule().fill(Theme.accSoft)).accessibilityHidden(true) }
                     if prefs.isInTodo(mail) { Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.acc).accessibilityHidden(true) }
@@ -35,7 +38,7 @@ struct MailRow: View {
         .frame(minHeight: 54, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(fromText ?? mail.from.display). \(tag.map { $0 + ". " } ?? "")\(mail.subject). \(Fmt.short(mail.date))\(below.map { ". " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")\(count.map { ". \($0) messages" } ?? "")\(prefs.isInTodo(mail) ? ". Added to to-do" : "")")
+        .accessibilityLabel("\(pinned ? "Pinned. " : "")\(mail.unread ? "Unread. " : "")\(fromText ?? mail.from.display). \(tag.map { $0 + ". " } ?? "")\(extra.map { "To \($0). " } ?? "")\(mail.subject). \(Fmt.short(mail.date))\(below.map { ". " + $0.replacingOccurrences(of: "\u{263E} ", with: "").replacingOccurrences(of: " \u{00B7}", with: ",") } ?? "")\(count.map { ". \($0) messages" } ?? "")\(prefs.isInTodo(mail) ? ". Added to to-do" : "")")
     }
 }
 
@@ -275,11 +278,19 @@ struct SwipeButton: View {
     }
 }
 
-/// One of John's extra addresses, named on an email that came to it ("to john@dateline.app").
+/// The address an email came to ("to john@dateline.app"): purple for an extra address, teal for the main one; `small` is the inbox row's pill ("dateline.app").
 struct AddressTag: View {
     let email: String
+    var main = false
+    var small = false
     var body: some View {
-        Text(email).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.acc).lineLimit(1).truncationMode(.middle)
-            .padding(.horizontal, 8).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 6).fill(Theme.side))
+        if small {
+            Text(email).font(.system(size: 11, weight: .bold)).lineLimit(1).fixedSize()
+                .padding(.horizontal, 8).padding(.vertical, 1)
+                .background(Capsule().fill(Theme.blkSoft)).foregroundStyle(Theme.blk).accessibilityHidden(true)
+        } else {
+            Text(email).font(.system(size: 14, weight: .semibold)).foregroundStyle(main ? Theme.acc : Theme.blk).lineLimit(1).truncationMode(.middle)
+                .padding(.horizontal, 8).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 6).fill(main ? Theme.side : Theme.blkSoft))
+        }
     }
 }

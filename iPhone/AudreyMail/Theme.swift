@@ -27,6 +27,7 @@ enum Theme {
     static let selStrong = Color("#a8d4d7", "#2c6f75")
     static let blk = Color("#7a3e8e", "#d9a8ea")
     static let blkText = Color("#ffffff", "#2a1033")
+    static let blkSoft = Color("#f1e4f6", "#2e1a36")   // the pill behind an extra address ("dateline.app")
     static let accSoft = Color("#fbebd3", "#35260f")
     static let accInk = Color("#7a4208", "#f5c98b")
     static let danger = Color("#a3261c", "#ff9d92")

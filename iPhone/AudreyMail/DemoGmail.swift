@@ -54,6 +54,7 @@ final class DemoMailbox: @unchecked Sendable {
         draftRaw = [:]; srvDown = false; srvRegisters = 0; srvKey = nil; srvJobs = [:]; srvLog = []; srvDeleteSays = nil; srvTimeoutPut = false; srvVersion = 0; srvSmart = []; srvSearches = []; srvTVVersion = 0; srvTV = [:]; srvSnoozes = [:]; srvSnoozeForce = []; refuseLabel = nil; failModify = false; failRead = []
         add("m1", ["INBOX", "UNREAD"], "Maya Ortiz <maya.ortiz@example.com>", "Saturday at the beach?", "<p>Hi! The forecast looks clear all weekend. Want to go to the beach on Saturday morning?</p><p>I can bring the umbrella and the good snacks if you can drive. We could leave around 8 and be back before the afternoon rain.</p><p>Let me know,<br>Maya</p><img src=\"https://tracker.example/pic.png\" width=\"120\" height=\"20\">", t(45 * m))
         add("m2", ["INBOX", "UNREAD"], "Daniel Reyes <daniel.reyes@example.com>", "Photos from the walk", "Here are the three best ones, the rest were blurry.", t(1.5 * h))
+        msgs[msgs.count - 1].to = "Alex Jordan <alex@jordanstudio.example>"   // came to the extra address: the inbox row shows its label
         add("m3", ["INBOX", "UNREAD"], "Lucia Fernandez <lucia.f@example.com>", "Re: Dinner on Friday", "Seven works for us. Should we book the corner table?", t(20 * h))
         add("m4", ["INBOX", "Label_receipts"], "Tom Becker <tom.becker@example.com>", "Invoice for the fence", "Attached. No rush, pay whenever suits you.", t(3 * d))
         msgs[msgs.count - 1].atts = [("Invoice-0231.pdf", "application/pdf", 86_016), ("fence-finished.jpg", "image/jpeg", 2_202_009)]
@@ -152,7 +153,7 @@ final class DemoMailbox: @unchecked Sendable {
             return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: made)) ?? Data("{}".utf8), as: UTF8.self))
         case ("GET", "/settings/vacation"): return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
         case ("PUT", "/settings/vacation"): vacation = body; writes.append("vacation \(body["enableAutoReply"] as? Bool == true ? "on" : "off")"); return (200, String(decoding: (try? JSONSerialization.data(withJSONObject: vacation)) ?? Data("{}".utf8), as: UTF8.self))
-        case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true}]}"#)
+        case ("GET", "/settings/sendAs"): return (200, #"{"sendAs":[{"sendAsEmail":"alex.jordan@gmail.example","displayName":"Alex Jordan","isDefault":true},{"sendAsEmail":"alex@jordanstudio.example","displayName":"Alex Jordan","isDefault":false}]}"#)
         case ("POST", "/messages/batchModify"):
             let ids = body["ids"] as? [String] ?? [], add = body["addLabelIds"] as? [String] ?? [], rem = body["removeLabelIds"] as? [String] ?? []
             if failModify { return (400, #"{"error":{"code":400,"message":"Invalid"}}"#) }

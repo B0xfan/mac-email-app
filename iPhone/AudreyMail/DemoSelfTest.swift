@@ -435,6 +435,7 @@ enum DemoSelfTest {
         store.toast?.undo?(); await store.settle()
         check("Undo puts it back in the first folder and the inbox", box.with { b in let l = b.msgs.first { $0.id == "m5" }!.labels; return l.contains("Label_receipts") && l.contains("INBOX") && !l.contains("Label_travel") } && store.folderMails.contains { $0.id == "m5" })
         let m2 = row("m2")!
+        check("an email sent to the extra address is labeled with it; one sent to the main address is not", store.extraAddress(m2) == "alex@jordanstudio.example" && store.extraAddress(row("m1")!) == nil)
         store.moveToFolder(m2, travel); await store.settle()
         check("moving an email to a folder adds the label and takes it out of the inbox", box.with { b in let l = b.msgs.first { $0.id == "m2" }!.labels; return l.contains("Label_travel") && !l.contains("INBOX") } && row("m2") == nil && store.toast?.text == "Moved to Travel.")
         store.toast?.undo?(); await store.settle()
