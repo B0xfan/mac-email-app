@@ -287,10 +287,8 @@ final class PhoneStore: ObservableObject {
             let got = await gmail.threads(need)
             guard state == .signedIn else { return }   // signed out while reading: nothing of this account may come back
             let all = page.refs.compactMap { got.gone.contains($0.id) ? nil : got.mails[$0.id] ?? have[$0.id] }
-            let walked = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
-            let deeper = oldest.map { o in have.values.filter { !walked.contains($0.threadID) && $0.date < o } } ?? []   // older pages already loaded stay
-            inbox = withTiming((all + deeper).filter { !pendingGone.contains($0.threadID) })
-            if deeper.isEmpty { next = page.next }
+            inbox = withTiming(all.filter { !pendingGone.contains($0.threadID) })   // exactly Gmail's first page: a saved row archived on the Mac or in Gmail leaves (older pages load again on scroll)
+            next = page.next
             banner = got.failed.isEmpty ? nil : "Some conversations could not be loaded just now. Pull down to try again."
             lastRefresh = Date()
             saveCache()
