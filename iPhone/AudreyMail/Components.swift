@@ -22,7 +22,7 @@ struct MailRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1)
                     if let tag { RowTag(text: tag) }
-                    if let extra { AddressTag(email: store.addressLabel(extra), color: store.addressColor(extra), small: true).frame(minWidth: 64).layoutPriority(-1) }
+                    if let extra { AddressTag(email: store.addressLabel(extra), color: store.addressColor(extra), small: true).frame(maxWidth: 170).layoutPriority(1) }
                     Spacer(minLength: 4)
                     if let count { Text("\(count)").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk).padding(.horizontal, 7).background(Capsule().fill(Theme.accSoft)).accessibilityHidden(true) }
                     if prefs.isInTodo(mail) { Image(systemName: "checkmark.circle").font(.system(size: 12)).foregroundStyle(Theme.acc).accessibilityHidden(true) }
