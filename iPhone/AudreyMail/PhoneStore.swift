@@ -399,13 +399,13 @@ final class PhoneStore: ObservableObject {
     }
     /// The inbox label for an extra address: its domain ("dateline.app"), or the whole address when another of John's addresses shares that domain.
     func addressLabel(_ e: String) -> String {
-        let domain = { (a: String) in a.split(separator: "@").last.map { String($0).lowercased() } ?? a.lowercased() }
+        let domain = { (a: String) in a.lowercased().split(separator: "@").last.map(String.init) ?? "" }
         return myAddresses.filter { domain($0) == domain(e) }.count > 1 ? e : domain(e)
     }
     /// Which color an extra address gets: its place among the extra addresses, sorted so it stays the same on every device.
     func addressColor(_ e: String) -> Int {
-        let extras = myAddresses.subtracting([accountEmail.lowercased()]).sorted()
-        return (extras.firstIndex(of: e.lowercased()) ?? 0) % Theme.extraTags.count
+        let extras = sendAs.filter { $0.verificationStatus != "pending" }.map { $0.sendAsEmail.lowercased() }.filter { $0 != accountEmail.lowercased() }.sorted()   // an unconfirmed address does not shift the others' colors
+        return extras.firstIndex(of: e.lowercased()) ?? 0
     }
     var myAddresses: Set<String> { Set(([accountEmail] + sendAs.map(\.sendAsEmail)).map { $0.lowercased() }) }
 
