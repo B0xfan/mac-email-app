@@ -70,12 +70,25 @@ enum Badge {
     static func announce(_ mails: [Mail]) async {
         guard !pretend, !(await bannersBlocked()) else { return }
         let c = UNUserNotificationCenter.current()
-        func make(_ id: String, _ title: String, _ body: String) async {
-            let n = UNMutableNotificationContent(); n.title = title; n.body = body; n.sound = .default
+        func make(_ id: String, _ title: String, _ body: String, _ ids: [String]) async {
+            let n = UNMutableNotificationContent(); n.title = title; n.body = body; n.sound = .default; n.userInfo = ["mails": ids]   // which emails it is about, so it can come down once they are read
             try? await c.add(UNNotificationRequest(identifier: id, content: n, trigger: nil))
         }
-        if mails.count <= 3 { for m in mails { await make(m.id, m.from.display, m.subject) } }
-        else { await make("new-mail", "\(mails.count) new emails", mails.prefix(3).map { $0.from.display }.joined(separator: ", ") + " and more") }
+        if mails.count <= 3 { for m in mails { await make(m.id, m.from.display, m.subject, [m.id]) } }
+        else { await make("new-mail", "\(mails.count) new emails", mails.prefix(3).map { $0.from.display }.joined(separator: ", ") + " and more", mails.map(\.id)) }
+    }
+
+    /// Banners none of whose emails is still unread in the inbox (read or moved on this phone or another device). A banner from before this list existed is about the email named by its id.
+    static func readBanners(_ shown: [(id: String, mails: [String])], unread: Set<String>) -> [String] {
+        shown.filter { unread.isDisjoint(with: $0.mails) }.map(\.id)
+    }
+
+    /// Takes down the new-mail banners whose emails are no longer unread.
+    static func clearRead(unread: Set<String>) async {
+        guard !pretend else { return }
+        let c = UNUserNotificationCenter.current()
+        let shown = await c.deliveredNotifications().map { (id: $0.request.identifier, mails: $0.request.content.userInfo["mails"] as? [String] ?? [$0.request.identifier]) }
+        c.removeDeliveredNotifications(withIdentifiers: readBanners(shown, unread: unread))
     }
 
     /// Asks iOS for a background wake-up in 15 minutes or later; iOS decides if and when.

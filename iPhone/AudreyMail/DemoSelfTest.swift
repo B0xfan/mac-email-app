@@ -962,6 +962,12 @@ enum DemoSelfTest {
         await store.announceNewMail()
         check("with the setting off there is no banner, and that email is not announced later either", told.lists == [["b1"]])
         store.announcer = Badge.announce
+        check("a banner comes down once its email is read or gone; one banner for several stays while any is unread; an older banner goes by its own id",
+              Badge.readBanners([(id: "b1", mails: ["b1"]), (id: "new-mail", mails: ["x", "b2"]), (id: "new-mail2", mails: ["y", "z"]), (id: "b9", mails: ["b9"])], unread: ["b2", "b9"]) == ["b1", "new-mail2"])
+        let wasUnread = store.unreadIDs.contains("b1")
+        if let b1 = row("b1") { store.markRead(b1) }
+        let nowRead = !store.unreadIDs.contains("b1")
+        check("reading an email on the phone takes it off the unread list its banner is kept by", wasUnread && nowRead)
 
         // sign out and sign-in ended
         await store.signOut()

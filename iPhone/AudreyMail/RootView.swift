@@ -38,6 +38,7 @@ struct RootView: View {
         }
         .task(id: store.state) { if store.state == .signedIn { await Badge.ask(); if let n = store.badgeCount { await Badge.set(n) } } }   // signed in: iOS asks once even while the number is 0; the number is set again once it is answered
         .task(id: store.badgeCount) { if let n = store.badgeCount { await Badge.set(n) } }
+        .task(id: store.unreadIDs) { if store.state == .signedIn { await Badge.clearRead(unread: store.unreadIDs) } }   // an email read here or on the Mac takes its banner down
         .onChange(of: phase) { _, p in
             if p == .active, store.state == .signedIn { store.markSeen(); Task { await store.refreshIfStale() }; store.resumeHeld() }
             if p == .background, store.state == .signedIn { store.markSeen(); Badge.schedule() }

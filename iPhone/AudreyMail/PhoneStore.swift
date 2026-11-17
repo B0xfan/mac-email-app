@@ -157,6 +157,7 @@ final class PhoneStore: ObservableObject {
         if state == .signedIn && lastRefresh <= before { return }   // the check failed: the saved inbox is old, so the icon keeps its number
         await announceNewMail()
         await Badge.set(badgeCount ?? 0)
+        await Badge.clearRead(unread: unreadIDs)   // emails read on the Mac since the last check
     }
 
     /// The number on the app icon; nil until it is known whether anyone is signed in.
