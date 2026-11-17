@@ -393,11 +393,14 @@ private struct DraftRowView: View {
 struct BlockedListView: View {
     @Binding var path: NavigationPath
     @EnvironmentObject var store: PhoneStore
+    @AppStorage("blockedOrder") private var order = BlockedEntry.Order.newest
     var body: some View {
         List {
             Banner()
+            Picker("Sort", selection: $order) { Text("Newest first").tag(BlockedEntry.Order.newest); Text("A to Z").tag(BlockedEntry.Order.az) }
+                .pickerStyle(.segmented).listRowBackground(Color.clear).listRowInsets(EdgeInsets())
             Section {
-                ForEach(store.blocked) { e in
+                ForEach(BlockedEntry.sorted(store.blocked, by: order)) { e in
                     HStack(spacing: 12) {
                       Button { path.append(MailboxRoute.sender(e.from)) } label: {   // their emails, as a list (the same screen a folder uses)
                         HStack(spacing: 12) {
@@ -405,7 +408,7 @@ struct BlockedListView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(e.title).font(.system(size: 16, weight: .semibold)).lineLimit(2)
                             HStack(spacing: 8) {
-                                Text(e.toTrash ? "Older block, goes to Trash" : (e.isCompany ? "Whole company" : "One address") + " · \(e.count) email\(e.count == 1 ? "" : "s")")
+                                Text(e.toTrash ? "Older block, goes to Trash" : (e.isCompany ? "Whole company" : "One address") + " · \(e.count) email\(e.count == 1 ? "" : "s")" + (e.latestText.map { ", " + $0 } ?? ""))
                                     .font(.system(size: 13)).foregroundStyle(Theme.sub).fixedSize(horizontal: false, vertical: true)
                                 Text(e.isCompany ? "Company" : "Address").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accInk)
                                     .padding(.horizontal, 8).background(Capsule().fill(Theme.accSoft))

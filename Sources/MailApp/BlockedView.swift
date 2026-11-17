@@ -3,17 +3,23 @@ import MailCore
 
 struct BlockedView: View {
     @ObservedObject var store: MailStore
+    @AppStorage("blockedOrder") private var order = BlockedEntry.Order.newest
     var body: some View {
         MaybeScroll {
             VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Blocked").font(Theme.title).tracking(-0.2).accessibilityAddTraits(.isHeader)
-                    Text("Emails from these senders never reach your inbox.").foregroundStyle(Theme.sub)
+                HStack(alignment: .bottom, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Blocked").font(Theme.title).tracking(-0.2).accessibilityAddTraits(.isHeader)
+                        Text("Emails from these senders never reach your inbox.").foregroundStyle(Theme.sub)
+                    }
+                    Spacer()
+                    Picker("Sort", selection: $order) { Text("Newest first").tag(BlockedEntry.Order.newest); Text("A to Z").tag(BlockedEntry.Order.az) }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
                 if store.blocked.isEmpty {
                     Card { Text("Nobody is blocked yet.").foregroundStyle(Theme.sub) }
                 }
-                ForEach(store.blocked) { e in
+                ForEach(BlockedEntry.sorted(store.blocked, by: order)) { e in
                     Card {
                         HStack(spacing: 16) {
                             Button { Task { await store.showEmails(from: e) } } label: {   // click: all their emails, in the search list
@@ -27,7 +33,12 @@ struct BlockedView: View {
                                 }.font(Theme.small)
                             }
                             Spacer()
-                            if !e.toTrash { Text("\(e.count) email\(e.count == 1 ? "" : "s")").font(Theme.small).foregroundStyle(Theme.sub) }
+                            if !e.toTrash {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("\(e.count) email\(e.count == 1 ? "" : "s")")
+                                    if let t = e.latestText { Text(t) }
+                                }.font(Theme.small).foregroundStyle(Theme.sub)
+                            }
                               }.contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityLabel("Show emails from \(e.title)")
                             Button("Unblock") { Task { await store.unblock(e) } }

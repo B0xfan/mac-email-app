@@ -568,6 +568,11 @@ enum SelfTest {
             let bl = await MainActor.run { st.blocked }
             check("blocking: Spark's send-to-Trash filters are listed (a Trash filter with a subject or an attachment condition is not)", bl.contains { $0.id == "t1" && $0.toTrash } && !bl.contains { $0.id == "t2" || $0.id == "t3" } && bl.contains { $0.id == "b1" && !$0.toTrash })
             check("blocking: the Blocked list counts the emails (Gmail answers a one-email count with a rough 201, so it is never used)", bl.first { $0.id == "b1" }?.count == 1)
+            let bsDay = Date(timeIntervalSince1970: 1_700_000_000)
+            let bsList = [BlockedEntry(id: "1", from: "zed@a.example", count: 1, latest: bsDay), BlockedEntry(id: "2", from: "@hometalk.example", count: 3, latest: bsDay.addingTimeInterval(86400)),
+                          BlockedEntry(id: "3", from: "old@spark.example", count: 0, toTrash: true), BlockedEntry(id: "4", from: "Amy@b.example", count: 1, latest: bsDay)]
+            let bsNew = BlockedEntry.sorted(bsList, by: .newest).map(\.id), bsAZ = BlockedEntry.sorted(bsList, by: .az).map(\.id)
+            check("blocking: Newest first goes by each sender's newest email, ties A to Z, no email last; A to Z skips \"Everyone at\" and ignores capitals", bsNew == ["2", "4", "1", "3"] && bsAZ == ["4", "2", "3", "1"])
             await st.showEmails(from: bl.first { $0.id == "b1" }!)
             let shown = await MainActor.run { (st.mailbox, st.search) }
             check("blocking: clicking a blocked sender opens the search list for all their emails", shown.0 == .search && shown.1 == "from:\"spam@x.biz\" in:anywhere")

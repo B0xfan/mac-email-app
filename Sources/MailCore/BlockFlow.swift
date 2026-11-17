@@ -8,7 +8,23 @@ public struct BlockedEntry: Identifiable, Hashable {
     public var title: String { isCompany ? "Everyone at \(from.dropFirst())" : from }
     public var count: Int
     public var toTrash = false     // an older block (Spark's): the filter sends their mail to Trash
-    public init(id: String, from: String, count: Int, toTrash: Bool = false) { self.id = id; self.from = from; self.count = count; self.toTrash = toTrash }
+    public var latest: Date?       // their newest blocked email; Gmail keeps no date for the block itself
+    public init(id: String, from: String, count: Int, toTrash: Bool = false, latest: Date? = nil) { self.id = id; self.from = from; self.count = count; self.toTrash = toTrash; self.latest = latest }
+
+    /// The two orders of the Blocked list. Newest: by their newest email, senders with none last; A to Z: by address or company name ("Everyone at" left out).
+    public enum Order: String, CaseIterable { case newest, az }
+    /// "latest Nov 14" under the count ("latest Mar 3, 2025" for another year); nil when they have no blocked email.
+    public var latestText: String? {
+        guard let d = latest else { return nil }
+        let sameYear = Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year)
+        return "latest " + d.formatted(sameYear ? .dateTime.month(.abbreviated).day() : .dateTime.month(.abbreviated).day().year())
+    }
+    public static func sorted(_ es: [BlockedEntry], by o: Order) -> [BlockedEntry] {
+        func name(_ e: BlockedEntry) -> String { e.isCompany ? String(e.from.dropFirst()) : e.from }
+        func az(_ a: BlockedEntry, _ b: BlockedEntry) -> Bool { name(a).localizedCaseInsensitiveCompare(name(b)) == .orderedAscending }
+        if o == .az { return es.sorted(by: az) }
+        return es.sorted { a, b in a.latest == b.latest ? az(a, b) : (a.latest ?? .distantPast) > (b.latest ?? .distantPast) }
+    }
 }
 
 /// A block that must not happen (own address, a whole free-mail service ...); `reason` is plain words for the screen.
@@ -81,8 +97,10 @@ public final class BlockFlow: @unchecked Sendable {
         let g = gmail, name = labelName
         let mine = await mapLimited(fs, limit: 4) { f in
             let from = f.criteria!.from!
-            let n = (try? await g.listIDs(q: "label:\"\(name)\" from:\(GmailQuery.term(from))", max: GmailClient.all).count) ?? 0   // counted, not estimated: asked for one email, Gmail answers 201 for any non-empty result
-            return BlockedEntry(id: f.id, from: from, count: n)
+            let ids = (try? await g.listIDs(q: "label:\"\(name)\" from:\(GmailQuery.term(from))", max: GmailClient.all)) ?? []   // counted, not estimated: asked for one email, Gmail answers 201 for any non-empty result
+            var latest: Date?
+            if let newest = ids.first { latest = try? await g.message(id: newest, full: false).date }   // Gmail lists newest first
+            return BlockedEntry(id: f.id, from: from, count: ids.count, latest: latest)
         }
         // no per-sender count for the old ones: one call each would be hundreds of calls
         return mine + old.map { BlockedEntry(id: $0.id, from: $0.criteria!.from!, count: 0, toTrash: true) }

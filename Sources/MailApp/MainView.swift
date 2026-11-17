@@ -139,6 +139,12 @@ struct SidebarView: View {
                     .onChange(of: store.isSearching) { _, s in if !s { store.endSearchPeek() } }
                     .onExitCommand { store.endSearchPeek() }
                     .onSubmit { Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } }
+                    .task(id: store.search) {   // searches as John types, a moment after the last key; Return still searches at once
+                        guard searchFocus else { return }
+                        try? await Task.sleep(for: .milliseconds(400)); guard !Task.isCancelled else { return }
+                        let q = store.search.trimmingCharacters(in: .whitespaces)
+                        if q.count >= 2, q != store.searchRan { await store.runSearch() } else if q.isEmpty, store.mailbox == .search { await store.select(.inbox) }
+                    }
             }
             .padding(.horizontal, 8).frame(minHeight: 28)
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))

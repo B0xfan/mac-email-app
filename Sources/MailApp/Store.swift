@@ -35,6 +35,7 @@ final class MailStore: ObservableObject {
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
     @Published var search = ""
+    var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
     @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     @Published var loadingOtherMore = false
     var otherSource: OtherSource?
@@ -475,7 +476,7 @@ final class MailStore: ObservableObject {
         otherGen += 1; loadingOtherMore = false; let gen = otherGen   // an older, slower call must never overwrite newer results
         let writesAtStart = gmail.writes
         otherNext = nil; otherSource = nil; searchMore = .hidden; extraIDs = []
-        let q = search.trimmingCharacters(in: .whitespaces)
+        let q = search.trimmingCharacters(in: .whitespaces); searchRan = q
         if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
             let page = Self.otherPage
             let rows = await storedRead { db.list(spec, limit: page) }   // off the main thread: a big mailbox must not freeze the window
@@ -600,6 +601,7 @@ final class MailStore: ObservableObject {
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; searchMore = .hidden; extraIDs = []; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
+        searchRan = search   // a list shown again from memory below never reaches loadOther
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
         else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() }
         else if storedSpec(box) == nil, let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
