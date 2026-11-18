@@ -8,7 +8,8 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sel = 0
     var initialTab = 0
-    private var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad && sizeClass == .regular }   // iPad at full or wide Split View width; narrow Split View keeps the phone layout
+    private var padIdiom: Bool { UIDevice.current.userInterfaceIdiom == .pad }   // never changes while running, so resizing Split View never swaps the open Write screen
+    private var pad: Bool { padIdiom && sizeClass == .regular }   // iPad at full or wide Split View width; narrow Split View keeps the phone layout
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -25,8 +26,8 @@ struct RootView: View {
         }
         .animation(.default, value: store.toast?.id)
         .animation(.default, value: store.sendToast?.id)
-        .fullScreenCover(item: pad ? .constant(nil) : $store.composeSeed, onDismiss: composeClosed) { ComposeView(seed: $0) }
-        .sheet(item: pad ? $store.composeSeed : .constant(nil), onDismiss: composeClosed) { ComposeView(seed: $0).interactiveDismissDisabled() }   // iPad: a card in the middle, the inbox stays in view; no swipe-away, so Cancel still asks to keep the draft
+        .fullScreenCover(item: padIdiom ? .constant(nil) : $store.composeSeed, onDismiss: composeClosed) { ComposeView(seed: $0) }
+        .sheet(item: padIdiom ? $store.composeSeed : .constant(nil), onDismiss: composeClosed) { ComposeView(seed: $0).interactiveDismissDisabled() }   // iPad: a card in the middle, the inbox stays in view; no swipe-away, so Cancel still asks to keep the draft
         .sheet(item: $store.snoozeTarget) { m in SnoozeSheet { d in store.snoozeTarget = nil; store.snooze(m, until: d) } cancel: { store.snoozeTarget = nil } }
         .tint(Theme.acc)
         .preferredColorScheme(prefs.theme.scheme)
@@ -109,10 +110,10 @@ struct PadSidebar: View {
 
     var body: some View {
         // The mailbox list's own links land here: each one opens its list in the middle column instead of pushing a screen in this one.
-        NavigationStack(path: Binding(get: { [MailboxRoute]() }, set: { if let r = $0.last { store.padRoutes = [r]; sel = 0 } })) {
+        NavigationStack(path: Binding(get: { [MailboxRoute]() }, set: { if let r = $0.last { store.padPath = NavigationPath([r]); sel = 0 } })) {
             VStack(spacing: 0) {
                 VStack(spacing: 2) {
-                    line(0, "Inbox", "tray") { store.padRoutes = [] }
+                    line(0, "Inbox", "tray") { store.padPath = NavigationPath() }
                     line(1, "New senders", "person.crop.circle.badge.questionmark", badge: store.newSenderRows.count)
                     line(2, "Search", "magnifyingglass")
                 }
@@ -128,7 +129,7 @@ struct PadSidebar: View {
     }
 
     private func line(_ i: Int, _ title: String, _ icon: String, badge: Int = 0, also: @escaping () -> Void = {}) -> some View {
-        let on = sel == i && (i != 0 || store.padRoutes.isEmpty)
+        let on = sel == i && (i != 0 || store.padPath.isEmpty)
         return Button { sel = i; also() } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon).foregroundStyle(Theme.acc).frame(width: 24)

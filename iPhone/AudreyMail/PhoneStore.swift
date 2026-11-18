@@ -65,7 +65,7 @@ final class PhoneStore: ObservableObject {
     @Published var folderNext: String?
     private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
     @Published var tabBarHidden = false   // the read screen has its own bar, as drawn
-    @Published var padRoutes: [MailboxRoute] = []   // iPad: what the middle column shows (empty = the inbox), set from the sidebar
+    @Published var padPath = NavigationPath()   // iPad: what the middle column shows (empty = the inbox), set from the sidebar
     @Published var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
     @Published var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back
     @Published var undoDelay: Int { didSet { defaults.set(undoDelay, forKey: "undoDelay") } }

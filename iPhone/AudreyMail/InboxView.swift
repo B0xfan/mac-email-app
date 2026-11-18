@@ -15,13 +15,14 @@ struct InboxView: View {
         Group {
             if pad {   // the approved iPad mockup (2026-11-18): list in the middle, open email on the right
                 HStack(spacing: 0) {
-                    NavigationStack(path: $store.padRoutes) {
-                        screen.navigationDestination(for: MailboxRoute.self) { routeView($0, pick) }
+                    NavigationStack(path: $store.padPath) {   // a list opened here (a folder, Blocked, a sender's emails) stays in this column
+                        screen.navigationDestination(for: MailboxRoute.self) { routeView($0, open: pick, list: $store.padPath) }
                     }
                     .frame(width: 360)
                     .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
                     NavigationStack(path: $path) { destinations(noneOpen) }
                 }
+                .onChange(of: store.padPath) { _, _ in path = NavigationPath() }   // another list in the middle: close the email from the old one, whose next-email and folder no longer match
             } else {
                 NavigationStack(path: $path) { destinations(screen) }
             }
@@ -41,7 +42,7 @@ struct InboxView: View {
             if s == "aside" { go(.aside) }
             if s == "smartfolder", let f = store.organizer.smart.first { go(.smart(f.id)) }
             if s == "blocked" { go(.blocked) }
-            if s == "blockedsender" { go(.blocked); path.append(MailboxRoute.sender("deals@brightside-offers.example")) }
+            if s == "blockedsender" { go(.blocked); go(.sender("deals@brightside-offers.example")) }
             if s == "drafts" { go(.drafts) }
             if s == "snooze", let m = store.inbox.first { store.snoozeTarget = m }
         }
@@ -49,7 +50,7 @@ struct InboxView: View {
     }
 
     #if DEBUG
-    private func go(_ r: MailboxRoute) { if pad { store.padRoutes.append(r) } else { path.append(r) } }   // screenshots: on iPad a mailbox opens in the middle column
+    private func go(_ r: MailboxRoute) { if pad { store.padPath.append(r) } else { path.append(r) } }   // screenshots: on iPad a mailbox opens in the middle column
     #endif
 
     /// Opens an email: pushed on the phone; on iPad it takes the right-hand column.
@@ -90,12 +91,13 @@ struct InboxView: View {
         .onAppear { current = nil }   // the open email was closed (archived, deleted, moved): nothing is picked in the list
     }
 
-    @ViewBuilder private func routeView(_ route: MailboxRoute, _ p: Binding<NavigationPath>) -> some View {
+    /// open: where an email from this list goes; list: where a further list (a blocked sender's emails) goes. The same stack on the phone.
+    @ViewBuilder private func routeView(_ route: MailboxRoute, open p: Binding<NavigationPath>, list: Binding<NavigationPath>) -> some View {
         switch route {
         case .mailboxes: MailboxesView()
         case .drafts: DraftsView()
         case .scheduled: ScheduledView()
-        case .blocked: BlockedListView(path: p)
+        case .blocked: BlockedListView(path: list)
         case .folder, .sent, .archive, .starred, .allMail, .spam, .trash, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: p)
         }
     }
@@ -108,7 +110,7 @@ struct InboxView: View {
             .navigationDestination(for: FolderOpen.self) { o in
                 ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) }).id(o.mail.id)
             }
-            .navigationDestination(for: MailboxRoute.self) { routeView($0, $path) }
+            .navigationDestination(for: MailboxRoute.self) { routeView($0, open: $path, list: $path) }
     }
 
     private var list: some View {
