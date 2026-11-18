@@ -81,10 +81,12 @@ final class MailStore: ObservableObject {
     @Published var blockMenuFor: String?
     @Published var unsubStage: UnsubStage = .idle
     @Published var compose: ComposeDraft? { didSet { if compose != nil && (oldValue == nil || oldValue?.mode != compose?.mode || oldValue?.threadID != compose?.threadID) { composeID = UUID() } } }
-    @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil } }   // the old view's contents must not be read for the new email; the new view sets it again
+    @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil; composeRestored = false } }   // the old view's contents must not be read for the new email; the new view sets it again
     /// Set by the open ComposeView: only it knows what has been typed.
-    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool))?
+    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool, busy: Bool))?
+    var composeRestored = false   // brought back by Undo Send or a failed send: never saved, so it counts as typed
     var leaveSave: Task<Bool, Never>?   // the save before leaving the open email; a second click while it runs waits for it instead of saving again
+    var leaveCount = 0                  // every way out asked for; only the latest one goes on
     var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
     @Published var sendAs: [GSendAs] = []
     @Published var accountEmail = ""
@@ -596,8 +598,8 @@ final class MailStore: ObservableObject {
     /// URLError.cancelled, which the Gmail client turns into one retry, whose wait throws CancellationError (not a LocalizedError, hence the generic "Could not load more.").
     static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
-    func select(_ box: Mailbox) async {
-        guard await saveOpenComposeFirst() else { return }
+    @discardableResult func select(_ box: Mailbox) async -> Bool {
+        guard await saveOpenComposeFirst() else { return false }
         // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
         if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore, !otherIsStored { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: otherWrites) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; searchMore = .hidden; extraIDs = []; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
@@ -609,6 +611,7 @@ final class MailStore: ObservableObject {
         else if storedSpec(box) == nil, let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
             other = kept.mails; otherNext = kept.next; otherSource = kept.source; otherWrites = kept.writes   // coming back to it: no request to Gmail
         } else { await loadOther() }
+        return true
     }
 
     func runSearch() async {

@@ -318,6 +318,8 @@ enum ListTest {
         await LiveTest.pump(1.5)
         let emptySafe = await store.saveOpenComposeFirst()
         check("compose replace: an untouched email needs no save", emptySafe && store.composeContents != nil)
+        store.newCompose()   // the check above closed it, as leaving does
+        await LiveTest.pump(1.5)
         await store.openIncoming(URL(string: "mailto:dana@example.com?subject=Hello")!)
         await LiveTest.pump(1.5)
         let shown = await store.composeContents?()
@@ -455,7 +457,7 @@ enum ListTest {
         await fresh("two clicks words")
         let one = Task { await store.open(row("lc")) }, two = Task { await store.open(row("ld")) }   // the second starts while the first is still saving
         await one.value; await two.value
-        check("leave: two quick clicks save one draft, not two (\(f.draftSaves))", f.draftSaves.count == 4 && f.drafts.count == 4 && store.compose == nil)
+        check("leave: two quick clicks save one draft, not two (\(f.draftSaves))", f.draftSaves.count == 4 && f.drafts.count == 4 && store.compose == nil && store.selectedID == "ld")
 
         await store.open(row("la"))
         if let o = store.openMail { store.reply(o) }
@@ -490,6 +492,19 @@ enum ListTest {
         await fresh("new email words")
         await store.newEmailAsked()
         check("leave: New Email saves the typed words first and opens an empty one (\(f.draftSaves))", f.draftSaves.count == before + 1 && store.compose != nil && store.compose?.draftID == nil)
+
+        await fresh("undo send words")
+        store.toast = ToastInfo(text: "Sending in 5 seconds", action: "Undo")
+        await store.rowClicked(row("lb"), command: false, shift: false)
+        check("leave: an Undo toast that is up stays when the typed words are saved (\(store.toast?.text ?? "no toast"))", f.draftSaves.count == before + 2 && store.toast?.action == "Undo" && store.compose == nil)
+        store.toast = nil
+
+        var back = ComposeDraft(from: "me@x.example", to: "kim@x.example", subject: "Back", mode: .new)
+        back.restoredBodyHTML = "restored words"
+        store.compose = back; store.composeID = UUID(); store.composeRestored = true   // as Undo Send brings it back
+        await LiveTest.pump(1.5)
+        await store.rowClicked(row("la"), command: false, shift: false)
+        check("leave: an email brought back by Undo Send is saved when left, though nothing was typed since (\(f.draftSaves))", f.draftSaves.count == before + 3 && store.compose == nil)
 
         win.close()
         return ok

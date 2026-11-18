@@ -12,7 +12,7 @@ extension MailStore {
         status = "Approved \(m.from.display). Their emails now reach your inbox."
         blockMenuFor = nil
         objectWillChange.send()
-        if mailbox == .newSenders, openMail?.id == m.id { await select(.inbox); await open(m) }
+        if mailbox == .newSenders, openMail?.id == m.id, await select(.inbox) { await open(m) }
         await shareApprovals([m.from.email])   // last: the approval shows at once, even offline
     }
 
@@ -83,7 +83,7 @@ extension MailStore {
 
     /// Click a blocked sender: all their emails, in the same search list John already knows ("from:" is Gmail's own search word, and Gmail searches the Blocked label too).
     func showEmails(from e: BlockedEntry) async {
-        await select(.search)
+        guard await select(.search) else { return }
         search = "from:" + GmailQuery.term(e.from) + " in:anywhere"   // anywhere: mail they sent that is in Trash or Spam is theirs too
         await runSearch()
     }
