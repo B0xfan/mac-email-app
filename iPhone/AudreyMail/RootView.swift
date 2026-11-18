@@ -26,7 +26,7 @@ struct RootView: View {
         .animation(.default, value: store.toast?.id)
         .animation(.default, value: store.sendToast?.id)
         .fullScreenCover(item: pad ? .constant(nil) : $store.composeSeed, onDismiss: composeClosed) { ComposeView(seed: $0) }
-        .sheet(item: pad ? $store.composeSeed : .constant(nil), onDismiss: composeClosed) { ComposeView(seed: $0) }   // iPad: a sheet is a card in the middle, the inbox stays in view
+        .sheet(item: pad ? $store.composeSeed : .constant(nil), onDismiss: composeClosed) { ComposeView(seed: $0).interactiveDismissDisabled() }   // iPad: a card in the middle, the inbox stays in view; no swipe-away, so Cancel still asks to keep the draft
         .sheet(item: $store.snoozeTarget) { m in SnoozeSheet { d in store.snoozeTarget = nil; store.snooze(m, until: d) } cancel: { store.snoozeTarget = nil } }
         .tint(Theme.acc)
         .preferredColorScheme(prefs.theme.scheme)
