@@ -140,9 +140,9 @@ extension MailStore {
     /// a link, a share, a reopened draft, right-click Reply or Forward). What was typed goes to Drafts first and the email closes;
     /// if the save fails, false: the open email stays and the caller does not go on.
     func saveOpenComposeFirst() async -> Bool {
-        guard compose != nil else { return true }   // nothing open: go on at once (arrow keys stay quick)
-        leaveCount += 1
+        leaveCount += 1   // counted even with nothing open: a click right after a save finished still outranks the one that waited for it
         let mine = leaveCount
+        guard compose != nil else { return true }   // nothing open: go on at once (arrow keys stay quick)
         if leaveSave == nil {
             let started = composeID
             leaveSave = Task { () -> Bool in

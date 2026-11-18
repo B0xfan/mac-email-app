@@ -138,7 +138,7 @@ struct SidebarView: View {
                     .onChange(of: searchFocus) { _, f in if !f && !store.isSearching { store.endSearchPeek() } }
                     .onChange(of: store.isSearching) { _, s in if !s { store.endSearchPeek() } }
                     .onExitCommand { store.endSearchPeek() }
-                    .onSubmit { Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } }
+                    .onSubmit { Task { if store.search.isEmpty { await store.select(.inbox) } else { await store.runSearch() } } }
                     .task(id: store.search) {   // searches as John types, a moment after the last key; Return still searches at once
                         guard searchFocus else { return }
                         try? await Task.sleep(for: .milliseconds(400)); guard !Task.isCancelled else { return }
