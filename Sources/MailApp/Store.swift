@@ -84,6 +84,7 @@ final class MailStore: ObservableObject {
     @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil } }   // the old view's contents must not be read for the new email; the new view sets it again
     /// Set by the open ComposeView: only it knows what has been typed.
     var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool))?
+    var leaveSave: Task<Bool, Never>?   // the save before leaving the open email; a second click while it runs waits for it instead of saving again
     var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
     @Published var sendAs: [GSendAs] = []
     @Published var accountEmail = ""
@@ -596,6 +597,7 @@ final class MailStore: ObservableObject {
     static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
     func select(_ box: Mailbox) async {
+        guard await saveOpenComposeFirst() else { return }
         // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
         if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore, !otherIsStored { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: otherWrites) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; searchMore = .hidden; extraIDs = []; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []

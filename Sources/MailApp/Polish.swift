@@ -41,7 +41,7 @@ extension MailStore {
     func commandList() -> [AppCommand] {
         var c: [AppCommand] = []
         func add(_ id: String, _ title: String, group: String = "", key: String? = nil, _ run: @escaping @MainActor () -> Void) { c.append(AppCommand(id: id, title: title, group: group, key: key, run: run)) }
-        add("new", "New Email", key: "\u{2318}N") { self.newCompose() }
+        add("new", "New Email", key: "\u{2318}N") { Task { await self.newEmailAsked() } }
         if let m = openMail, !selectedIsNewSender, compose == nil {
             add("reply", "Reply", key: "R") { self.reply(m) }
             add("replyall", "Reply All") { self.reply(m, all: true) }
@@ -193,7 +193,7 @@ struct MenuBarContent: View {
         }
         Divider()
         Button("Open Audrey Mail") { AppDelegate().showWindow() }
-        Button("New Email") { AppDelegate().showWindow(); store.newCompose() }
+        Button("New Email") { AppDelegate().showWindow(); Task { await store.newEmailAsked() } }
         Button("Check Now") { Task { await store.refresh(reloadList: true) } }
         Divider()
         Button("Quit Audrey Mail") { NSApp.terminate(nil) }

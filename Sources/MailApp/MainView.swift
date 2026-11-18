@@ -342,7 +342,7 @@ struct ToolbarView: View {
         let todoTip: String = multi ? "Add \(n) to to-do (T)" : (canAct ? "Add to To-Do (T)" : "To-do, open an email first")
         HStack(spacing: 4) {
             IconButton(symbol: "sidebar.left", label: store.settings.compactSidebar ? "Show Sidebar (\u{2303}\u{2318}S)" : "Hide Sidebar (\u{2303}\u{2318}S)") { store.toggleSidebar() }
-            IconButton(symbol: "square.and.pencil", label: "New Email (C)") { store.newCompose() }
+            IconButton(symbol: "square.and.pencil", label: "New Email (C)") { Task { await store.newEmailAsked() } }
             Rectangle().fill(Theme.line).frame(width: 1, height: 20).padding(.horizontal, 8)
             IconButton(symbol: "arrowshape.turn.up.left", label: canAct ? "Reply (R)" : "Reply, \(one)", enabled: canAct) {
                 if let m = store.openMail { store.reply(m) } }
@@ -501,7 +501,7 @@ struct ListPane: View {
             }
             switch p.characters.lowercased() {
             case "a": Task { await store.archiveOpen() }; return .handled
-            case "c": store.newCompose(); return .handled
+            case "c": Task { await store.newEmailAsked() }; return .handled
             case "s": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.setAside(m) }; return .handled }; return .ignored
             case "z": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { store.picker = .snooze([m.id]); return .handled }; return .ignored
             case "p": if let m = store.openRow, !store.selectedIsNewSender, store.mailbox == .inbox { Task { await store.togglePin(m) }; return .handled }; return .ignored

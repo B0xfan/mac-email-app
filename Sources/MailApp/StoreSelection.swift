@@ -28,6 +28,7 @@ extension MailStore {
     /// A click on a row. Plain click: leave the selection and open the email. Command: add or remove it. Shift: everything from the last click.
     func rowClicked(_ m: Mail, command: Bool, shift: Bool) async {
         guard canPick, command || shift else { await open(m); return }
+        guard await saveOpenComposeFirst() else { return }
         let anchor = pickAnchor ?? selectedID
         let ids = listMails.map(\.id), here = Set(ids)
         picked.formIntersection(here)   // a pick that is not in this list any more does not count

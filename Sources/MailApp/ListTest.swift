@@ -486,6 +486,11 @@ enum ListTest {
         await store.select(.inbox)
         check("leave: a saved reply reopened from Drafts stays in its conversation when saved again (\(f.draftSaves.last ?? "no save"))", f.draftSaves.last == "put d9 thread=Tconv")
 
+        let before = f.draftSaves.count
+        await fresh("new email words")
+        await store.newEmailAsked()
+        check("leave: New Email saves the typed words first and opens an empty one (\(f.draftSaves))", f.draftSaves.count == before + 1 && store.compose != nil && store.compose?.draftID == nil)
+
         win.close()
         return ok
     }
