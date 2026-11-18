@@ -37,5 +37,33 @@ for mode in light dark; do
   done
 done
 xcrun simctl terminate "$UDID" $BID >/dev/null 2>&1 || true
+xcrun simctl shutdown "$UDID" || true
+echo "== iPad pictures =="
+PAD=$(xcrun simctl list devices available -j | python3 -c '
+import json,sys
+d=json.load(sys.stdin)["devices"]
+c=[x for k,v in d.items() if "iOS" in k for x in v if "iPad" in x["name"]]
+pick=[x for x in c if "11" in x["name"] and "Pro" in x["name"]] or [x for x in c if "Air" in x["name"]] or c
+print(pick[0]["udid"] if pick else "")')
+if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
+  echo "iPad simulator $PAD"
+  xcrun simctl boot "$PAD" || true
+  xcrun simctl bootstatus "$PAD" -b
+  xcrun simctl status_bar "$PAD" override --time 9:41 --batteryState charged --batteryLevel 100 || true
+  xcrun simctl install "$PAD" "$APP"
+  for mode in light dark; do
+    xcrun simctl ui "$PAD" appearance $mode
+    for turn in land port; do
+      for s in inbox read write folder mailboxes search new settings set-layout; do
+        xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
+        if [ $turn = land ]; then xcrun simctl launch "$PAD" $BID -demo $s -landscape >/dev/null || rc=1
+        else xcrun simctl launch "$PAD" $BID -demo $s >/dev/null || rc=1; fi
+        sleep 9
+        xcrun simctl io "$PAD" screenshot "$OUT/ipad-$turn-$s-$mode.png" >/dev/null 2>&1 || rc=1
+      done
+    done
+  done
+  xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
+fi
 ls -la "$OUT"
 exit $rc

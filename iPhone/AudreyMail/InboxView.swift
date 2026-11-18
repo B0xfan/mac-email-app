@@ -5,42 +5,25 @@ struct InboxView: View {
     @EnvironmentObject var store: PhoneStore
     @EnvironmentObject var prefs: PhoneSettings
     @State private var path = NavigationPath()
+    @State private var current: String?   // iPad: the email open on the right, shown picked in the list
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad && sizeClass == .regular }
+    /// iPad: a list in the middle column opens its email on the right in place of the one open there.
+    private var pick: Binding<NavigationPath> { Binding(get: { NavigationPath() }, set: { path = $0 }) }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            ZStack(alignment: .bottomTrailing) {
-                VStack(spacing: 0) {
-                    HStack {
-                        LargeTitle(text: "Inbox")
-                        NavigationLink(value: MailboxRoute.mailboxes) { Label("Mailboxes", systemImage: "tray.2").font(.system(size: 15, weight: .semibold)).frame(minHeight: 44) }
-                            .foregroundStyle(Theme.acc).padding(.trailing, 16)
+        Group {
+            if pad {   // the approved iPad mockup (2026-11-18): list in the middle, open email on the right
+                HStack(spacing: 0) {
+                    NavigationStack(path: $store.padRoutes) {
+                        screen.navigationDestination(for: MailboxRoute.self) { routeView($0, pick) }
                     }
-                    Text(store.totalUnread > 0 ? "\(store.totalUnread) new" : "All caught up").foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
-                    list
+                    .frame(width: 360)
+                    .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
+                    NavigationStack(path: $path) { destinations(noneOpen) }
                 }
-                Button { store.composeSeed = ComposeSeed(mode: .new, source: nil) } label: {
-                    Image(systemName: "square.and.pencil").font(.system(size: 24)).foregroundStyle(Theme.accText)
-                        .frame(width: 56, height: 56).background(Circle().fill(Theme.acc)).shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-                }
-                .padding(.trailing, 18).padding(.bottom, 16).accessibilityLabel("Write a new email")
-            }
-            .background(Theme.bg)
-            .navigationTitle("Inbox")
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: Mail.self) { m in
-                ReadView(mail: m, advance: { next in path.removeLast(); path.append(next) }).id(m.id)   // "open the next email" replaces this one on the screen (a new screen, not the old one with new words)
-            }
-            .navigationDestination(for: FolderOpen.self) { o in
-                ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) }).id(o.mail.id)
-            }
-            .navigationDestination(for: MailboxRoute.self) { route in
-                switch route {
-                case .mailboxes: MailboxesView()
-                case .drafts: DraftsView()
-                case .scheduled: ScheduledView()
-                case .blocked: BlockedListView(path: $path)
-                case .folder, .sent, .archive, .starred, .allMail, .spam, .trash, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: $path)
-                }
+            } else {
+                NavigationStack(path: $path) { destinations(screen) }
             }
         }
         #if DEBUG
@@ -48,21 +31,84 @@ struct InboxView: View {
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself
             guard path.isEmpty else { return }
             let s = DemoMode.screen ?? ""
-            if ["read", "write", "leave", "todo", "grouped"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { path.append(m) }
-            if ["newsletter", "unsub"].contains(s), let m = store.inbox.first(where: { $0.id == "mm1" }) { store.book.approve(all: [m.from.email]); path.append(m) }   // an approved sender, so the picture shows the Unsubscribe button
-            if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { path.append(m) }
-            if ["mailboxes", "newfolder", "smartform"].contains(s) { path.append(MailboxRoute.mailboxes) }
-            if s == "folder" { path.append(MailboxRoute.folder("Label_receipts")) }
-            if s == "snoozed" { path.append(MailboxRoute.snoozed) }
-            if s == "recent" { path.append(MailboxRoute.recent) }
-            if s == "aside" { path.append(MailboxRoute.aside) }
-            if s == "smartfolder", let f = store.organizer.smart.first { path.append(MailboxRoute.smart(f.id)) }
-            if s == "blocked" { path.append(MailboxRoute.blocked) }
-            if s == "blockedsender" { path.append(MailboxRoute.blocked); path.append(MailboxRoute.sender("deals@brightside-offers.example")) }
-            if s == "drafts" { path.append(MailboxRoute.drafts) }
+            if ["read", "write", "leave", "todo", "grouped"].contains(s), let m = store.inbox.first(where: { $0.id == "m1" }) { open(m) }
+            if ["newsletter", "unsub"].contains(s), let m = store.inbox.first(where: { $0.id == "mm1" }) { store.book.approve(all: [m.from.email]); open(m) }   // an approved sender, so the picture shows the Unsubscribe button
+            if ["move", "attach"].contains(s), let m = store.inbox.first(where: { $0.id == "m4" }) { open(m) }
+            if ["mailboxes", "newfolder", "smartform"].contains(s) { go(.mailboxes) }
+            if s == "folder" { go(.folder("Label_receipts")) }
+            if s == "snoozed" { go(.snoozed) }
+            if s == "recent" { go(.recent) }
+            if s == "aside" { go(.aside) }
+            if s == "smartfolder", let f = store.organizer.smart.first { go(.smart(f.id)) }
+            if s == "blocked" { go(.blocked) }
+            if s == "blockedsender" { go(.blocked); path.append(MailboxRoute.sender("deals@brightside-offers.example")) }
+            if s == "drafts" { go(.drafts) }
             if s == "snooze", let m = store.inbox.first { store.snoozeTarget = m }
         }
         #endif
+    }
+
+    #if DEBUG
+    private func go(_ r: MailboxRoute) { if pad { store.padRoutes.append(r) } else { path.append(r) } }   // screenshots: on iPad a mailbox opens in the middle column
+    #endif
+
+    /// Opens an email: pushed on the phone; on iPad it takes the right-hand column.
+    private func open(_ m: Mail) {
+        current = m.id
+        if pad { path = NavigationPath([m]) } else { path.append(m) }
+    }
+
+    private var screen: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(spacing: 0) {
+                HStack {
+                    LargeTitle(text: "Inbox")
+                    NavigationLink(value: MailboxRoute.mailboxes) { Label("Mailboxes", systemImage: "tray.2").font(.system(size: 15, weight: .semibold)).frame(minHeight: 44) }
+                        .foregroundStyle(Theme.acc).padding(.trailing, 16)
+                }
+                Text(store.totalUnread > 0 ? "\(store.totalUnread) new" : "All caught up").foregroundStyle(Theme.sub).padding(.horizontal, 20).padding(.bottom, 8).frame(maxWidth: .infinity, alignment: .leading)
+                list
+            }
+            Button { store.composeSeed = ComposeSeed(mode: .new, source: nil) } label: {
+                Image(systemName: "square.and.pencil").font(.system(size: 24)).foregroundStyle(Theme.accText)
+                    .frame(width: 56, height: 56).background(Circle().fill(Theme.acc)).shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+            }
+            .padding(.trailing, 18).padding(.bottom, 16).accessibilityLabel("Write a new email")
+        }
+        .background(Theme.bg)
+        .navigationTitle("Inbox")
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var noneOpen: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "envelope.open").font(.system(size: 40))
+            Text("No email open").font(.system(size: 17, weight: .semibold))
+        }
+        .foregroundStyle(Theme.sub).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.bg)
+        .toolbar(.hidden, for: .navigationBar)
+        .onAppear { current = nil }   // the open email was closed (archived, deleted, moved): nothing is picked in the list
+    }
+
+    @ViewBuilder private func routeView(_ route: MailboxRoute, _ p: Binding<NavigationPath>) -> some View {
+        switch route {
+        case .mailboxes: MailboxesView()
+        case .drafts: DraftsView()
+        case .scheduled: ScheduledView()
+        case .blocked: BlockedListView(path: p)
+        case .folder, .sent, .archive, .starred, .allMail, .spam, .trash, .snoozed, .recent, .aside, .smart, .saved, .sender: FolderMailsView(route: route, path: p)
+        }
+    }
+
+    private func destinations(_ root: some View) -> some View {
+        root
+            .navigationDestination(for: Mail.self) { m in
+                ReadView(mail: m, advance: { next in current = next.id; path.removeLast(); path.append(next) }).id(m.id)   // "open the next email" replaces this one on the screen (a new screen, not the old one with new words)
+            }
+            .navigationDestination(for: FolderOpen.self) { o in
+                ReadView(mail: o.mail, fromFolder: o.folder.isEmpty ? nil : o.folder, inList: true, advance: { next in path.removeLast(); path.append(FolderOpen(mail: next, folder: o.folder)) }).id(o.mail.id)
+            }
+            .navigationDestination(for: MailboxRoute.self) { routeView($0, $path) }
     }
 
     private var list: some View {
@@ -138,12 +184,12 @@ struct InboxView: View {
 
     private func row(_ m: Mail, pinned: Bool) -> some View {
         let noReply = store.isNoReply(m)
-        return Button { path.append(m) } label: {
+        return Button { open(m) } label: {
             MailRow(mail: prefs.face(m), pinned: pinned, tag: noReply ? "No reply yet" : nil, below: store.backLine(m),
                     fromText: noReply ? "You, to \(Address.parse(m.to).display)" : prefs.fromText(m), count: prefs.count(m))
         }
             .buttonStyle(.plain)
-            .listRowBackground(pinned ? Theme.pinBg : Theme.card).listRowSeparatorTint(Theme.line)
+            .listRowBackground(pad && current == m.id ? Theme.selStrong : pinned ? Theme.pinBg : Theme.card).listRowSeparatorTint(Theme.line)
             .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
             .swipeActions(edge: .leading, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeRight, mail: m) }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) { SwipeButton(choice: prefs.swipeLeft, mail: m) }
