@@ -503,7 +503,7 @@ enum ListTest {
         back.restoredBodyHTML = "restored words"
         store.compose = back; store.composeID = UUID(); store.composeRestored = true   // as Undo Send brings it back
         await LiveTest.pump(1.5)
-        await store.rowClicked(row("la"), command: false, shift: false)
+        await store.rowClicked(row("lc"), command: false, shift: false)   // la was archived above
         check("leave: an email brought back by Undo Send is saved when left, though nothing was typed since (\(f.draftSaves))", f.draftSaves.count == before + 3 && store.compose == nil)
 
         win.close()
