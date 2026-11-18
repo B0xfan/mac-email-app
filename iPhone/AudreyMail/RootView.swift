@@ -58,23 +58,35 @@ struct RootView: View {
 
     private func composeClosed() { DispatchQueue.main.async { store.showNextCompose() } }
 
-    private var signedIn: some View {
-        GeometryReader { g in
-            let side = pad && g.size.width >= 1000   // iPad turned sideways: the sidebar replaces the tab bar (approved mockup 2026-11-18)
-            HStack(spacing: 0) {
-                if side { PadSidebar(sel: $sel).frame(width: 280) }
-                VStack(spacing: 0) {
-                    ZStack {
-                        InboxView().opacity(sel == 0 ? 1 : 0).allowsHitTesting(sel == 0)
-                        NewSendersView().opacity(sel == 1 ? 1 : 0).allowsHitTesting(sel == 1)
-                        SearchView().opacity(sel == 2 ? 1 : 0).allowsHitTesting(sel == 2)
-                        SettingsView(active: sel == 3).opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3)
+    @ViewBuilder private var signedIn: some View {
+        if padIdiom {   // never changes while running, so resizing Split View keeps every screen's state
+            GeometryReader { g in
+                let side = pad && g.size.width >= 1000   // iPad turned sideways: the sidebar replaces the tab bar (approved mockup 2026-11-18)
+                HStack(spacing: 0) {
+                    if side { PadSidebar(sel: $sel).frame(width: 280) }
+                    VStack(spacing: 0) {
+                        tabs
+                        if !side && (pad || !store.tabBarHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
                     }
-                    if !side && (pad || !store.tabBarHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
                 }
             }
+            .background(Theme.bg)
+        } else {   // the phone layout exactly as before: a GeometryReader here made an open email resize over and over (self-test, 2026-11-18)
+            VStack(spacing: 0) {
+                tabs
+                if !store.tabBarHidden { tabBar }
+            }
+            .background(Theme.bg)
         }
-        .background(Theme.bg)
+    }
+
+    private var tabs: some View {
+        ZStack {
+            InboxView().opacity(sel == 0 ? 1 : 0).allowsHitTesting(sel == 0)
+            NewSendersView().opacity(sel == 1 ? 1 : 0).allowsHitTesting(sel == 1)
+            SearchView().opacity(sel == 2 ? 1 : 0).allowsHitTesting(sel == 2)
+            SettingsView(active: sel == 3).opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3)
+        }
     }
 
     private var tabBar: some View {
