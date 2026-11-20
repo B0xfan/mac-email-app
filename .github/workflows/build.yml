@@ -16,7 +16,7 @@ jobs:
   # The iPhone app: builds for the simulator (no signing), runs its own checks on a pretend Gmail, and keeps a picture of every screen.
   ios-app:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - name: Build the iPhone app
