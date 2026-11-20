@@ -177,14 +177,16 @@ struct MailWebView: UIViewRepresentable {
             DispatchQueue.main.async {
                 guard let c, abs(c.height.wrappedValue - h) > 1 else { return }
                 #if DEBUG
-                MailWebView.trace.append("\(Int(c.height.wrappedValue))>\(Int(h)) w\(Int(sv.bounds.width)) f\(Int(sv.frame.height)) z\(Int(sv.zoomScale * 100)) @\(String(format: "%.2f", Date().timeIntervalSince(MailWebView.traceStart)))")
+                if MailWebView.trace.count < 100 { MailWebView.trace.append("\(Int(c.height.wrappedValue))>\(Int(h)) w\(Int(sv.bounds.width)) f\(Int(sv.frame.height)) z\(Int(sv.zoomScale * 100)) @\(String(format: "%.2f", Date().timeIntervalSince(MailWebView.traceStart)))") }
                 #endif
                 if Date().timeIntervalSince(c.sizedSince) > 2 { c.sizedSince = Date(); c.sizedCount = 0 }
                 c.sizedCount += 1
                 if c.sizedCount > 10 { c.catchUpLater(); return }   // too fast: a layout that follows the view's height, or a burst of pictures
+                if abs(c.lastHeight - h) <= 1 { c.measure(); return }   // back to the height it just left: view and page answer each other (cloud run 44756528280: 120, 336, 120 ...), so ask the page itself
                 #if DEBUG
                 MailWebView.sizes += 1
                 #endif
+                c.lastHeight = c.height.wrappedValue
                 c.height.wrappedValue = h
             }
         }
@@ -215,7 +217,20 @@ struct MailWebView: UIViewRepresentable {
                 catchingUp = false
                 guard let h = view?.scrollView.contentSize.height, abs(height.wrappedValue - h) > 1 else { return }
                 sizedSince = Date(); sizedCount = 0
+                lastHeight = height.wrappedValue
                 height.wrappedValue = h
+            }
+        }
+        var lastHeight: CGFloat = -10
+        /// The page's own height, which does not follow the view's: settles a view and page that keep answering each other.
+        func measure() {
+            view?.evaluateJavaScript("Math.ceil(Math.max(document.documentElement.getBoundingClientRect().height, document.body.scrollHeight))") { [weak self] r, _ in
+                guard let self, let n = r as? NSNumber, abs(height.wrappedValue - CGFloat(n.doubleValue)) > 1 else { return }
+                #if DEBUG
+                MailWebView.sizes += 1
+                #endif
+                lastHeight = height.wrappedValue
+                height.wrappedValue = CGFloat(n.doubleValue)
             }
         }
         var height: Binding<CGFloat> = .constant(0)
@@ -225,7 +240,7 @@ struct MailWebView: UIViewRepresentable {
             #if DEBUG
             MailWebView.loads += 1
             #endif
-            sizedSince = .distantPast; sizedCount = 0; catchUps = 0
+            sizedSince = .distantPast; sizedCount = 0; catchUps = 0; lastHeight = -10
             let go = { [self] in v.loadHTMLString(page, baseURL: nil) }
             v.configuration.userContentController.removeAllContentRuleLists()
             if remote { go(); return }
