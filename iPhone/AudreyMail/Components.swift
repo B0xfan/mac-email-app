@@ -127,6 +127,8 @@ struct MailWebView: UIViewRepresentable {
     nonisolated(unsafe) static var compiled: WKContentRuleList?
     #if DEBUG
     nonisolated(unsafe) static var made = 0, loads = 0, sizes = 0   // the built-in checks count these: a body that keeps reloading or resizing is what flashes on screen
+    nonisolated(unsafe) static var trace: [String] = []   // each size change: old height, new height, view width and frame height, seconds since the count was reset
+    nonisolated(unsafe) static var traceStart = Date()
     #endif
 
     /// This view is exactly as tall as the email, so an email sized by the height of the screen (100vh) would grow the view, which grows the email, without end: it flashes.
@@ -174,6 +176,9 @@ struct MailWebView: UIViewRepresentable {
             let h = sv.contentSize.height
             DispatchQueue.main.async {
                 guard let c, abs(c.height.wrappedValue - h) > 1 else { return }
+                #if DEBUG
+                MailWebView.trace.append("\(Int(c.height.wrappedValue))>\(Int(h)) w\(Int(sv.bounds.width)) f\(Int(sv.frame.height)) z\(Int(sv.zoomScale * 100)) @\(String(format: "%.2f", Date().timeIntervalSince(MailWebView.traceStart)))")
+                #endif
                 if Date().timeIntervalSince(c.sizedSince) > 2 { c.sizedSince = Date(); c.sizedCount = 0 }
                 c.sizedCount += 1
                 if c.sizedCount > 10 { c.catchUpLater(); return }   // too fast: a layout that follows the view's height, or a burst of pictures

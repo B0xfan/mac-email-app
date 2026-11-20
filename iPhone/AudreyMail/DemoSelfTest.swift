@@ -143,8 +143,9 @@ enum DemoSelfTest {
         defer { w.isHidden = true }
         func wait(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
         func watch(_ s: Double) async -> (made: Int, loads: Int, sizes: Int) {
-            MailWebView.made = 0; MailWebView.loads = 0; MailWebView.sizes = 0
+            MailWebView.made = 0; MailWebView.loads = 0; MailWebView.sizes = 0; MailWebView.trace = []; MailWebView.traceStart = Date()
             await wait(s)
+            if MailWebView.sizes >= 4 { print("read flash trace: \(MailWebView.trace.joined(separator: " | "))") }
             return (MailWebView.made, MailWebView.loads, MailWebView.sizes)
         }
         func steady(_ r: (made: Int, loads: Int, sizes: Int), most: Int = 5) -> Bool { r.made <= 1 && r.loads <= 1 && r.sizes <= most }
@@ -161,7 +162,16 @@ enum DemoSelfTest {
             let second = await watch(3)
             openInbox.send(nil); await wait(1)
             print("read flash, \(l.name): first open \(first), second open \(second)")
-            check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first, most: i == 4 ? 35 : 5) && steady(second, most: i == 4 ? 35 : 5))
+            var again: [(made: Int, loads: Int, sizes: Int)] = []
+            if i == 0 {   // the cloud flash (8 of ~40 runs, 2026-11-18) was nearly always this email's second open; open it more so a rare loop shows up
+                for _ in 0..<6 {
+                    openInbox.send(fst.inbox.first { $0.id == m.id } ?? m)
+                    again.append(await watch(3))
+                    openInbox.send(nil); await wait(1)
+                }
+                print("read flash, \(l.name) opened again: \(again.map { $0.sizes })")
+            }
+            check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first, most: i == 4 ? 35 : 5) && steady(second, most: i == 4 ? 35 : 5) && again.allSatisfy { steady($0) })
         }
         if let m = fst.newSenderRows.first(where: { $0.id == "fln" }) {
             openNewSenders.send(m); fst.approve(m)
