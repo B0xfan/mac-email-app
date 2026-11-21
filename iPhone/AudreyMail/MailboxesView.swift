@@ -102,9 +102,12 @@ struct MailboxesView: View {
     private func row(_ icon: String, _ title: String, tint: Color = Theme.acc, trailing: String = "") -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).foregroundStyle(tint).frame(width: 24)
-            Text(title).font(.system(size: 17)).foregroundStyle(Theme.text)
+            Text(title).font(.system(size: 17)).foregroundStyle(Theme.text).layoutPriority(1)   // the name gets the room first, so "Blocked" never breaks; a long folder name still wraps
             Spacer()
-            if !trailing.isEmpty { Text(trailing).foregroundStyle(Theme.sub).lineLimit(1).fixedSize() }  // a narrow sidebar must not wrap "0 senders"
+            if !trailing.isEmpty {   // a narrow iPad sidebar: "0 senders" becomes "0", as Drafts shows its count
+                ViewThatFits(in: .horizontal) { Text(trailing); Text(trailing.split(separator: " ").first.map(String.init) ?? trailing) }
+                    .foregroundStyle(Theme.sub).lineLimit(1)
+            }
         }.frame(minHeight: 44).contentShape(Rectangle())
     }
 }
