@@ -65,7 +65,7 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
   done
   xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
   w=$(sips -g pixelWidth "$OUT/ipad-land-inbox-light.png" 2>/dev/null | awk '/pixelWidth/{print $2}')
-  [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; rc=1; }
+  [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; cat "$(xcrun simctl get_app_container "$PAD" $BID data)/tmp/turn-refused.txt" 2>/dev/null; rc=1; }
   xcrun simctl shutdown "$PAD" || true
 fi
 ls -la "$OUT"

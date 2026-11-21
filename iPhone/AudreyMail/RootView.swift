@@ -37,7 +37,11 @@ struct RootView: View {
         .task {   // iPad screen pictures: the simulator cannot be turned by a command
             guard CommandLine.arguments.contains("-landscape") else { return }
             try? await Task.sleep(for: .seconds(1))   // asked before the window is up, the turn is ignored (all "sideways" pictures came out upright, 2026-11-18)
-            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) }
+            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { e in   // a refused turn is written down, so the cloud log says why
+                    try? "\(e)".write(toFile: NSTemporaryDirectory() + "turn-refused.txt", atomically: true, encoding: .utf8)
+                }
+            }
         }
         #endif
         .task(id: prefs.checkMinutes) {   // Settings, Inbox: look for new email every so often while the app is open

@@ -3,8 +3,16 @@ import MailCore
 import UserNotifications
 import BackgroundTasks
 
+/// The phone stays upright; the iPad turns every way. Said in code as Dateline does: from the settings file alone the iPad would not turn sideways (cloud pictures, 2026-11-21).
+final class MailDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+    }
+}
+
 @main
 struct AudreyMailApp: App {
+    @UIApplicationDelegateAdaptor(MailDelegate.self) private var delegate
     @StateObject private var store: PhoneStore
     private let initialTab: Int
 
