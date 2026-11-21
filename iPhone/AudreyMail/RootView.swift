@@ -7,6 +7,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sel = 0
+    @State private var sideways = false
     var initialTab = 0
     private var padIdiom: Bool { UIDevice.current.userInterfaceIdiom == .pad }   // never changes while running, so resizing Split View never swaps the open Write screen
     private var barHidden: Bool { store.openReads[sel, default: 0] > 0 }
@@ -33,17 +34,6 @@ struct RootView: View {
         .tint(Theme.acc)
         .preferredColorScheme(prefs.theme.scheme)
         .task { sel = initialTab; await store.start() }
-        #if DEBUG
-        .task {   // iPad screen pictures: the simulator cannot be turned by a command
-            guard CommandLine.arguments.contains("-landscape") else { return }
-            try? await Task.sleep(for: .seconds(1))   // asked before the window is up, the turn is ignored (all "sideways" pictures came out upright, 2026-11-18)
-            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { e in   // a refused turn is written down, so the cloud log says why
-                    try? "\(e)".write(toFile: NSTemporaryDirectory() + "turn-refused.txt", atomically: true, encoding: .utf8)
-                }
-            }
-        }
-        #endif
         .task(id: prefs.checkMinutes) {   // Settings, Inbox: look for new email every so often while the app is open
             guard prefs.checkMinutes > 0 else { return }
             let seconds = Double(prefs.checkMinutes) * 60
@@ -65,17 +55,20 @@ struct RootView: View {
 
     @ViewBuilder private var signedIn: some View {
         if padIdiom {   // never changes while running, so resizing Split View never swaps the open Write screen
-            GeometryReader { g in
-                let side = pad && g.size.width > g.size.height   // iPad turned sideways (a width test let an upright 13 inch iPad, 1032 pt, take three columns): the sidebar replaces the tab bar (approved mockup 2026-11-18)
-                HStack(spacing: 0) {
-                    if side { PadSidebar(sel: $sel).frame(width: 280) }
-                    VStack(spacing: 0) {
-                        tabs
-                        if !side && (pad || !barHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
-                    }
+            let side = pad && sideways   // iPad turned sideways: the sidebar replaces the tab bar (approved mockup 2026-11-18)
+            HStack(spacing: 0) {
+                if side { PadSidebar(sel: $sel).frame(width: 280) }
+                VStack(spacing: 0) {
+                    tabs
+                    if !side && (pad || !barHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
                 }
             }
+            // Wider than tall, measured without the keyboard, which would otherwise make an upright iPad look sideways (a plain width test also let an upright 13 inch iPad, 1032 pt, pass).
+            .background(GeometryReader { g in Color.clear.onChange(of: g.size.width > g.size.height, initial: true) { _, w in sideways = w } }.ignoresSafeArea(.keyboard))
             .background(Theme.bg)
+            #if DEBUG
+            .modifier(SidewaysPicture(on: CommandLine.arguments.contains("-landscape")))
+            #endif
         } else {   // the phone layout exactly as before: a GeometryReader here made an open email resize over and over (self-test, 2026-11-18)
             VStack(spacing: 0) {
                 tabs
@@ -163,3 +156,18 @@ struct PadSidebar: View {
 }
 
 extension EnvironmentValues { @Entry var tabIndex = 0 }   // which tab a screen sits in, so an open email hides the tab bar only for its own tab
+
+#if DEBUG
+/// Pictures only: the simulator cannot turn an iPad from a script, so the sideways layout is drawn turned a quarter and the script turns the picture back (as Dateline does).
+private struct SidewaysPicture: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on {
+            GeometryReader { g in
+                content.frame(width: g.size.height, height: g.size.width).rotationEffect(.degrees(90)).position(x: g.size.width / 2, y: g.size.height / 2)
+            }
+            .ignoresSafeArea().statusBarHidden()
+        } else { content }
+    }
+}
+#endif

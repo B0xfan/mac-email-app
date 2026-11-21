@@ -55,17 +55,19 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
     for turn in land port; do
       for s in inbox read write folder mailboxes search new settings set-layout; do
         [ $mode = dark ] && case $s in inbox|read) ;; *) continue;; esac   # dark: two screens are enough, the rest is the phone's look
+        [ $turn = land ] && [ $s = write ] && continue   # the Write card and keyboard are not drawn turned; the upright picture shows them
         xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
         if [ $turn = land ]; then xcrun simctl launch "$PAD" $BID -demo $s -landscape >/dev/null || rc=1
         else xcrun simctl launch "$PAD" $BID -demo $s >/dev/null || rc=1; fi
         sleep 9
         xcrun simctl io "$PAD" screenshot "$OUT/ipad-$turn-$s-$mode.png" >/dev/null 2>&1 || rc=1
+        [ $turn = land ] && { sips -r 270 "$OUT/ipad-$turn-$s-$mode.png" >/dev/null || rc=1; }   # drawn turned: turn it back
       done
     done
   done
   xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
   w=$(sips -g pixelWidth "$OUT/ipad-land-inbox-light.png" 2>/dev/null | awk '/pixelWidth/{print $2}')
-  [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; cat "$(xcrun simctl get_app_container "$PAD" $BID data)/tmp/turn-refused.txt" 2>/dev/null; rc=1; }
+  [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; rc=1; }
   xcrun simctl shutdown "$PAD" || true
 fi
 ls -la "$OUT"
