@@ -127,11 +127,11 @@ enum DemoSelfTest {
             ("a wide fixed layout at full height", "<style>html,body{height:100%}</style><table width=\"700\" height=\"100%\" style=\"min-height:100%\"><tr><td style=\"width:700px\">Welcome to the shop</td></tr></table>"),
             ("a store newsletter", DemoNewsletter.html),
             ("a box pinned to the height of the view", "<div style=\"position:absolute;top:10px;height:100%\"><p>Welcome</p></div>"),
-        ]
+        ] + (2...4).map { (name: "a wide fixed layout at full height, round \($0)", html: "<style>html,body{height:100%}</style><table width=\"700\" height=\"100%\" style=\"min-height:100%\"><tr><td style=\"width:700px\">Welcome to the shop</td></tr></table>") }   // it flickered on some runs only: repeated so one run catches it
         let box = DemoMailbox.shared, now = Date()
         box.with { b in
             for (i, l) in layouts.enumerated() { b.msgs.append(.init(id: "fl\(i)", thread: "Tfl\(i)", labels: ["INBOX", "UNREAD"], from: "Flash \(i) <hello@flash\(i)-shop.example>", subject: "Flash \(i)", body: l.html, date: now.addingTimeInterval(Double(-60 * (i + 1))))) }
-            b.msgs.append(.init(id: "fln", thread: "Tfln", labels: ["INBOX", "UNREAD"], from: "Flash N <hello@flashn-shop.example>", subject: "Flash N", body: "<p>Opened while being approved.</p>", date: now.addingTimeInterval(-30)))
+            for k in ["", "2", "3"] { b.msgs.append(.init(id: "fln\(k)", thread: "Tfln\(k)", labels: ["INBOX", "UNREAD"], from: "Flash N\(k) <hello@flashn\(k)-shop.example>", subject: "Flash N\(k)", body: "<p>Opened while being approved.</p>", date: now.addingTimeInterval(-30))) }
         }
         defer { box.with { b in b.msgs.removeAll { $0.id.hasPrefix("fl") } } }
         let fst = DemoMode.makeStore()
@@ -164,7 +164,8 @@ enum DemoSelfTest {
             if !steady(first, most: i == 4 ? 35 : 5) { print("  first open sizes: \(firstTrace.joined(separator: " | "))") }
             check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first, most: i == 4 ? 35 : 5) && steady(second, most: i == 4 ? 35 : 5))
         }
-        if let m = fst.newSenderRows.first(where: { $0.id == "fln" }) {
+        for k in ["", "2", "3"] {
+        if let m = fst.newSenderRows.first(where: { $0.id == "fln\(k)" }) {
             openNewSenders.send(m); fst.approve(m)
             let held = await watch(5)
             openNewSenders.send(nil); await wait(1)
@@ -172,6 +173,7 @@ enum DemoSelfTest {
             if !steady(held) { print("  sizes: \(MailWebView.trace.joined(separator: " | "))") }
             check("an email opened in New senders while its sender is approved does not reload or resize over and over", steady(held))
         } else { check("the read flash check finds its new sender (New senders)", false) }
+        }
     }
 
     static func run() async {
