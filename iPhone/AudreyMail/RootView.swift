@@ -34,9 +34,9 @@ struct RootView: View {
         .task { sel = initialTab; await store.start() }
         #if DEBUG
         .task {   // iPad screen pictures: the simulator cannot be turned by a command
-            if CommandLine.arguments.contains("-landscape"), let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
-            }
+            guard CommandLine.arguments.contains("-landscape") else { return }
+            try? await Task.sleep(for: .seconds(1))   // asked before the window is up, the turn is ignored (all "sideways" pictures came out upright, 2026-11-18)
+            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) }
         }
         #endif
         .task(id: prefs.checkMinutes) {   // Settings, Inbox: look for new email every so often while the app is open
@@ -61,7 +61,7 @@ struct RootView: View {
     @ViewBuilder private var signedIn: some View {
         if padIdiom {   // never changes while running, so resizing Split View keeps every screen's state
             GeometryReader { g in
-                let side = pad && g.size.width >= 1000   // iPad turned sideways: the sidebar replaces the tab bar (approved mockup 2026-11-18)
+                let side = pad && g.size.width > g.size.height   // iPad turned sideways (a width test let an upright 13 inch iPad, 1032 pt, take three columns): the sidebar replaces the tab bar (approved mockup 2026-11-18)
                 HStack(spacing: 0) {
                     if side { PadSidebar(sel: $sel).frame(width: 280) }
                     VStack(spacing: 0) {

@@ -42,9 +42,8 @@ echo "== iPad pictures =="
 PAD=$(xcrun simctl list devices available -j | python3 -c '
 import json,sys
 d=json.load(sys.stdin)["devices"]
-c=[x for k,v in d.items() if "iOS" in k for x in v if "iPad" in x["name"]]
-pick=[x for x in c if "11" in x["name"] and "Pro" in x["name"]] or [x for x in c if "Air" in x["name"]] or c
-print(pick[0]["udid"] if pick else "")')
+c=sorted(([int(n) for n in k.split("iOS-")[-1].split("-")],x["name"],x["udid"]) for k,v in d.items() if "iOS" in k for x in v if "iPad Pro" in x["name"] and "13" in x["name"])
+print(c[-1][2] if c else "")')   # the newest 13 inch iPad Pro: the size Apple asks for (2064 x 2752)
 if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
   echo "iPad simulator $PAD"
   xcrun simctl boot "$PAD" || true
@@ -55,6 +54,7 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
     xcrun simctl ui "$PAD" appearance $mode
     for turn in land port; do
       for s in inbox read write folder mailboxes search new settings set-layout; do
+        [ $mode = dark ] && case $s in inbox|read) ;; *) continue;; esac   # dark: two screens are enough, the rest is the phone's look
         xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
         if [ $turn = land ]; then xcrun simctl launch "$PAD" $BID -demo $s -landscape >/dev/null || rc=1
         else xcrun simctl launch "$PAD" $BID -demo $s >/dev/null || rc=1; fi
@@ -64,6 +64,9 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
     done
   done
   xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
+  w=$(sips -g pixelWidth "$OUT/ipad-land-inbox-light.png" 2>/dev/null | awk '/pixelWidth/{print $2}')
+  [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; rc=1; }
+  xcrun simctl shutdown "$PAD" || true
 fi
 ls -la "$OUT"
 exit $rc
