@@ -294,7 +294,7 @@ struct SearchChips: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
                 ForEach(read.chips) { c in
-                    Button { store.search = PlainSearch.removing(c, from: store.search); Task { store.search.isEmpty ? await store.select(.inbox) : await store.runSearch() } } label: {
+                    Button { store.search = PlainSearch.removing(c, from: store.search); Task { if store.search.isEmpty { await store.select(.inbox) } else { await store.runSearch() } } } label: {
                         HStack(spacing: 4) { Text(c.label); Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
                             .font(Theme.small.weight(.semibold)).foregroundStyle(Theme.text)
                             .padding(.horizontal, 12).padding(.vertical, 4)

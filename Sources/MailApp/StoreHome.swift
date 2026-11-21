@@ -14,7 +14,7 @@ extension MailStore {
     }
     func dismissHome() { homeShown = false }
     /// Home Screen preview row: show the inbox, then open that email.
-    func openFromHome(_ m: Mail) async { await select(.inbox); await open(m) }
+    func openFromHome(_ m: Mail) async { if await select(.inbox) { await open(m) } }
     func openedAt(_ id: String) -> Date? { seen.entries.last(where: { $0.id == id })?.at }
     func focusSearchSoon() { focusSearchTick += 1 }
     /// The sidebar button flips the remembered choice; a search peek never touches it.

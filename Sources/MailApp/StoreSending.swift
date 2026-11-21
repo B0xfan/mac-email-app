@@ -126,23 +126,52 @@ extension MailStore {
                              attachments: d.attachments.map { ($0.name, $0.data, $0.mime) })
     }
 
-    @discardableResult func saveDraft(_ d: ComposeDraft, bodyHTML: String) async -> Bool {
-        let raw = MIME.build(buildOutgoing(d, bodyHTML: bodyHTML))
+    @discardableResult func saveDraft(_ d: ComposeDraft, bodyHTML: String, toast: Bool = true) async -> Bool {
+        let raw = MIME.build(buildOutgoing(d, bodyHTML: bodyHTML)), cid = composeID
         do {
             let id = try await gmail.saveDraft(raw, threadID: d.threadID, replacing: d.draftID)
-            compose?.draftID = id
-            showToast("Draft saved.", seconds: 4)
+            if composeID == cid { compose?.draftID = id }   // another email took its place meanwhile: it is not this draft
+            if toast { showToast("Draft saved.", seconds: 4) }
             return true
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "Could not save the draft."; return false }
     }
 
-    /// An email link, a share, a reopened draft or a right-click Reply or Forward is about to replace the open email. What was typed goes to Drafts first;
-    /// if that fails, false: the open email stays and the new one does not come in.
+    /// The one step every way out of an open email goes through (a click on another email or a list, New Email, Command-click, Archive,
+    /// a link, a share, a reopened draft, right-click Reply or Forward). What was typed goes to Drafts first and the email closes;
+    /// if the save fails, false: the open email stays and the caller does not go on.
     func saveOpenComposeFirst() async -> Bool {
-        guard compose != nil, let c = await composeContents?(), c.changed else { return true }
-        if await saveDraft(c.draft, bodyHTML: c.html) { return true }
-        error = "The email you were writing could not be saved, so it stays open. Save or send it, then try again."
-        return false
+        leaveCount += 1   // counted even with nothing open: a click right after a save finished still outranks the one that waited for it
+        let mine = leaveCount
+        guard compose != nil else { return true }   // nothing open: go on at once (arrow keys stay quick)
+        if leaveSave == nil {
+            let started = composeID
+            leaveSave = Task { () -> Bool in
+                let c = await composeContents?()
+                if c?.busy == true { error = "The email is still being sent. Wait a moment, then try again."; return false }
+                if c?.changed == true || composeRestored, var d = c?.draft ?? compose {
+                    d.draftID = compose?.draftID ?? d.draftID   // saved before (Save Draft, an earlier try): replace that draft, never add a second
+                    let html = c?.html ?? d.restoredBodyHTML
+                    // an Undo toast (after Archive or Send, say) stays: Undo matters more than "Draft saved."
+                    guard await saveDraft(d, bodyHTML: html, toast: toast?.action == nil) else {
+                        error = "The email you were writing could not be saved, so it stays open. Save or send it, then try again."
+                        return false
+                    }
+                    if composeID != started { return false }   // Undo brought another email back meanwhile: it stays open
+                    if let c, let now = await composeContents?(), now.html != c.html || now.draft != c.draft { return false }   // typed on while saving: it stays open, the next way out saves the rest
+                }
+                compose = nil
+                return true
+            }
+        }
+        guard let running = leaveSave else { return false }
+        let ok = await running.value
+        if leaveSave == running { leaveSave = nil }   // a newer save may have started since a failed one
+        return ok && mine == leaveCount   // two quick clicks: the last one wins
+    }
+
+    /// New Email from a button, a key or a menu: what is typed in the open email is saved first.
+    func newEmailAsked() async {
+        if await saveOpenComposeFirst() { newCompose() }
     }
 
     /// Send with the Undo Send delay. The mail leaves only when the delay runs out.
@@ -181,7 +210,7 @@ extension MailStore {
             } catch {
                 // the window was closed to send: bring the whole email back so nothing typed is lost
                 self.forgetPending(token)
-                if self.compose == nil { var r = d; r.restoredBodyHTML = bodyHTML; self.compose = r }
+                if self.compose == nil { var r = d; r.restoredBodyHTML = bodyHTML; self.compose = r; self.composeID = UUID(); self.composeRestored = true }
                 if self.toast?.id == tid { self.toast = nil }
                 self.error = (error as? LocalizedError)?.errorDescription ?? "The email could not be sent."
             }
@@ -199,6 +228,7 @@ extension MailStore {
         if toast?.id == tid { toast = nil }
         var restored = d; restored.restoredBodyHTML = body
         compose = restored
+        composeID = UUID(); composeRestored = true   // never saved: leaving it saves it
     }
 
     /// One marker per send (a send's token, or a scheduled draft's id): whoever takes it first owns the send, so a

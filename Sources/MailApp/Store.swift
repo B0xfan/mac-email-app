@@ -35,6 +35,7 @@ final class MailStore: ObservableObject {
     }
     @Published var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
     @Published var search = ""
+    var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
     @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     @Published var loadingOtherMore = false
     var otherSource: OtherSource?
@@ -80,9 +81,12 @@ final class MailStore: ObservableObject {
     @Published var blockMenuFor: String?
     @Published var unsubStage: UnsubStage = .idle
     @Published var compose: ComposeDraft? { didSet { if compose != nil && (oldValue == nil || oldValue?.mode != compose?.mode || oldValue?.threadID != compose?.threadID) { composeID = UUID() } } }
-    @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil } }   // the old view's contents must not be read for the new email; the new view sets it again
+    @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil; composeRestored = false } }   // the old view's contents must not be read for the new email; the new view sets it again
     /// Set by the open ComposeView: only it knows what has been typed.
-    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool))?
+    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool, busy: Bool))?
+    var composeRestored = false   // brought back by Undo Send or a failed send: never saved, so it counts as typed
+    var leaveSave: Task<Bool, Never>?   // the save before leaving the open email; a second click while it runs waits for it instead of saving again
+    var leaveCount = 0                  // every way out asked for; only the latest one goes on
     var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
     @Published var sendAs: [GSendAs] = []
     @Published var accountEmail = ""
@@ -475,7 +479,7 @@ final class MailStore: ObservableObject {
         otherGen += 1; loadingOtherMore = false; let gen = otherGen   // an older, slower call must never overwrite newer results
         let writesAtStart = gmail.writes
         otherNext = nil; otherSource = nil; searchMore = .hidden; extraIDs = []
-        let q = search.trimmingCharacters(in: .whitespaces)
+        let q = search.trimmingCharacters(in: .whitespaces); searchRan = q
         if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
             let page = Self.otherPage
             let rows = await storedRead { db.list(spec, limit: page) }   // off the main thread: a big mailbox must not freeze the window
@@ -594,17 +598,20 @@ final class MailStore: ObservableObject {
     /// URLError.cancelled, which the Gmail client turns into one retry, whose wait throws CancellationError (not a LocalizedError, hence the generic "Could not load more.").
     static func wasCancelled(_ e: Error) -> Bool { Task.isCancelled || e is CancellationError || (e as? URLError)?.code == .cancelled }
 
-    func select(_ box: Mailbox) async {
+    @discardableResult func select(_ box: Mailbox) async -> Bool {
+        guard await saveOpenComposeFirst() else { return false }
         // leaving a plain list: keep what it shows (as it is now, with John's changes in it), unless it is half loaded
         if let k = keptKey(mailbox), otherSource != nil, !loadingOtherMore, !otherIsStored { keptLists[k] = KeptList(mails: other, next: otherNext, source: otherSource, at: Date(), writes: otherWrites) }
         otherGen += 1; loadingOtherMore = false; autoPagesLeft = Self.autoPages; otherNext = nil; homeShown = false; editor = nil; editorMessage = nil; searchMore = .hidden; extraIDs = []; mailbox = box; unreadOnly = false; search = ""; searchRead = nil; selectedID = nil; openMail = nil; compose = nil; blockMenuFor = nil; picked = []
         unsubStage = .idle; status = ""
         if case .saved(let id) = box { search = organizer.searches.first { $0.id == id }?.query ?? "" }   // show what the saved search typed
+        searchRan = search   // a list shown again from memory below never reaches loadOther
         if box == .blocked { await loadBlocked() } else if box == .setAside { await loadAside() }
         else if box == .snoozed { await loadSnoozed() } else if box == .scheduled { _ = await verifyScheduled() }
         else if storedSpec(box) == nil, let k = keptKey(box), let kept = keptLists[k], Date().timeIntervalSince(kept.at) < Self.keepListFor, kept.writes == gmail.writes {   // any change made through Mail since (send, archive, pin, block ...) makes it stale
             other = kept.mails; otherNext = kept.next; otherSource = kept.source; otherWrites = kept.writes   // coming back to it: no request to Gmail
         } else { await loadOther() }
+        return true
     }
 
     func runSearch() async {

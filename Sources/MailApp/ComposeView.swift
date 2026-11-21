@@ -158,10 +158,10 @@ struct ComposeView: View {
             }
         }
         .onAppear {
-            store.composeContents = { [store, draft, editor, startText] in
+            store.composeContents = { [store, draft, editor, startText, uploading] in
                 let html = await editor.html(), text = await editor.loadedText()
-                // no page means nothing can have been typed
-                return (draft.v, html, text != nil && (draft.v != store.compose || (startText.v != nil && text != startText.v)))
+                // no page means nothing can have been typed; busy: a send is uploading big files or scheduling
+                return (draft.v, html, text != nil && (draft.v != store.compose || (startText.v != nil && text != startText.v)), uploading.v)
             }
             store.composeEditDraft = { [draft, showCc] edit in
                 edit(&draft.v)

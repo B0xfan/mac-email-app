@@ -5,7 +5,7 @@ import MailCore
 /// A pretend Gmail for the stored-mail checks: a mailbox that answers list, read, change-list and change calls the way Gmail does,
 /// and counts what it was asked (including the Gmail "units" the calls cost).
 final class FakeGmail: @unchecked Sendable {
-    struct Msg { var id: String; var labels: [String]; var date: Int; var hid = 1; var thread: String? = nil }   // thread: the conversation it belongs to (alone by default)   // hid: the change number of its last change, as Gmail's historyId on a message
+    struct Msg { var id: String; var labels: [String]; var date: Int; var hid = 1; var thread: String? = nil; var refs: String? = nil }   // thread: the conversation it belongs to (alone by default)   // hid: the change number of its last change, as Gmail's historyId on a message
     private let lock = NSLock()
     private(set) var msgs: [Msg] = []
     private var events: [(id: Int, json: String)] = []
@@ -33,6 +33,8 @@ final class FakeGmail: @unchecked Sendable {
     var requests = 0                      // every call to Gmail (the sign-in token calls are not counted)
     var labelsJSON = #"{"labels":[]}"#
     var drafts: [(draft: String, message: String)] = []
+    var draftSaves: [String] = []         // draft saves received, e.g. "new d1 thread=T5", "put d1 thread=-"
+    var failDrafts = false                // saving a draft answers 400 (as offline, the save fails)
 
     /// Newest first: the first id is the newest message.
     func seed(_ ids: [String], labels: [String] = ["INBOX"]) {
@@ -40,9 +42,9 @@ final class FakeGmail: @unchecked Sendable {
         for (i, id) in ids.enumerated() { msgs.append(Msg(id: id, labels: labels, date: 1_700_000_000 - i * 10)) }
     }
     /// One message with a chosen date (seconds); not recorded in the change list.
-    func put(_ id: String, _ labels: [String], _ date: Int, thread: String? = nil) {
+    func put(_ id: String, _ labels: [String], _ date: Int, thread: String? = nil, refs: String? = nil) {
         lock.lock(); defer { lock.unlock() }
-        msgs.append(Msg(id: id, labels: labels, date: date, thread: thread))
+        msgs.append(Msg(id: id, labels: labels, date: date, thread: thread, refs: refs))
     }
     /// New mail (newer than everything), recorded in the change list.
     func add(_ id: String, _ labels: [String]) {
@@ -80,7 +82,7 @@ final class FakeGmail: @unchecked Sendable {
     private func b64url(_ s: String) -> String { Data(s.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") }
     private func json(_ m: Msg, full: Bool = false) -> String {
         let tid = m.thread ?? "T" + m.id
-        let headers = "[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}]"
+        let headers = "[{\"name\":\"From\",\"value\":\"A <a@x.example>\"},{\"name\":\"Subject\",\"value\":\"Subject \(m.id)\"}" + (m.refs.map { ",{\"name\":\"References\",\"value\":\"\($0)\"}" } ?? "") + "]"
         var payload = "{\"headers\":\(headers)}"
         if full {   // the whole message: its text, and an attachment for some (only its name and number, as Gmail gives it)
             let text = "{\"mimeType\":\"text/plain\",\"body\":{\"size\":20,\"data\":\"\(b64url("body of \(m.id)"))\"}}"
@@ -134,6 +136,15 @@ final class FakeGmail: @unchecked Sendable {
             for id in ids { change(id, add, rem) }
             return (200, "{}")
         default: break
+        }
+        if method == "POST" && rel == "/drafts" || method == "PUT" && rel.hasPrefix("/drafts/") {
+            if failDrafts { return (400, #"{"error":{"code":400,"message":"Could not save"}}"#) }
+            let o = (try? JSONSerialization.jsonObject(with: req.httpBody ?? Data()) as? [String: Any]) ?? [:]
+            let thread = ((o["message"] as? [String: Any])?["threadId"] as? String) ?? "-"
+            let id = method == "POST" ? "d\(drafts.count + 1)" : String(rel.dropFirst("/drafts/".count))
+            if method == "POST" { drafts.append((id, "m" + id)) }
+            draftSaves.append("\(method == "POST" ? "new" : "put") \(id) thread=\(thread)")
+            return (200, "{\"id\":\"\(id)\"}")
         }
         if method == "POST", rel.hasSuffix("/trash") || rel.hasSuffix("/untrash") {
             let id = String(rel.dropFirst("/messages/".count).split(separator: "/").first ?? ""), trash = rel.hasSuffix("/trash")

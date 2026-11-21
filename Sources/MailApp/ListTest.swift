@@ -318,6 +318,8 @@ enum ListTest {
         await LiveTest.pump(1.5)
         let emptySafe = await store.saveOpenComposeFirst()
         check("compose replace: an untouched email needs no save", emptySafe && store.composeContents != nil)
+        store.newCompose()   // the check above closed it, as leaving does
+        await LiveTest.pump(1.5)
         await store.openIncoming(URL(string: "mailto:dana@example.com?subject=Hello")!)
         await LiveTest.pump(1.5)
         let shown = await store.composeContents?()
@@ -332,6 +334,7 @@ enum ListTest {
         check("compose replace: a failed save refuses the new email, so typed words stay (\(kept?.draft.to ?? "nil"))", kept?.draft.to == "dana@example.com" && kept?.html.contains("typed words") == true && store.error != nil)
         win.close()
         if await !replyOverReply() { ok = false }
+        if await !composeLeave() { ok = false }
         return ok
     }
 
@@ -394,6 +397,115 @@ enum ListTest {
         await LiveTest.pump(1.0)
         let fwd = await store.composeContents?()
         check("reply over reply: with nothing typed a Forward simply replaces the Reply, with no save tried", fwd?.draft.mode == .forward(m.id) && store.error == nil)
+        win.close()
+        return ok
+    }
+
+    /// Words typed in an open email were lost on a plain click on another email, a sidebar list, New Email or a Command-click.
+    /// The real view on a pretend Gmail that keeps drafts, asked what it holds and what was saved.
+    static func composeLeave() async -> Bool {
+        var ok = true
+        func check(_ n: String, _ c: Bool) { print((c ? "PASS " : "FAIL ") + n); if !c { ok = false } }
+        func web(_ v: NSView) -> WKWebView? { (v as? WKWebView) ?? v.subviews.lazy.compactMap { web($0) }.first }
+        let f = FakeGmail(); f.seed(["la", "lb", "lc", "ld", "le", "lf"])
+        f.put("ldraft", ["DRAFT"], 1_600_000_000, thread: "Tconv", refs: "<orig@x.example>")
+        StubProtocol.handler = { f.handle($0) }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("leave-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { StubProtocol.handler = nil; try? FileManager.default.removeItem(at: dir) }
+        let store = SelfTest.lsStore(dir: dir, db: nil, gmail: SelfTest.lsClient())
+        store.accountEmail = "me@x.example"
+        store.sendAs = [GSendAs(sendAsEmail: "me@x.example", displayName: "Me", isDefault: true, signature: nil)]
+        store.inbox = ["la", "lb", "lc", "ld", "le", "lf"].enumerated().map { SelfTest.lsMail($0.element, ["INBOX"], age: Double($0.offset)) }
+        store.mailbox = .inbox; store.homeShown = false
+        let win = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 1280, height: 900), styleMask: [.titled], backing: .buffered, defer: false)
+        win.isReleasedWhenClosed = false
+        win.contentView = NSHostingView(rootView: MailRoot(store: store))
+        NSApp.activate(ignoringOtherApps: true)
+        win.makeKeyAndOrderFront(nil)
+        await LiveTest.pump(1.0)
+        func type(_ words: String) async {
+            await LiveTest.pump(1.5)   // the writing area loads and notes how it started
+            if let v = win.contentView, let w = web(v) { _ = try? await w.evaluateJavaScript("document.getElementById('ed').innerText='\(words)'") }
+        }
+        func row(_ id: String) -> Mail { store.inbox.first { $0.id == id }! }
+        func fresh(_ words: String?) async {
+            store.compose = nil; store.error = nil
+            await LiveTest.pump(0.3)
+            store.newCompose()
+            if let words { await type(words) } else { await LiveTest.pump(1.5) }
+        }
+
+        await fresh(nil)
+        await store.rowClicked(row("lb"), command: false, shift: false)
+        check("leave: an untouched email closes with no save", f.draftSaves.isEmpty && store.selectedID == "lb" && store.compose == nil)
+
+        await fresh("plain click words")
+        await store.rowClicked(row("la"), command: false, shift: false)
+        check("leave: a click on another email saves the typed words first (\(f.draftSaves))", f.draftSaves.count == 1 && store.selectedID == "la" && store.compose == nil)
+
+        await fresh("sidebar words")
+        await store.select(.sent)
+        check("leave: a sidebar list saves the typed words first (\(f.draftSaves))", f.draftSaves.count == 2 && store.mailbox == .sent)
+        await store.select(.inbox)
+
+        await fresh("command click words")
+        await store.rowClicked(row("lc"), command: true, shift: false)
+        check("leave: a Command-click saves the typed words first (\(f.draftSaves))", f.draftSaves.count == 3 && store.compose == nil)
+        store.picked = []
+
+        await fresh("two clicks words")
+        let one = Task { await store.open(row("lc")) }, two = Task { await store.open(row("ld")) }   // the second starts while the first is still saving
+        await one.value; await two.value
+        check("leave: two quick clicks save one draft, not two (\(f.draftSaves))", f.draftSaves.count == 4 && f.drafts.count == 4 && store.compose == nil && store.selectedID == "ld")
+
+        await store.open(row("la"))
+        if let o = store.openMail { store.reply(o) }
+        await type("archive words")
+        await store.archiveOpen()
+        await LiveTest.pump(0.5)
+        check("leave: Archive with a reply open saves it and keeps the Undo (\(store.toast?.text ?? "no toast"), \(f.draftSaves))", f.draftSaves.count == 5 && store.toast?.action == "Undo" && store.compose == nil)
+
+        await store.open(row("le"))
+        if let o = store.openMail { store.reply(o) }
+        await type("offline words")
+        f.failDrafts = true; store.error = nil
+        await store.archiveOpen()
+        await LiveTest.pump(0.5)
+        let held = await store.composeContents?()
+        check("leave: a failed save refuses the Archive, so the email stays open with the words (selected \(store.selectedID ?? "nil"))",
+              store.inbox.contains { $0.id == "le" } && store.selectedID == "le" && held?.html.contains("offline words") == true && store.error != nil && !f.writes.contains { $0.contains("le") })
+        await store.rowClicked(row("lf"), command: false, shift: false)
+        let held2 = await store.composeContents?()
+        check("leave: a failed save refuses a click on another email too", store.selectedID == "le" && held2?.html.contains("offline words") == true)
+        f.failDrafts = false
+        store.compose = nil; store.error = nil
+
+        await store.select(.drafts)
+        store.draftMap["ldraft"] = "d9"
+        await store.open(SelfTest.lsMail("ldraft", ["DRAFT"]))
+        await type("reopened reply words")
+        await store.select(.inbox)
+        check("leave: a saved reply reopened from Drafts stays in its conversation when saved again (\(f.draftSaves.last ?? "no save"))", f.draftSaves.last == "put d9 thread=Tconv")
+
+        let before = f.draftSaves.count
+        await fresh("new email words")
+        await store.newEmailAsked()
+        check("leave: New Email saves the typed words first and opens an empty one (\(f.draftSaves))", f.draftSaves.count == before + 1 && store.compose != nil && store.compose?.draftID == nil)
+
+        await fresh("undo send words")
+        store.toast = ToastInfo(text: "Sending in 5 seconds", action: "Undo")
+        await store.rowClicked(row("lb"), command: false, shift: false)
+        check("leave: an Undo toast that is up stays when the typed words are saved (\(store.toast?.text ?? "no toast"))", f.draftSaves.count == before + 2 && store.toast?.action == "Undo" && store.compose == nil)
+        store.toast = nil
+
+        var back = ComposeDraft(from: "me@x.example", to: "kim@x.example", subject: "Back", mode: .new)
+        back.restoredBodyHTML = "restored words"
+        store.compose = back; store.composeID = UUID(); store.composeRestored = true   // as Undo Send brings it back
+        await LiveTest.pump(1.5)
+        await store.rowClicked(row("lc"), command: false, shift: false)   // la was archived above
+        check("leave: an email brought back by Undo Send is saved when left, though nothing was typed since (\(f.draftSaves))", f.draftSaves.count == before + 3 && store.compose == nil)
+
         win.close()
         return ok
     }

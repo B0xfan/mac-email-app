@@ -15,12 +15,15 @@ extension MailStore {
             var d = ComposeDraft(from: sendAs.first { $0.sendAsEmail.lowercased() == full.from.email.lowercased() }?.fromLine ?? defaultFrom, to: full.to, cc: full.cc, bcc: full.bcc ?? "", subject: full.subject == "(no subject)" ? "" : full.subject, mode: .new)
             d.draftID = did
             d.restoredBodyHTML = full.html ?? TextTools.plainToHTML(full.text ?? "")
-            d.threadID = nil
+            if let last = full.references.split(separator: " ").last {   // a saved reply: it stays in its conversation when saved again or sent
+                d.threadID = full.threadID; d.references = full.references; d.inReplyTo = String(last)
+            } else { d.threadID = nil }
             compose = d
             composeID = UUID()   // same reason as handleMailto
             return
         }
         if selectedID == m.id, let o = openMail, o.id == m.id, o.html != nil || o.text != nil { return }   // a second click on the loaded open email leaves it as it is (John 2026-10-29); one that failed to load can be clicked again
+        guard await saveOpenComposeFirst() else { return }
         if m.id != heldOpenID { heldUnreadID = m.unread ? m.id : nil }   // clicking the held email again keeps it held
         if unreadOnly && m.unread { keptOpen.insert(m.id) }   // opening marks it read; the "unread only" list keeps it
         selectedID = m.id; blockMenuFor = nil; unsubStage = .idle; status = ""; compose = nil
@@ -97,6 +100,7 @@ extension MailStore {
     func leaveInbox(_ m: Mail, add: [String], text: String, aside setAside: Bool,
                             alsoRemove: [String] = [], keepOther: Bool = false, exactUndo: Bool = false, trashIt: Bool = false) async {
         let wasOpen = openMail?.id == m.id || (groupOn && mailbox == .inbox && openMail?.threadID == m.threadID)   // a reply that arrived since opening changed the row's id
+        if wasOpen, !batching { guard await saveOpenComposeFirst() else { return } }   // before the email leaves: a failed save keeps it open and selected
         let before = listMails
         let idx = before.firstIndex { $0.id == m.id }
         let wasAside = aside.contains { $0.id == m.id }

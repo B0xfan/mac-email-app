@@ -20,6 +20,9 @@ extension PhoneStore {
         defaults.set(Array(out.prefix(max(Self.seenKeep, now.count))), forKey: Self.seenMailKey)
     }
 
+    /// Inbox emails still unread, the earlier emails of an unread conversation included: a banner about any other email comes down.
+    var unreadIDs: Set<String> { Set(inbox.filter(\.unread).flatMap { [$0.id] + ($0.siblings ?? []) }) }
+
     /// Unread People emails not seen before get a banner (same People rule as the icon number); everything in the inbox then counts as seen.
     func announceNewMail() async {
         let had = seenMail, seen = Set(had ?? [])
