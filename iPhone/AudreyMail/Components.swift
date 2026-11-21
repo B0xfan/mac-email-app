@@ -126,6 +126,7 @@ struct MailWebView: UIViewRepresentable {
     static let rules = #"[{"trigger":{"url-filter":"^https?://"},"action":{"type":"block"}}]"#
     nonisolated(unsafe) static var compiled: WKContentRuleList?
     #if DEBUG
+    nonisolated(unsafe) static var trace: [String] = []   // each size change, so a failing flash check shows why
     nonisolated(unsafe) static var made = 0, loads = 0, sizes = 0   // the built-in checks count these: a body that keeps reloading or resizing is what flashes on screen
     #endif
 
@@ -179,6 +180,7 @@ struct MailWebView: UIViewRepresentable {
                 if c.sizedCount > 10 { c.catchUpLater(); return }   // too fast: a layout that follows the view's height, or a burst of pictures
                 #if DEBUG
                 MailWebView.sizes += 1
+                MailWebView.trace.append(String(format: "%.0f>%.0f w%.0f f%.0f @%.2f", c.height.wrappedValue, h, sv.bounds.width, sv.frame.height, Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 100)))
                 #endif
                 c.height.wrappedValue = h
             }

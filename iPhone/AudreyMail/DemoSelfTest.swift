@@ -143,7 +143,7 @@ enum DemoSelfTest {
         defer { w.isHidden = true }
         func wait(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
         func watch(_ s: Double) async -> (made: Int, loads: Int, sizes: Int) {
-            MailWebView.made = 0; MailWebView.loads = 0; MailWebView.sizes = 0
+            MailWebView.made = 0; MailWebView.loads = 0; MailWebView.sizes = 0; MailWebView.trace = []
             await wait(s)
             return (MailWebView.made, MailWebView.loads, MailWebView.sizes)
         }
@@ -155,12 +155,13 @@ enum DemoSelfTest {
             guard let m = fst.newSenderRows.first(where: { $0.id == "fl\(i)" }) else { check("the read flash check finds its new sender (\(l.name))", false); continue }
             fst.approve(m)
             openInbox.send(fst.inbox.first { $0.id == m.id } ?? m)
-            let first = await watch(5)
+            let first = await watch(5), firstTrace = MailWebView.trace
             openInbox.send(nil); await wait(1)
             openInbox.send(fst.inbox.first { $0.id == m.id } ?? m)
             let second = await watch(3)
             openInbox.send(nil); await wait(1)
             print("read flash, \(l.name): first open \(first), second open \(second)")
+            if !steady(first, most: i == 4 ? 35 : 5) { print("  first open sizes: \(firstTrace.joined(separator: " | "))") }
             check("after approving a sender, \(l.name) opens without the body reloading or resizing over and over", steady(first, most: i == 4 ? 35 : 5) && steady(second, most: i == 4 ? 35 : 5))
         }
         if let m = fst.newSenderRows.first(where: { $0.id == "fln" }) {
@@ -168,6 +169,7 @@ enum DemoSelfTest {
             let held = await watch(5)
             openNewSenders.send(nil); await wait(1)
             print("read flash, opened in New senders while approving: \(held)")
+            if !steady(held) { print("  sizes: \(MailWebView.trace.joined(separator: " | "))") }
             check("an email opened in New senders while its sender is approved does not reload or resize over and over", steady(held))
         } else { check("the read flash check finds its new sender (New senders)", false) }
     }
