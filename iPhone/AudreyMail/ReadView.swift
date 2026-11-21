@@ -89,9 +89,9 @@ struct ReadView: View {
             }
         }
         .tint(Theme.acc)
-        .onAppear { store.tabBarHiddenBy = tabIndex; if !started { started = true; open = [mail.id] } }
+        .onAppear { store.openReads[tabIndex, default: 0] += 1; if !started { started = true; open = [mail.id] } }
         .task(id: mail.id) { await load() }   // this screen reads its own email, so folding it away in a conversation never cancels the read
-        .onDisappear { if store.tabBarHiddenBy == tabIndex { store.tabBarHiddenBy = nil } }
+        .onDisappear { store.openReads[tabIndex, default: 1] -= 1 }   // counted, so "next email" showing before the old one goes never brings the bar back
         .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail, from: fromFolder) { movedAway = true }.presentationDetents([.medium, .large]) }
         .sheet(isPresented: $snoozing, onDismiss: { if snoozedAway { dismiss() } }) {
             SnoozeSheet { d in snoozedAway = true; snoozing = false; store.snooze(mail, until: d) } cancel: { snoozing = false }

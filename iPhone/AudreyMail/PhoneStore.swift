@@ -64,7 +64,7 @@ final class PhoneStore: ObservableObject {
     var folderGen = 0   // counts folder openings, so a slow older answer never replaces a newer one
     @Published var folderNext: String?
     private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
-    @Published var tabBarHiddenBy: Int?   // the tab whose open email hid the tab bar (the read screen has its own bar, as drawn); per tab, because on iPad you can switch tabs with an email open
+    @Published var openReads: [Int: Int] = [:]   // open emails per tab; one hides that tab's bar (the read screen has its own bar, as drawn); per tab, because on iPad you can switch tabs with an email open
     @Published var padPath = NavigationPath()   // iPad: what the middle column shows (empty = the inbox), set from the sidebar
     @Published var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
     @Published var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back

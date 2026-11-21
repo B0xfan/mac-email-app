@@ -9,7 +9,7 @@ struct RootView: View {
     @State private var sel = 0
     var initialTab = 0
     private var padIdiom: Bool { UIDevice.current.userInterfaceIdiom == .pad }   // never changes while running, so resizing Split View never swaps the open Write screen
-    private var barHidden: Bool { store.tabBarHiddenBy == sel }
+    private var barHidden: Bool { store.openReads[sel, default: 0] > 0 }
     private var pad: Bool { padIdiom && sizeClass == .regular }   // iPad at full or wide Split View width; narrow Split View keeps the phone layout
 
     var body: some View {
