@@ -104,7 +104,7 @@ struct MailboxesView: View {
             Image(systemName: icon).foregroundStyle(tint).frame(width: 24)
             Text(title).font(.system(size: 17)).foregroundStyle(Theme.text)
             Spacer()
-            if !trailing.isEmpty { Text(trailing).foregroundStyle(Theme.sub) }
+            if !trailing.isEmpty { Text(trailing).foregroundStyle(Theme.sub).lineLimit(1).fixedSize() }  // a narrow sidebar must not wrap "0 senders"
         }.frame(minHeight: 44).contentShape(Rectangle())
     }
 }
