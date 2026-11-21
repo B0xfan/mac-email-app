@@ -105,7 +105,7 @@ struct MailboxesView: View {
             Text(title).font(.system(size: 17)).foregroundStyle(Theme.text).layoutPriority(1)   // the name gets the room first, so "Blocked" never breaks; a long folder name still wraps
             Spacer()
             if !trailing.isEmpty {   // a narrow iPad sidebar: "0 senders" becomes "0", as Drafts shows its count
-                ViewThatFits(in: .horizontal) { Text(trailing); Text(trailing.split(separator: " ").first.map(String.init) ?? trailing) }
+                ViewThatFits(in: .horizontal) { Text(trailing); Text(trailing.split(separator: " ").first.map(String.init) ?? trailing).fixedSize() }   // the number always shows whole; a long name wraps beside it
                     .foregroundStyle(Theme.sub).lineLimit(1)
             }
         }.frame(minHeight: 44).contentShape(Rectangle())
