@@ -3,6 +3,7 @@ import QuickLook
 import MailCore
 
 struct ReadView: View {
+    @Environment(\.tabIndex) private var tabIndex
     let mail: Mail
     var fromFolder: String? = nil   // set when the email was opened from inside a folder
     var inList = false              // opened from a folder, Smart Folder, search or Recently Seen list (not from the inbox)
@@ -88,9 +89,9 @@ struct ReadView: View {
             }
         }
         .tint(Theme.acc)
-        .onAppear { store.tabBarHidden = true; if !started { started = true; open = [mail.id] } }
+        .onAppear { store.tabBarHiddenBy = tabIndex; if !started { started = true; open = [mail.id] } }
         .task(id: mail.id) { await load() }   // this screen reads its own email, so folding it away in a conversation never cancels the read
-        .onDisappear { store.tabBarHidden = false }
+        .onDisappear { if store.tabBarHiddenBy == tabIndex { store.tabBarHiddenBy = nil } }
         .sheet(isPresented: $moving, onDismiss: { if movedAway { dismiss() } }) { MoveToFolderSheet(mail: full ?? mail, from: fromFolder) { movedAway = true }.presentationDetents([.medium, .large]) }
         .sheet(isPresented: $snoozing, onDismiss: { if snoozedAway { dismiss() } }) {
             SnoozeSheet { d in snoozedAway = true; snoozing = false; store.snooze(mail, until: d) } cancel: { snoozing = false }

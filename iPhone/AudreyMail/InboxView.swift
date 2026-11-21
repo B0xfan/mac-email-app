@@ -27,6 +27,7 @@ struct InboxView: View {
                 NavigationStack(path: $path) { destinations(screen) }
             }
         }
+        .onChange(of: pad) { _, _ in path = NavigationPath(); store.padPath = NavigationPath(); current = nil }   // a Split View resize swaps layouts, and each keeps its screens in a different column: start both clean
         #if DEBUG
         .onReceive(DemoSelfTest.openInbox) { m in if let m { path.append(m) } else { path = NavigationPath() } }
         .onChange(of: store.inbox.count) { _, _ in   // screenshots: open the first email by itself

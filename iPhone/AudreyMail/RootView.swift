@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var sel = 0
     var initialTab = 0
     private var padIdiom: Bool { UIDevice.current.userInterfaceIdiom == .pad }   // never changes while running, so resizing Split View never swaps the open Write screen
+    private var barHidden: Bool { store.tabBarHiddenBy == sel }
     private var pad: Bool { padIdiom && sizeClass == .regular }   // iPad at full or wide Split View width; narrow Split View keeps the phone layout
 
     var body: some View {
@@ -22,7 +23,7 @@ struct RootView: View {
                 if let t = store.sendToast { ToastView(toast: t) {}.transition(.move(edge: .bottom).combined(with: .opacity)) }
                 if let t = store.toast { ToastView(toast: t) { store.toast = nil }.transition(.move(edge: .bottom).combined(with: .opacity)) }
             }
-            .padding(.bottom, store.state == .signedIn && !store.tabBarHidden ? 64 : 80)
+            .padding(.bottom, store.state == .signedIn && !barHidden ? 64 : 80)
         }
         .animation(.default, value: store.toast?.id)
         .animation(.default, value: store.sendToast?.id)
@@ -59,14 +60,14 @@ struct RootView: View {
     private func composeClosed() { DispatchQueue.main.async { store.showNextCompose() } }
 
     @ViewBuilder private var signedIn: some View {
-        if padIdiom {   // never changes while running, so resizing Split View keeps every screen's state
+        if padIdiom {   // never changes while running, so resizing Split View never swaps the open Write screen
             GeometryReader { g in
                 let side = pad && g.size.width > g.size.height   // iPad turned sideways (a width test let an upright 13 inch iPad, 1032 pt, take three columns): the sidebar replaces the tab bar (approved mockup 2026-11-18)
                 HStack(spacing: 0) {
                     if side { PadSidebar(sel: $sel).frame(width: 280) }
                     VStack(spacing: 0) {
                         tabs
-                        if !side && (pad || !store.tabBarHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
+                        if !side && (pad || !barHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
                     }
                 }
             }
@@ -74,7 +75,7 @@ struct RootView: View {
         } else {   // the phone layout exactly as before: a GeometryReader here made an open email resize over and over (self-test, 2026-11-18)
             VStack(spacing: 0) {
                 tabs
-                if !store.tabBarHidden { tabBar }
+                if !barHidden { tabBar }
             }
             .background(Theme.bg)
         }
@@ -82,10 +83,10 @@ struct RootView: View {
 
     private var tabs: some View {
         ZStack {
-            InboxView().opacity(sel == 0 ? 1 : 0).allowsHitTesting(sel == 0)
-            NewSendersView().opacity(sel == 1 ? 1 : 0).allowsHitTesting(sel == 1)
-            SearchView().opacity(sel == 2 ? 1 : 0).allowsHitTesting(sel == 2)
-            SettingsView(active: sel == 3).opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3)
+            InboxView().opacity(sel == 0 ? 1 : 0).allowsHitTesting(sel == 0).environment(\.tabIndex, 0)
+            NewSendersView().opacity(sel == 1 ? 1 : 0).allowsHitTesting(sel == 1).environment(\.tabIndex, 1)
+            SearchView().opacity(sel == 2 ? 1 : 0).allowsHitTesting(sel == 2).environment(\.tabIndex, 2)
+            SettingsView(active: sel == 3).opacity(sel == 3 ? 1 : 0).allowsHitTesting(sel == 3).environment(\.tabIndex, 3)
         }
     }
 
@@ -156,3 +157,5 @@ struct PadSidebar: View {
         .accessibilityLabel(badge > 0 ? "\(title), \(badge) waiting" : title).accessibilityAddTraits(on ? .isSelected : [])
     }
 }
+
+extension EnvironmentValues { @Entry var tabIndex = 0 }   // which tab a screen sits in, so an open email hides the tab bar only for its own tab
