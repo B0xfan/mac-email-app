@@ -33,7 +33,7 @@ struct MailboxesView: View {
                 }
                 NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed") }
                 NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
-                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside") }
+                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: store.asideCount.flatMap { $0 > 0 ? "\($0)" : nil } ?? "") }
                 NavigationLink(value: MailboxRoute.spam) { row("xmark.octagon", "Spam") }
                 NavigationLink(value: MailboxRoute.trash) { row("trash", "Trash") }
             }.modifier(CardRows())
@@ -81,7 +81,7 @@ struct MailboxesView: View {
             if DemoMode.screen == "smartform" { smartSheet = .edit(DemoMode.demoSmart) }
         }
         #endif
-        .task { async let a: Void = store.loadFolders(); async let b: Void = store.loadDrafts(); async let c: Void = store.loadBlocked(); _ = await (a, b, c); await store.syncOrganizer(); await store.refreshSmartCounts() }
+        .task { async let a: Void = store.loadFolders(); async let b: Void = store.loadDrafts(); async let c: Void = store.loadBlocked(); _ = await (a, b, c); await store.refreshAsideCount(); await store.syncOrganizer(); await store.refreshSmartCounts() }
         .sheet(item: $sheet) { FolderNameSheet(mode: $0).presentationDetents([.height(360)]) }
         .sheet(item: $smartSheet) { SmartFolderForm(mode: $0) }
         .sheet(item: $searchSheet) { SearchNameSheet(mode: $0).presentationDetents([.height(380)]) }

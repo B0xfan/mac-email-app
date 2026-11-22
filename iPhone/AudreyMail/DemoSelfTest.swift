@@ -606,6 +606,8 @@ enum DemoSelfTest {
         check("the Set Aside swipe makes the Set Aside label, puts the email under it and takes it out of the inbox", box.with { b in b.labels.contains { $0.name == "Set Aside" } && b.msgs.first { $0.id == "m8" }!.labels.contains("Label_set aside") && !b.msgs.first { $0.id == "m8" }!.labels.contains("INBOX") } && row("m8") == nil)
         await store.openList(.label(store.asideLabelID ?? ""))
         check("Set Aside in Mailboxes lists it", store.asideLabelID == "Label_set aside" && store.folderMails.map(\.id) == ["m8"])
+        await store.refreshAsideCount()
+        check("the Set Aside row counts it", store.asideCount == 1)
         store.toast?.undo?(); await store.settle()
         check("Undo brings it back to the inbox", box.with { b in b.msgs.first { $0.id == "m8" }!.labels.contains("INBOX") } && row("m8") != nil)
         let unreadBefore = row("m2")!.unread
