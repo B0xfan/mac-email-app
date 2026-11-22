@@ -55,17 +55,27 @@ extension PhoneStore {
     /// Gmail's own labels, labels hidden in Gmail, and Audrey Mail's own (Pinned, Set Aside, Blocked) are left out.
     var folders: [FolderNode] { Folders.build(labelList, hiding: Set([Self.pinLabelName, "Set Aside", Self.blockLabelName, Approvals.labelName] + Self.snoozeLabelNames)) }   // Snoozed has its own row in Mailboxes
 
-    /// Counts the emails under the Set Aside and Snoozed labels, as the Mac shows them. No label yet = none.
+    /// Counts the conversations under the Set Aside and Snoozed labels, as the Mac's rows do. No label yet = none.
     func refreshCounts() async {
         guard !labelList.isEmpty else { return }   // folders not read: keep the last numbers
-        // shortcut: counts up to 500; past that the row shows 500
-        func count(_ id: String?) async -> Int? { guard let id else { return 0 }; return try? await gmail.listIDs(labels: [id], max: 500).count }
+        let account = accountEmail
+        func count(_ id: String?) async -> Int? {
+            guard let id else { return 0 }
+            var n = 0, tok: String? = nil
+            repeat {   // shortcut: stops at 500; the row then reads "500+"
+                guard let p = try? await gmail.threadPage(labels: [id], max: 100, pageToken: tok) else { return nil }
+                n += p.refs.count; tok = p.next
+            } while tok != nil && n < 500
+            return n
+        }
         async let a = count(asideLabelID), z = count(snoozeLabelID)
         let (an, zn) = await (a, z)
-        guard state == .signedIn else { return }
+        guard state == .signedIn, accountEmail == account else { return }   // signed out or into another account meanwhile
         if let an { asideCount = an }
         if let zn { snoozeCount = zn }
     }
+
+    static func countText(_ n: Int?) -> String { guard let n, n > 0 else { return "" }; return n >= 500 ? "500+" : "\(n)" }
 
     /// Everything the Mailboxes list shows: folders, Drafts, Blocked, the Set Aside and Snoozed numbers, Smart Folders. Also run by the folded iPad sidebar.
     func loadMailboxes() async {

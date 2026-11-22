@@ -277,6 +277,12 @@ final class PhoneStore: ObservableObject {
     func refresh() async {
         guard state == .signedIn, !refreshing else { return }
         repeat { refreshAgain = false; await refreshPass() } while refreshAgain && state == .signedIn
+        await refreshCounts()   // a snoozed email the server brought back, or one set aside on the Mac
+    }
+
+    /// The Set Aside and Snoozed numbers, read again once Gmail has a change to either label.
+    func recountIfCounted(_ labels: [String]) async {
+        if labels.contains(where: { $0 == asideLabelID || $0 == snoozeLabelID }) { await refreshCounts() }
     }
 
     private func refreshPass() async {
@@ -480,7 +486,7 @@ final class PhoneStore: ObservableObject {
         show(text, undo: { [weak self] in onUndo?(); self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) })
         enqueue { [weak self] in
             guard let self else { return }
-            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID); onDone?(true) }   // confirmed: a later reply may bring it back
+            do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID); onDone?(true); await self.recountIfCounted(add + remove) }   // confirmed: a later reply may bring it back
             catch {
                 self.pendingGone.remove(m.threadID)
                 self.putBack(m, inbox: fromInbox, folder: fromFolder)   // it did not move: put it back
@@ -504,7 +510,7 @@ final class PhoneStore: ObservableObject {
         saveCache()
         enqueue { [weak self] in
             guard let self else { return }
-            do { try await self.gmail.modify(ids: ids, add: remove.filter { m.labels.contains($0) || (fromInbox && $0 == "INBOX") }, remove: add) } catch { await self.fail(error, "Undo did not go through.") }   // only what it really had: Archive in a folder must not add the inbox
+            do { try await self.gmail.modify(ids: ids, add: remove.filter { m.labels.contains($0) || (fromInbox && $0 == "INBOX") }, remove: add); await self.recountIfCounted(add + remove) } catch { await self.fail(error, "Undo did not go through.") }   // only what it really had: Archive in a folder must not add the inbox
             self.pendingGone.remove(m.threadID)
         }
     }

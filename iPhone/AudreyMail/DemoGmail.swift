@@ -133,7 +133,7 @@ final class DemoMailbox: @unchecked Sendable {
             putDraft(id: id, mid: mid, body: body); drafts.append((id: id, msg: mid)); writes.append("draft new \(id)")
             return (200, "{\"id\":\"\(id)\",\"message\":{\"id\":\"\(mid)\"}}")
         case ("GET", "/threads"):
-            let inbox = Dictionary(grouping: msgs.filter { $0.labels.contains("INBOX") }, by: \.thread)
+            let inbox = Dictionary(grouping: msgs.filter { $0.labels.contains(q("labelIds") ?? "INBOX") }, by: \.thread)
             let rows = inbox.map { (id: $0.key, date: $0.value.map(\.date).max()!, hid: $0.value.map(\.hid).max()!) }.sorted { $0.date > $1.date }
             return (200, "{\"threads\":[\(rows.map { "{\"id\":\"\($0.id)\",\"historyId\":\"\($0.hid)\"}" }.joined(separator: ","))],\"resultSizeEstimate\":\(rows.count)}")
         case ("GET", "/labels"): return (200, "{\"labels\":[\(labels.map { "{\"id\":\"\($0.id)\",\"name\":\"\($0.name)\",\"type\":\"user\"}" }.joined(separator: ","))]}")

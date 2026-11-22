@@ -120,10 +120,13 @@ struct PadSidebar: View {
     @Binding var sel: Int
     @Binding var folded: Bool
     @EnvironmentObject var store: PhoneStore
-    @State private var picked: MailboxRoute?   // the folded strip's mailbox shown picked while its list is open in the middle
+    @State private var picked: MailboxRoute?   // the mailbox shown picked in the folded strip while its list is open in the middle
+    @State private var tapped = false   // the next list change came from a sidebar tap
 
     var body: some View {
-        if folded { strip } else { full }
+        Group { if folded { strip } else { full } }
+            .task { await store.loadMailboxes() }   // once for both shapes: folding never reloads
+            .onChange(of: store.padPath) { _, _ in if tapped { tapped = false } else { picked = nil } }   // a list opened some other way: pick nothing rather than the wrong icon
     }
 
     private var foldButton: some View {
@@ -166,13 +169,10 @@ struct PadSidebar: View {
         .padding(.vertical, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.side)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
-        .task { await store.loadMailboxes() }   // the counts behind the dots, and the labels Snoozed and Set Aside open by
-        .onChange(of: store.inbox.count) { _, _ in Task { await store.refreshCounts() } }   // an email set aside, snoozed or back: the numbers follow, as on the Mac
-        .onChange(of: store.padPath) { _, p in if p.isEmpty { picked = nil } }
     }
 
     private func go(_ r: MailboxRoute, _ title: String, _ symbol: String, dot: Bool = false) -> some View {
-        icon(title, symbol, on: sel == 0 && picked == r && !store.padPath.isEmpty, dot: dot) { picked = r; store.padPath = NavigationPath([r]); sel = 0 }
+        icon(title, symbol, on: sel == 0 && picked == r && !store.padPath.isEmpty, dot: dot) { picked = r; tapped = true; store.padPath = NavigationPath([r]); sel = 0 }
     }
 
     private func icon(_ title: String, _ symbol: String, on: Bool, dot: Bool = false, action: @escaping () -> Void) -> some View {
@@ -189,7 +189,7 @@ struct PadSidebar: View {
 
     private var full: some View {
         // The mailbox list's own links land here: each one opens its list in the middle column instead of pushing a screen in this one.
-        NavigationStack(path: Binding(get: { [MailboxRoute]() }, set: { if let r = $0.last { store.padPath = NavigationPath([r]); sel = 0 } })) {
+        NavigationStack(path: Binding(get: { [MailboxRoute]() }, set: { if let r = $0.last { picked = r; tapped = true; store.padPath = NavigationPath([r]); sel = 0 } })) {
             VStack(spacing: 0) {
                 VStack(spacing: 2) {
                     HStack { foldButton; Spacer() }.padding(.bottom, 4)
@@ -198,7 +198,7 @@ struct PadSidebar: View {
                     line(2, "Search", "magnifyingglass")
                 }
                 .padding(.horizontal, 10).padding(.top, 8)
-                MailboxesView()
+                MailboxesView(loads: false)
                 line(3, "Settings", "gearshape").padding(.horizontal, 10).padding(.bottom, 8)
             }
             .background(Theme.side)

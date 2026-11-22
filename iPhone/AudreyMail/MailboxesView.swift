@@ -10,6 +10,7 @@ enum MailboxRoute: Hashable { case mailboxes, drafts, scheduled, sent, archive, 
 // MARK: - Mailboxes: Drafts, Blocked, Snoozed, Folders, Smart Folders, saved searches
 
 struct MailboxesView: View {
+    var loads = true   // false in the iPad sidebar, which loads once for its folded and open shapes
     @EnvironmentObject var store: PhoneStore
     @State private var sheet: FolderNameSheet.Mode?
     @State private var deleting: FolderNode?
@@ -31,9 +32,9 @@ struct MailboxesView: View {
                 NavigationLink(value: MailboxRoute.blocked) {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
-                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed", trailing: store.snoozeCount.flatMap { $0 > 0 ? "\($0)" : nil } ?? "") }
+                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed", trailing: PhoneStore.countText(store.snoozeCount)) }
                 NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
-                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: store.asideCount.flatMap { $0 > 0 ? "\($0)" : nil } ?? "") }
+                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: PhoneStore.countText(store.asideCount)) }
                 NavigationLink(value: MailboxRoute.spam) { row("xmark.octagon", "Spam") }
                 NavigationLink(value: MailboxRoute.trash) { row("trash", "Trash") }
             }.modifier(CardRows())
@@ -81,8 +82,7 @@ struct MailboxesView: View {
             if DemoMode.screen == "smartform" { smartSheet = .edit(DemoMode.demoSmart) }
         }
         #endif
-        .task { await store.loadMailboxes() }
-        .onChange(of: store.inbox.count) { _, _ in Task { await store.refreshCounts() } }   // an email set aside, snoozed or back: the numbers follow, as on the Mac
+        .task { if loads { await store.loadMailboxes() } }
         .sheet(item: $sheet) { FolderNameSheet(mode: $0).presentationDetents([.height(360)]) }
         .sheet(item: $smartSheet) { SmartFolderForm(mode: $0) }
         .sheet(item: $searchSheet) { SearchNameSheet(mode: $0).presentationDetents([.height(380)]) }
