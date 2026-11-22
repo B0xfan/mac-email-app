@@ -55,12 +55,16 @@ extension PhoneStore {
     /// Gmail's own labels, labels hidden in Gmail, and Audrey Mail's own (Pinned, Set Aside, Blocked) are left out.
     var folders: [FolderNode] { Folders.build(labelList, hiding: Set([Self.pinLabelName, "Set Aside", Self.blockLabelName, Approvals.labelName] + Self.snoozeLabelNames)) }   // Snoozed has its own row in Mailboxes
 
-    /// Counts the emails under the Set Aside label. No label yet = nothing set aside.
+    /// Counts the emails under the Set Aside and Snoozed labels, as the Mac shows them. No label yet = none.
     func refreshAsideCount() async {
-        guard !labelList.isEmpty else { return }   // folders not read: keep the last number
-        guard let id = asideLabelID else { asideCount = 0; return }
+        guard !labelList.isEmpty else { return }   // folders not read: keep the last numbers
         // shortcut: counts up to 500; past that the row shows 500
-        if let n = try? await gmail.listIDs(labels: [id], max: 500).count, state == .signedIn { asideCount = n }
+        func count(_ id: String?) async -> Int? { guard let id else { return 0 }; return try? await gmail.listIDs(labels: [id], max: 500).count }
+        async let a = count(asideLabelID), z = count(snoozeLabelID)
+        let (an, zn) = await (a, z)
+        guard state == .signedIn else { return }
+        if let an { asideCount = an }
+        if let zn { snoozeCount = zn }
     }
 
     func loadFolders() async {

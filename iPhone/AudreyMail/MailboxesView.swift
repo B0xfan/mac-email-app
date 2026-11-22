@@ -31,7 +31,7 @@ struct MailboxesView: View {
                 NavigationLink(value: MailboxRoute.blocked) {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
-                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed") }
+                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed", trailing: store.snoozeCount.flatMap { $0 > 0 ? "\($0)" : nil } ?? "") }
                 NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
                 NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: store.asideCount.flatMap { $0 > 0 ? "\($0)" : nil } ?? "") }
                 NavigationLink(value: MailboxRoute.spam) { row("xmark.octagon", "Spam") }

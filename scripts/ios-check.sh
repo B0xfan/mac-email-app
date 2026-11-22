@@ -53,7 +53,7 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
   for mode in light dark; do
     xcrun simctl ui "$PAD" appearance $mode
     for turn in land port; do
-      for s in inbox read write folder mailboxes search new settings set-layout; do
+      for s in inbox read write folder snoozed aside mailboxes search new settings set-layout; do
         [ $mode = dark ] && case $s in inbox|read) ;; *) continue;; esac   # dark: two screens are enough, the rest is the phone's look
         [ $turn = land ] && [ $s = write ] && continue   # the Write card and keyboard are not drawn turned; the upright picture shows them
         xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true

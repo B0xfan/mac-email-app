@@ -607,7 +607,7 @@ enum DemoSelfTest {
         await store.openList(.label(store.asideLabelID ?? ""))
         check("Set Aside in Mailboxes lists it", store.asideLabelID == "Label_set aside" && store.folderMails.map(\.id) == ["m8"])
         await store.refreshAsideCount()
-        check("the Set Aside row counts it", store.asideCount == 1)
+        check("the Set Aside and Snoozed rows count their emails", store.asideCount == 1 && store.snoozeCount == box.with { b in b.msgs.filter { $0.labels.contains("Label_snoozed") }.count } && store.snoozeCount! > 0)
         store.toast?.undo?(); await store.settle()
         check("Undo brings it back to the inbox", box.with { b in b.msgs.first { $0.id == "m8" }!.labels.contains("INBOX") } && row("m8") != nil)
         let unreadBefore = row("m2")!.unread

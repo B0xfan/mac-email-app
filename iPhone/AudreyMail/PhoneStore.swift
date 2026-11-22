@@ -119,6 +119,7 @@ final class PhoneStore: ObservableObject {
     @Published var organizer = Organizer()   // Smart Folders and saved searches
     @Published var smartCounts: [UUID: Int] = [:]
     @Published var asideCount: Int?   // the Set Aside row's number, as the Mac shows it; nil = not read yet
+    @Published var snoozeCount: Int?  // the same for Snoozed
     @Published var sharing: Bool?   // nil = not tried yet; false = the last try could not reach the server
     var organizerBase = Organizer()
     var organizerBusy = false
@@ -208,7 +209,7 @@ final class PhoneStore: ObservableObject {
     private func clearLocal() {
         inbox = []; next = nil; accountEmail = ""; sendAs = []; knownCache = [:]; sendersChecked = false; toast = nil; banner = nil; sendToast = nil
         drafts = []; scheduled = []; labelList = []; folderMails = []; folderSource = nil; folderNext = nil; blocked = []; blockedLoaded = false
-        organizer = Organizer(); organizerBase = Organizer(); smartCounts = [:]; asideCount = nil; sharing = nil; heldTask?.cancel(); heldTask = nil; defaults.removeObject(forKey: HeldSend.key)
+        organizer = Organizer(); organizerBase = Organizer(); smartCounts = [:]; asideCount = nil; snoozeCount = nil; sharing = nil; heldTask?.cancel(); heldTask = nil; defaults.removeObject(forKey: HeldSend.key)
         Task { await server?.forgetKey() }   // the next account registers fresh
         try? FileManager.default.removeItem(at: Self.attachmentsDir)
         opened.clear(); seen.clear(); pics.clear(); away = nil; awayError = nil; rules = []; ruleNames = [:]; rulesError = nil; rulesLoaded = false
