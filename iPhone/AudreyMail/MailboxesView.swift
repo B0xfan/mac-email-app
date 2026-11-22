@@ -22,19 +22,19 @@ struct MailboxesView: View {
     var body: some View {
         List {
             Banner()
-            Section {
-                NavigationLink(value: MailboxRoute.drafts) { row("doc.text", "Drafts", trailing: store.drafts.isEmpty ? "" : "\(store.drafts.count)") }
+            Section {   // the Mac sidebar's order
+                NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
+                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: PhoneStore.countText(store.asideCount)) }
+                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed", trailing: PhoneStore.countText(store.snoozeCount)) }
                 NavigationLink(value: MailboxRoute.scheduled) { row("paperplane.circle", "Scheduled") }
-                NavigationLink(value: MailboxRoute.sent) { row("paperplane", "Sent") }
-                NavigationLink(value: MailboxRoute.archive) { row("archivebox", "Archive") }
-                NavigationLink(value: MailboxRoute.starred) { row("star", "Starred") }
-                NavigationLink(value: MailboxRoute.allMail) { row("tray.full", "All Mail") }
                 NavigationLink(value: MailboxRoute.blocked) {
                     row("nosign", "Blocked", tint: Theme.blk, trailing: store.blockedLoaded ? "\(store.blocked.count) sender\(store.blocked.count == 1 ? "" : "s")" : "")
                 }
-                NavigationLink(value: MailboxRoute.snoozed) { row("moon", "Snoozed", trailing: PhoneStore.countText(store.snoozeCount)) }
-                NavigationLink(value: MailboxRoute.recent) { row("clock", "Recently Seen") }
-                NavigationLink(value: MailboxRoute.aside) { row("rectangle.stack", "Set Aside", trailing: PhoneStore.countText(store.asideCount)) }
+                NavigationLink(value: MailboxRoute.sent) { row("paperplane", "Sent") }
+                NavigationLink(value: MailboxRoute.drafts) { row("doc.text", "Drafts", trailing: store.drafts.isEmpty ? "" : "\(store.drafts.count)") }
+                NavigationLink(value: MailboxRoute.archive) { row("archivebox", "Archive") }
+                NavigationLink(value: MailboxRoute.starred) { row("star", "Starred") }
+                NavigationLink(value: MailboxRoute.allMail) { row("tray.full", "All Mail") }
                 NavigationLink(value: MailboxRoute.spam) { row("xmark.octagon", "Spam") }
                 NavigationLink(value: MailboxRoute.trash) { row("trash", "Trash") }
             }.modifier(CardRows())

@@ -137,29 +137,28 @@ struct PadSidebar: View {
         .buttonStyle(.plain).accessibilityLabel(folded ? "Show mailbox names" : "Fold the sidebar to icons")
     }
 
-    /// Folded: one icon per place, a dot where the Mac shows a number (Drafts, Snoozed, Set Aside). Folders opens the full sidebar.
+    /// Folded: one icon per place, in the Mac sidebar's order, a dot where the Mac shows a number (Drafts, Snoozed, Set Aside). Folders opens the full sidebar.
     private var strip: some View {
         VStack(spacing: 2) {
             foldButton.padding(.bottom, 6)
             ScrollView {
                 VStack(spacing: 2) {
                     icon("Inbox", "tray", on: sel == 0 && store.padPath.isEmpty) { sel = 0; store.padPath = NavigationPath() }
-                    icon("New senders", "person.crop.circle.badge.questionmark", on: sel == 1, dot: !store.newSenderRows.isEmpty) { sel = 1 }
-                    icon("Search", "magnifyingglass", on: sel == 2) { sel = 2 }
-                    Rectangle().fill(Theme.line).frame(width: 32, height: 1).padding(.vertical, 6)
-                    go(.drafts, "Drafts", "doc.text", dot: !store.drafts.isEmpty)
+                    go(.recent, "Recently Seen", "clock")
+                    go(.aside, "Set Aside", "rectangle.stack", dot: (store.asideCount ?? 0) > 0)
+                    go(.snoozed, "Snoozed", "moon", dot: (store.snoozeCount ?? 0) > 0)
                     go(.scheduled, "Scheduled", "paperplane.circle")
+                    icon("New senders", "person.crop.circle.badge.questionmark", on: sel == 1, dot: !store.newSenderRows.isEmpty) { sel = 1 }
+                    go(.blocked, "Blocked", "nosign")
                     go(.sent, "Sent", "paperplane")
+                    go(.drafts, "Drafts", "doc.text", dot: !store.drafts.isEmpty)
                     go(.archive, "Archive", "archivebox")
                     go(.starred, "Starred", "star")
                     go(.allMail, "All Mail", "tray.full")
-                    go(.blocked, "Blocked", "nosign")
-                    go(.snoozed, "Snoozed", "moon", dot: (store.snoozeCount ?? 0) > 0)
-                    go(.recent, "Recently Seen", "clock")
-                    go(.aside, "Set Aside", "rectangle.stack", dot: (store.asideCount ?? 0) > 0)
                     go(.spam, "Spam", "xmark.octagon")
                     go(.trash, "Trash", "trash")
                     Rectangle().fill(Theme.line).frame(width: 32, height: 1).padding(.vertical, 6)
+                    icon("Search", "magnifyingglass", on: sel == 2) { sel = 2 }
                     icon("Folders", "folder", on: false) { folded = false }
                 }
             }
