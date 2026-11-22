@@ -65,6 +65,12 @@ if [ -z "$PAD" ]; then echo "no iPad simulator"; rc=1; else
       done
     done
   done
+  xcrun simctl ui "$PAD" appearance light   # the sideways sidebar opened (it starts folded to icons): a launch argument, never a saved setting
+  xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
+  xcrun simctl launch "$PAD" $BID -demo aside -landscape -padSidebarFolded NO >/dev/null || rc=1
+  sleep 9
+  xcrun simctl io "$PAD" screenshot "$OUT/ipad-land-open-light.png" >/dev/null 2>&1 || rc=1
+  sips -r 270 "$OUT/ipad-land-open-light.png" >/dev/null || rc=1
   xcrun simctl terminate "$PAD" $BID >/dev/null 2>&1 || true
   w=$(sips -g pixelWidth "$OUT/ipad-land-inbox-light.png" 2>/dev/null | awk '/pixelWidth/{print $2}')
   [ "$w" = 2752 ] || { echo "the sideways iPad picture is not sideways on a 13 inch iPad (2752 wide, got $w)"; rc=1; }

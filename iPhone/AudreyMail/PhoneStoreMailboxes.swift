@@ -67,6 +67,12 @@ extension PhoneStore {
         if let zn { snoozeCount = zn }
     }
 
+    /// Everything the Mailboxes list shows: folders, Drafts, Blocked, the Set Aside and Snoozed numbers, Smart Folders. Also run by the folded iPad sidebar.
+    func loadMailboxes() async {
+        async let a: Void = loadFolders(); async let b: Void = loadDrafts(); async let c: Void = loadBlocked(); _ = await (a, b, c)
+        await refreshAsideCount(); await syncOrganizer(); await refreshSmartCounts()
+    }
+
     func loadFolders() async {
         do { labelList = try await gmail.labelsStrict() } catch { await fail(error, "Could not load your folders.") }
     }

@@ -81,7 +81,7 @@ struct MailboxesView: View {
             if DemoMode.screen == "smartform" { smartSheet = .edit(DemoMode.demoSmart) }
         }
         #endif
-        .task { async let a: Void = store.loadFolders(); async let b: Void = store.loadDrafts(); async let c: Void = store.loadBlocked(); _ = await (a, b, c); await store.refreshAsideCount(); await store.syncOrganizer(); await store.refreshSmartCounts() }
+        .task { await store.loadMailboxes() }
         .sheet(item: $sheet) { FolderNameSheet(mode: $0).presentationDetents([.height(360)]) }
         .sheet(item: $smartSheet) { SmartFolderForm(mode: $0) }
         .sheet(item: $searchSheet) { SearchNameSheet(mode: $0).presentationDetents([.height(380)]) }

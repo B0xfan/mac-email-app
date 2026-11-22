@@ -8,6 +8,7 @@ struct RootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sel = 0
     @State private var sideways = false
+    @AppStorage("padSidebarFolded") private var folded = true   // iPad sideways: the sidebar opens as icons only, as approved 2026-11-22
     var initialTab = 0
     private var padIdiom: Bool { UIDevice.current.userInterfaceIdiom == .pad }   // never changes while running, so resizing Split View never swaps the open Write screen
     private var barHidden: Bool { store.openReads[sel, default: 0] > 0 }
@@ -58,7 +59,7 @@ struct RootView: View {
         if padIdiom {   // never changes while running, so resizing Split View never swaps the open Write screen
             let side = pad && sideways   // iPad turned sideways: the sidebar replaces the tab bar (approved mockup 2026-11-18)
             HStack(spacing: 0) {
-                if side { PadSidebar(sel: $sel).frame(width: 280) }
+                if side { PadSidebar(sel: $sel, folded: $folded).frame(width: folded ? 68 : 280) }
                 VStack(spacing: 0) {
                     tabs
                     if !side && (pad || !barHidden) { tabBar }   // on iPad the open email sits beside the list, so the tabs stay
@@ -117,13 +118,80 @@ struct RootView: View {
 /// iPad sideways: Inbox, New senders and Search, every mailbox, and Settings in one column on the left, as on the Mac.
 struct PadSidebar: View {
     @Binding var sel: Int
+    @Binding var folded: Bool
     @EnvironmentObject var store: PhoneStore
+    @State private var picked: MailboxRoute?   // the folded strip's mailbox shown picked while its list is open in the middle
 
     var body: some View {
+        if folded { strip } else { full }
+    }
+
+    private var foldButton: some View {
+        Button { folded.toggle() } label: {
+            Image(systemName: "sidebar.left").font(.system(size: 19)).foregroundStyle(Theme.acc).frame(width: 44, height: 44)
+                .background(RoundedRectangle(cornerRadius: 10).stroke(Theme.line))
+        }
+        .buttonStyle(.plain).accessibilityLabel(folded ? "Show mailbox names" : "Fold the sidebar to icons")
+    }
+
+    /// Folded: one icon per place, a dot where the Mac shows a number (Drafts, Snoozed, Set Aside). Folders opens the full sidebar.
+    private var strip: some View {
+        VStack(spacing: 2) {
+            foldButton.padding(.bottom, 6)
+            ScrollView {
+                VStack(spacing: 2) {
+                    icon("Inbox", "tray", on: sel == 0 && store.padPath.isEmpty) { sel = 0; store.padPath = NavigationPath() }
+                    icon("New senders", "person.crop.circle.badge.questionmark", on: sel == 1, dot: !store.newSenderRows.isEmpty) { sel = 1 }
+                    icon("Search", "magnifyingglass", on: sel == 2) { sel = 2 }
+                    Rectangle().fill(Theme.line).frame(width: 32, height: 1).padding(.vertical, 6)
+                    go(.drafts, "Drafts", "doc.text", dot: !store.drafts.isEmpty)
+                    go(.scheduled, "Scheduled", "paperplane.circle")
+                    go(.sent, "Sent", "paperplane")
+                    go(.archive, "Archive", "archivebox")
+                    go(.starred, "Starred", "star")
+                    go(.allMail, "All Mail", "tray.full")
+                    go(.blocked, "Blocked", "nosign")
+                    go(.snoozed, "Snoozed", "moon", dot: (store.snoozeCount ?? 0) > 0)
+                    go(.recent, "Recently Seen", "clock")
+                    go(.aside, "Set Aside", "rectangle.stack", dot: (store.asideCount ?? 0) > 0)
+                    go(.spam, "Spam", "xmark.octagon")
+                    go(.trash, "Trash", "trash")
+                    Rectangle().fill(Theme.line).frame(width: 32, height: 1).padding(.vertical, 6)
+                    icon("Folders", "folder", on: false) { folded = false }
+                }
+            }
+            .scrollIndicators(.hidden)
+            icon("Settings", "gearshape", on: sel == 3) { sel = 3 }
+        }
+        .padding(.vertical, 8).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.side)
+        .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
+        .task { await store.loadMailboxes() }   // the counts behind the dots, and the labels Snoozed and Set Aside open by
+        .onChange(of: store.padPath) { _, p in if p.isEmpty { picked = nil } }
+    }
+
+    private func go(_ r: MailboxRoute, _ title: String, _ symbol: String, dot: Bool = false) -> some View {
+        icon(title, symbol, on: sel == 0 && picked == r && !store.padPath.isEmpty, dot: dot) { picked = r; store.padPath = NavigationPath([r]); sel = 0 }
+    }
+
+    private func icon(_ title: String, _ symbol: String, on: Bool, dot: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(on ? Theme.accText : Theme.acc)
+                .frame(width: 48, height: 44)
+                .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.acc : .clear))
+                .overlay(alignment: .topTrailing) { if dot { Circle().fill(Theme.acc).frame(width: 8, height: 8).overlay(Circle().stroke(Theme.side, lineWidth: 1.5)).offset(x: -6, y: 7) } }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title).accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private var full: some View {
         // The mailbox list's own links land here: each one opens its list in the middle column instead of pushing a screen in this one.
         NavigationStack(path: Binding(get: { [MailboxRoute]() }, set: { if let r = $0.last { store.padPath = NavigationPath([r]); sel = 0 } })) {
             VStack(spacing: 0) {
                 VStack(spacing: 2) {
+                    HStack { foldButton; Spacer() }.padding(.bottom, 4)
                     line(0, "Inbox", "tray") { store.padPath = NavigationPath() }
                     line(1, "New senders", "person.crop.circle.badge.questionmark", badge: store.newSenderRows.count)
                     line(2, "Search", "magnifyingglass")
