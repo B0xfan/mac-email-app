@@ -56,7 +56,7 @@ extension PhoneStore {
     var folders: [FolderNode] { Folders.build(labelList, hiding: Set([Self.pinLabelName, "Set Aside", Self.blockLabelName, Approvals.labelName] + Self.snoozeLabelNames)) }   // Snoozed has its own row in Mailboxes
 
     /// Counts the emails under the Set Aside and Snoozed labels, as the Mac shows them. No label yet = none.
-    func refreshAsideCount() async {
+    func refreshCounts() async {
         guard !labelList.isEmpty else { return }   // folders not read: keep the last numbers
         // shortcut: counts up to 500; past that the row shows 500
         func count(_ id: String?) async -> Int? { guard let id else { return 0 }; return try? await gmail.listIDs(labels: [id], max: 500).count }
@@ -70,7 +70,7 @@ extension PhoneStore {
     /// Everything the Mailboxes list shows: folders, Drafts, Blocked, the Set Aside and Snoozed numbers, Smart Folders. Also run by the folded iPad sidebar.
     func loadMailboxes() async {
         async let a: Void = loadFolders(); async let b: Void = loadDrafts(); async let c: Void = loadBlocked(); _ = await (a, b, c)
-        await refreshAsideCount(); await syncOrganizer(); await refreshSmartCounts()
+        await refreshCounts(); await syncOrganizer(); await refreshSmartCounts()
     }
 
     func loadFolders() async {

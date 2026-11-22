@@ -167,6 +167,7 @@ struct PadSidebar: View {
         .background(Theme.side)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
         .task { await store.loadMailboxes() }   // the counts behind the dots, and the labels Snoozed and Set Aside open by
+        .onChange(of: store.inbox.count) { _, _ in Task { await store.refreshCounts() } }   // an email set aside, snoozed or back: the numbers follow, as on the Mac
         .onChange(of: store.padPath) { _, p in if p.isEmpty { picked = nil } }
     }
 

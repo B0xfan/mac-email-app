@@ -82,6 +82,7 @@ struct MailboxesView: View {
         }
         #endif
         .task { await store.loadMailboxes() }
+        .onChange(of: store.inbox.count) { _, _ in Task { await store.refreshCounts() } }   // an email set aside, snoozed or back: the numbers follow, as on the Mac
         .sheet(item: $sheet) { FolderNameSheet(mode: $0).presentationDetents([.height(360)]) }
         .sheet(item: $smartSheet) { SmartFolderForm(mode: $0) }
         .sheet(item: $searchSheet) { SearchNameSheet(mode: $0).presentationDetents([.height(380)]) }
