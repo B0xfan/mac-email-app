@@ -301,7 +301,7 @@ struct InboxView: View {
     /// Notifications or Newsletters as one row: who sent them and how many. Tap to open it in place; its circle marks them all done.
     private func groupRow(_ c: MailCategory, _ ms: [Mail]) -> some View {
         let open = openGroups.contains(c.rawValue)
-        let unread = ms.contains(\.unread)
+        let unread = ms.contains(where: \.unread)
         var senders: [GroupSender] = []
         for m in ms {
             if let i = senders.firstIndex(where: { $0.name == m.from.display }) { senders[i].n += 1; senders[i].unread = senders[i].unread || m.unread }
