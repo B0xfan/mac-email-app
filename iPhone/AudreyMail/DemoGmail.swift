@@ -538,6 +538,13 @@ enum DemoMode {
             }
         }
         if s == "classicview" { store.prefs.inboxMode = .classic }
+        if s == "focused" {   // the Focused view as drawn: one email marked Priority
+            store.prefs.inboxMode = .focused
+            box.with { b in
+                b.labels.append((id: "Label_priority", name: "Priority"))
+                if let i = b.msgs.firstIndex(where: { $0.id == "m2" }) { b.msgs[i].labels.append("Label_priority") }
+            }
+        }
         if s == "unreadview" { store.prefs.inboxMode = .unreadFirst }
         if s == "lines2" { store.prefs.previewLines = 2 }
         if s == "wentout" { Task { @MainActor in   // opening the app after the server sent an email that was held

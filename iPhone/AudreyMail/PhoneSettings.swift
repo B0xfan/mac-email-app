@@ -19,10 +19,10 @@ enum SwipeChoice: String, CaseIterable {
 }
 
 enum InboxMode: String, CaseIterable {
-    case smart, classic, unreadFirst
-    var title: String { switch self { case .smart: return "Smart"; case .classic: return "Classic"; case .unreadFirst: return "Unread first" } }
+    case focused, smart, classic, unreadFirst
+    var title: String { switch self { case .focused: return "Focused"; case .smart: return "Smart"; case .classic: return "Classic"; case .unreadFirst: return "Unread first" } }
     var detail: String {
-        switch self { case .smart: return "People, Notifications and Newsletters tabs"; case .classic: return "One list, newest first"; case .unreadFirst: return "Unread emails on top" }
+        switch self { case .focused: return "Priority, Today and Yesterday, with done circles"; case .smart: return "People, Notifications and Newsletters tabs"; case .classic: return "One list, newest first"; case .unreadFirst: return "Unread emails on top" }
     }
 }
 
@@ -55,6 +55,10 @@ final class PhoneSettings: ObservableObject {
     @Published var quickReplies: [String] { didSet { d.set(quickReplies, forKey: "quickReplies") } }
     @Published var afterArchive: AfterArchiveChoice { didSet { d.set(afterArchive.rawValue, forKey: "afterArchive") } }
     @Published var inboxMode: InboxMode { didSet { d.set(inboxMode.rawValue, forKey: "inboxMode") } }
+    /// Focused view: emails ticked done this visit stay on screen, greyed, unless this is on (the Hide done button).
+    @Published var hideDone: Bool { didSet { d.set(hideDone, forKey: "hideDone") } }
+    /// Ticking a whole group (Notifications, Newsletters) done asks first, until "Yes, and don't ask again".
+    @Published var askGroupDone: Bool { didSet { d.set(askGroupDone, forKey: "askGroupDone") } }
     @Published var groupConversations: Bool { didSet { d.set(groupConversations, forKey: "groupConversations") } }
     @Published var foldOthers: Bool { didSet { d.set(foldOthers, forKey: "foldOthers") } }
     @Published var checkMinutes: Int { didSet { d.set(checkMinutes, forKey: "checkMinutes") } }
@@ -83,6 +87,8 @@ final class PhoneSettings: ObservableObject {
         quickReplies = d.stringArray(forKey: "quickReplies") ?? Self.defaultQuickReplies
         afterArchive = AfterArchiveChoice(rawValue: d.string(forKey: "afterArchive") ?? "") ?? .list
         inboxMode = InboxMode(rawValue: d.string(forKey: "inboxMode") ?? "") ?? .smart
+        hideDone = d.object(forKey: "hideDone") as? Bool ?? false
+        askGroupDone = d.object(forKey: "askGroupDone") as? Bool ?? true
         groupConversations = d.object(forKey: "groupConversations") as? Bool ?? false
         foldOthers = d.object(forKey: "foldOthers") as? Bool ?? true
         let cm = d.object(forKey: "checkMinutes") as? Int ?? 0

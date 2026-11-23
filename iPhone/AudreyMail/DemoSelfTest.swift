@@ -634,6 +634,37 @@ enum DemoSelfTest {
         prefs.afterArchive = .unread
         let wantUnread = list.enumerated().first { $0.offset > 2 && $0.element.unread }?.element.id ?? list.enumerated().reversed().first { $0.offset < 2 && $0.element.unread }?.element.id
         check("or the next unread one", store.nextAfterArchive(list[2], in: list)?.id == wantUnread)
+        // the Focused view (approved mockup 2026-11-23)
+        prefs.afterArchive = .list; prefs.inboxMode = .focused
+        let focusItems = store.focusedDays.flatMap(\.items)
+        let focusGroups = focusItems.compactMap { i -> (MailCategory, [Mail])? in if case .group(let c, let ms) = i { return (c, ms) }; return nil }
+        let focusTitles = store.focusedDays.map(\.id)
+        check("Focused shows every inbox email once, each group (Notifications, Newsletters) as one row, under Today, Yesterday or Earlier in that order",
+              focusItems.flatMap(\.mails).count == store.unpinnedInbox.count && Set(focusItems.flatMap(\.mails).map(\.id)).count == store.unpinnedInbox.count
+              && focusGroups.count == Set(focusGroups.map(\.0)).count && !focusGroups.isEmpty && focusGroups.allSatisfy { g in g.1.allSatisfy { MailCategory.guess($0) == g.0 } && g.0 != .people }
+              && focusTitles == ["Today", "Yesterday", "Earlier"].filter(focusTitles.contains) && store.openOrder.count == store.pinnedMails.count + store.unpinnedInbox.count)
+        await store.togglePriority(row("m3")!).value; await store.settle()
+        let focusPri = store.priorityLabelID
+        check("Mark as Priority makes the Priority label, puts it on the email in Gmail, and Focused shows it on top, out of its day",
+              focusPri == "Label_priority" && box.with { b in b.labels.contains { $0.name == "Priority" } && b.msgs.first { $0.id == "m3" }!.labels.contains("Label_priority") }
+              && store.focusedOrder.first?.id == "m3" && !store.focusedDays.flatMap { $0.items.flatMap(\.mails) }.contains { $0.id == "m3" })
+        await store.togglePriority(row("m3")!).value; await store.settle()
+        check("and Remove Priority takes it off again", !store.isPriority(row("m3")!) && box.with { b in !b.msgs.first { $0.id == "m3" }!.labels.contains("Label_priority") } && store.priorityMails.isEmpty)
+        let focusNews = focusGroups.first { $0.0 == .newsletters }?.1 ?? []
+        store.archiveAll(focusNews); await store.settle()
+        check("Done on a whole group archives every email in it, on the screen and in Gmail", focusNews.count >= 2 && focusNews.allSatisfy { n in row(n.id) == nil && box.with { b in !b.msgs.first { $0.id == n.id }!.labels.contains("INBOX") } })
+        store.toast?.undo?(); await store.settle()
+        check("one Undo brings the whole group back", focusNews.allSatisfy { n in row(n.id) != nil && box.with { b in b.msgs.first { $0.id == n.id }!.labels.contains("INBOX") } })
+        let focusOne = row("m2")!
+        store.archive(focusOne); await store.settle()
+        store.unarchive(focusOne); await store.settle()
+        check("ticking a done email's circle again puts it back in the inbox", row("m2") != nil && box.with { b in b.msgs.first { $0.id == "m2" }!.labels.contains("INBOX") })
+        let focusPicked = [row("m4")!, row("m7")!]
+        store.trashAll(focusPicked); await store.settle()
+        check("Delete in the quick bar sends every picked email to Trash", focusPicked.allSatisfy { p in row(p.id) == nil && box.with { b in b.msgs.first { $0.id == p.id }!.labels.contains("TRASH") } })
+        store.toast?.undo?(); await store.settle()
+        check("and its Undo brings them all back out of Trash", focusPicked.allSatisfy { p in row(p.id) != nil && box.with { b in let l = b.msgs.first { $0.id == p.id }!.labels; return l.contains("INBOX") && !l.contains("TRASH") } })
+        check("the done circles start with Hide done off and asking before a whole group", !prefs.hideDone && prefs.askGroupDone)
         prefs.afterArchive = .list; prefs.inboxMode = .smart
         prefs.screenNewSenders = false
         check("switching off Screen new senders lets everyone in", store.newSenderRows.isEmpty && store.inboxMails.count == store.inbox.count)

@@ -51,17 +51,26 @@ extension PhoneStore {
     /// Pin or unpin, like the Mac: the Pinned label goes on the conversation's emails.
     @discardableResult
     func togglePin(_ m: Mail) -> Task<Void, Never> {
-        let unpin = isPinned(m)
-        return Task {
+        toggleLabel(m, name: Self.pinLabelName, id: pinLabelID, on: isPinned(m), done: "Pinned.", undone: "Unpinned.", failure: "Could not change the pin.")
+    }
+
+    /// Mark as Priority, or take it off: the Priority label, the same way as a pin.
+    @discardableResult
+    func togglePriority(_ m: Mail) -> Task<Void, Never> {
+        toggleLabel(m, name: Self.priorityLabelName, id: priorityLabelID, on: isPriority(m), done: "Marked as Priority.", undone: "No longer Priority.", failure: "Could not change Priority.")
+    }
+
+    private func toggleLabel(_ m: Mail, name: String, id: String?, on: Bool, done: String, undone: String, failure: String) -> Task<Void, Never> {
+        Task {
             let found: String?
-            if unpin { found = pinLabelID } else { found = await ensureLabel(Self.pinLabelName) }
+            if on { found = id } else { found = await ensureLabel(name) }
             guard let label = found else { return }
-            // pinning puts the label on this email and the others of its row; unpinning takes it off exactly the emails that carry it (so Undo never adds it where it was not)
-            var ids = unpin ? (m.labels.contains(label) ? [m.id] : []) + (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : [m.id] + (m.siblings ?? [])
+            // adding puts the label on this email and the others of its row; taking it off takes it off exactly the emails that carry it (so Undo never adds it where it was not)
+            var ids = on ? (m.labels.contains(label) ? [m.id] : []) + (m.convo ?? []).filter { $0.labels.contains(label) }.map(\.id) : [m.id] + (m.siblings ?? [])
             var seen = Set<String>(); ids = ids.filter { seen.insert($0).inserted }
-            let add = unpin ? [] : [label], remove = unpin ? [label] : []
-            relabel(ids, add: add, remove: remove, failure: "Could not change the pin.")
-            show(unpin ? "Unpinned." : "Pinned.", undo: { [weak self] in
+            let add = on ? [] : [label], remove = on ? [label] : []
+            relabel(ids, add: add, remove: remove, failure: failure)
+            show(on ? undone : done, undo: { [weak self] in
                 self?.toast = nil
                 self?.relabel(ids, add: remove, remove: add, failure: "Undo did not go through.")
             })
@@ -98,6 +107,7 @@ extension PhoneStore {
     /// The emails in the order the open list shows them (pinned first), so "open the next email" means the one below.
     var openOrder: [Mail] {
         switch prefs.inboxMode {
+        case .focused: return pinnedMails + focusedOrder
         case .smart: return pinnedMails + shown
         case .classic: return pinnedMails + unpinnedInbox.sorted { $0.date > $1.date }
         case .unreadFirst: return pinnedMails + SmartInbox.unreadFirst(unpinnedInbox).flatMap(\.mails)

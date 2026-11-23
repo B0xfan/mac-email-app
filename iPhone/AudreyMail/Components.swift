@@ -10,14 +10,17 @@ struct MailRow: View {
     var below: String? = nil      // the line under the subject: "Back from snooze"
     var fromText: String? = nil   // "You, to Maya" on a "No reply yet" row
     var count: Int? = nil         // the number of messages when emails are grouped into conversations
+    var bare = false              // Focused view and Select: the list draws the unread dot and the done circle in place of the picture
     @EnvironmentObject var prefs: PhoneSettings
     @EnvironmentObject var store: PhoneStore
     var body: some View {
         let people = MailCategory.guess(mail) == .people
         let extra = store.extraAddress(mail)
         HStack(alignment: .top, spacing: 12) {
-            Circle().fill(mail.unread ? Theme.acc : Color.clear).frame(width: 10, height: 10).padding(.top, 8).accessibilityHidden(true)
-            Avatar(address: mail.from, people: people)
+            if !bare {
+                Circle().fill(mail.unread ? Theme.acc : Color.clear).frame(width: 10, height: 10).padding(.top, 8).accessibilityHidden(true)
+                Avatar(address: mail.from, people: people)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(fromText ?? mail.from.display).font(.system(size: 16, weight: mail.unread ? .bold : .semibold)).lineLimit(1).frame(minWidth: extra == nil ? 0 : 90, alignment: .leading)

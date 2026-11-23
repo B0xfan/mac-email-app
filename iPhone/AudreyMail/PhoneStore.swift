@@ -462,6 +462,24 @@ final class PhoneStore: ObservableObject {
     func archive(_ m: Mail) { move(m, add: [], remove: ["INBOX"], text: "Archived") }
     func trash(_ m: Mail) { move(m, add: ["TRASH"], remove: ["INBOX"], text: "Moved to Trash") }
 
+    /// Done on a whole group or the picked rows (Focused view, Select): every email is archived, with one Undo for all.
+    func archiveAll(_ ms: [Mail]) { moveAll(ms, add: [], text: "Archived") }
+    /// Delete on the picked rows (Select): every email goes to Trash, with one Undo for all.
+    func trashAll(_ ms: [Mail]) { moveAll(ms, add: ["TRASH"], text: "Moved to Trash") }
+
+    private func moveAll(_ ms: [Mail], add: [String], text: String) {
+        guard !ms.isEmpty else { return }
+        ms.forEach { move($0, add: add, remove: ["INBOX"], text: "", quiet: true) }
+        show(ms.count == 1 ? text : "\(text): \(ms.count) emails", undo: { [weak self] in ms.forEach { self?.putBackInInbox($0, added: add) } })
+    }
+
+    /// Puts an archived inbox email back (a done circle ticked again).
+    func unarchive(_ m: Mail) { putBackInInbox(m, added: []) }
+
+    private func putBackInInbox(_ m: Mail, added: [String]) {
+        undoMove(m, ids: [m.id] + (m.siblings ?? []), add: added, remove: ["INBOX"], fromInbox: true, fromFolder: false)
+    }
+
     /// Waits until every change made on screen has reached Gmail (the built-in checks use it).
     func settle() async { await writeChain?.value }
 
@@ -472,7 +490,7 @@ final class PhoneStore: ObservableObject {
 
     /// The row leaves the screen at once (the inbox or the open folder, whichever shows it); Gmail is told in order.
     /// `onUndo` runs when Undo is pressed; `onDone(true)` once Gmail has taken the change, `onDone(false)` if it refused (the row is back by then).
-    func move(_ m: Mail, add: [String], remove: [String], text: String, onUndo: (@MainActor () -> Void)? = nil, onDone: (@MainActor (Bool) -> Void)? = nil) {
+    func move(_ m: Mail, add: [String], remove: [String], text: String, quiet: Bool = false, onUndo: (@MainActor () -> Void)? = nil, onDone: (@MainActor (Bool) -> Void)? = nil) {
         let ids = [m.id] + (m.siblings ?? [])
         let fromInbox = inbox.contains { $0.threadID == m.threadID }, fromFolder = folderMails.contains { $0.id == m.id }
         inbox.removeAll { $0.threadID == m.threadID }
@@ -483,7 +501,7 @@ final class PhoneStore: ObservableObject {
         }
         pendingGone.insert(m.threadID)
         saveCache()
-        show(text, undo: { [weak self] in onUndo?(); self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) })
+        if !quiet { show(text, undo: { [weak self] in onUndo?(); self?.undoMove(m, ids: ids, add: add, remove: remove, fromInbox: fromInbox, fromFolder: fromFolder) }) }
         enqueue { [weak self] in
             guard let self else { return }
             do { try await self.gmail.modify(ids: ids, add: add, remove: remove); self.confirmedGone.insert(m.threadID); onDone?(true); await self.recountIfCounted(add + remove) }   // confirmed: a later reply may bring it back

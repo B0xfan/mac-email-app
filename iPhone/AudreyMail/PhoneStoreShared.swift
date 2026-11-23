@@ -18,6 +18,15 @@ extension PhoneStore {
         return m.labels.contains(l) || (m.convo ?? []).contains { $0.labels.contains(l) }
     }
     var pinnedMails: [Mail] { inboxMails.filter(isPinned).sorted { $0.date > $1.date } }
+
+    // MARK: - Priority (the Gmail label "Priority", set by hand from the long-press menu; the Focused view shows it on top)
+
+    static let priorityLabelName = "Priority"
+    var priorityLabelID: String? { labelList.first { $0.name == Self.priorityLabelName }?.id }
+    func isPriority(_ m: Mail) -> Bool {
+        guard let l = priorityLabelID else { return false }
+        return m.labels.contains(l) || (m.convo ?? []).contains { $0.labels.contains(l) }
+    }
     var unpinnedInbox: [Mail] { inboxMails.filter { !isPinned($0) } }
 
     // MARK: - Snoozed (the Gmail label "Snoozed": the Mac snoozes and brings back, the phone shows)
@@ -145,4 +154,45 @@ extension PhoneStore {
 
     /// What a saved search reads from Gmail: plain words are turned into Gmail's words each time ("last month" moves), as on the Mac.
     static func gmailQuery(forSaved q: String) -> String { let g = PlainSearch.parse(q).gmail; return g.isEmpty ? q : g }
+}
+
+// MARK: - The Focused inbox view (approved mockup 2026-11-23): Priority on top, then Today, Yesterday and Earlier
+
+/// One row of a Focused day: an email from a person, or all of a group's emails (Notifications, Newsletters) as one row.
+enum FocusedItem: Identifiable {
+    case mail(Mail), group(MailCategory, [Mail])
+    var id: String { switch self { case .mail(let m): return m.id; case .group(let c, _): return "group-" + c.rawValue } }
+    var mails: [Mail] { switch self { case .mail(let m): return [m]; case .group(_, let ms): return ms } }
+}
+
+struct FocusedDay: Identifiable {
+    let id: String   // the title
+    var items: [FocusedItem]
+}
+
+extension PhoneStore {
+    var priorityMails: [Mail] { unpinnedInbox.filter(isPriority).sorted { $0.date > $1.date } }
+    var focusedDays: [FocusedDay] { Self.focusedDays(unpinnedInbox.filter { !isPriority($0) }, now: Date()) }
+    /// The Focused view's emails in screen order (a group's emails sit where the group does), for "open the next email".
+    var focusedOrder: [Mail] { priorityMails + focusedDays.flatMap { $0.items.flatMap(\.mails) } }
+
+    /// People's emails under the day they came; each group is one row, under the day of its newest email.
+    static func focusedDays(_ ms: [Mail], now: Date, calendar: Calendar = .current) -> [FocusedDay] {
+        let today = calendar.startOfDay(for: now), yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        func day(_ d: Date) -> String { d >= today ? "Today" : d >= yesterday ? "Yesterday" : "Earlier" }
+        var items: [(date: Date, item: FocusedItem)] = []
+        var byGroup: [MailCategory: [Mail]] = [:]
+        for m in ms {
+            let c = MailCategory.guess(m)
+            if c == .people { items.append((m.date, .mail(m))) } else { byGroup[c, default: []].append(m) }
+        }
+        for (c, g) in byGroup { let s = g.sorted { $0.date > $1.date }; items.append((s[0].date, .group(c, s))) }
+        items.sort { $0.date > $1.date }
+        var days: [FocusedDay] = []
+        for (d, it) in items {
+            let t = day(d)
+            if days.last?.id == t { days[days.count - 1].items.append(it) } else { days.append(FocusedDay(id: t, items: [it])) }
+        }
+        return days
+    }
 }
