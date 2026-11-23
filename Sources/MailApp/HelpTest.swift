@@ -97,10 +97,7 @@ extension SelfTest {
         let build = (try? String(contentsOfFile: cwd + "/.github/workflows/build.yml", encoding: .utf8)) ?? ""
         let local = (try? String(contentsOfFile: cwd + "/scripts/build.sh", encoding: .utf8)) ?? ""
         check("help: both builds copy the manual into the app", build.contains("Manual/mail-manual.md") && local.contains("Manual/mail-manual.md"))
-        let vault = NSHomeDirectory() + "/Projects/A4/03 WiP/2026-10-09-mac-email-app/mail-manual.md"
-        if FileManager.default.fileExists(atPath: vault) {
-            check("help: the app's copy of the manual is the vault's file", (try? String(contentsOfFile: vault, encoding: .utf8)) == raw)
-        } else { print("SKIP help: the vault manual is not on this machine (cloud build); scripts/cloud-build.sh checks it before every run") }
+        // the vault comparison lives in scripts/sync-manual.sh --check (cloud-build, install, release and build.sh all run it)
         return ok
     }
 }
