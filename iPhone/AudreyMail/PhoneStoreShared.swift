@@ -186,8 +186,8 @@ extension PhoneStore {
             let c = MailCategory.guess(m)
             if c == .people { items.append((m.date, .mail(m))) } else { byGroup[c, default: []].append(m) }
         }
-        for (c, g) in byGroup { let s = g.sorted { $0.date > $1.date }; items.append((s[0].date, .group(c, s))) }
-        items.sort { $0.date > $1.date }
+        for c in MailCategory.allCases { if let g = byGroup[c] { let s = g.sorted { $0.date > $1.date }; items.append((s[0].date, .group(c, s))) } }
+        items.sort { $0.date != $1.date ? $0.date > $1.date : $0.item.id < $1.item.id }   // same time: a steady order, so rows never swap on a redraw
         var days: [FocusedDay] = []
         for (d, it) in items {
             let t = day(d)

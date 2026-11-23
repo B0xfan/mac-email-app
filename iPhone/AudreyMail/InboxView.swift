@@ -33,7 +33,7 @@ struct InboxView: View {
                 NavigationStack(path: $path) { destinations(screen) }
             }
         }
-        .onChange(of: phase) { _, p in if p != .active { doneRows = [] } }
+        .onChange(of: phase) { _, p in if p == .background { doneRows = [] } }
         .onChange(of: prefs.inboxMode) { _, _ in doneRows = []; endSelect() }
         .alert(groupAsk.map { "Mark all \($0.mails.count) as done?" } ?? "", isPresented: Binding(get: { groupAsk != nil }, set: { if !$0 { groupAsk = nil } }), presenting: groupAsk) { g in
             Button("Yes") { store.archiveAll(g.mails) }
@@ -142,7 +142,7 @@ struct InboxView: View {
         let ms = store.inbox.filter { picked.contains($0.id) }
         return HStack(spacing: 6) {
             quick("Done", "checkmark.circle", Theme.acc) { store.archiveAll(ms) }
-            quick("Pin", "pin", Theme.acc) { ms.forEach { store.togglePin($0) } }   // shortcut: one Undo bar per email, the last one shows; a shared Undo when many get pinned at once
+            quick("Pin", "pin", Theme.acc) { ms.filter { !store.isPinned($0) }.forEach { store.togglePin($0) } }   // pins only; shortcut: one Undo bar per email, the last one shows; a shared Undo when many get pinned at once
             quick("Delete", "trash", Theme.danger) { store.trashAll(ms) }
         }
         .padding(6).background(Capsule().fill(Theme.card)).overlay(Capsule().stroke(Theme.line, lineWidth: 1))
@@ -310,8 +310,10 @@ struct InboxView: View {
         let shown = Array(senders.prefix(4)), rest = senders.count - shown.count
         return HStack(alignment: .top, spacing: 10) {
             Circle().fill(unread ? Theme.acc : Color.clear).frame(width: 8, height: 8).padding(.top, 18).accessibilityHidden(true)
-            DoneCircle(on: false, label: "Mark all \(c.title) done") {
-                if prefs.askGroupDone { groupAsk = GroupAsk(title: c.title, mails: ms) } else { store.archiveAll(ms) }
+            let ids = Set(ms.map(\.id))
+            DoneCircle(on: selecting && ids.isSubset(of: picked), label: selecting ? "Pick all \(c.title)" : "Mark all \(c.title) done") {
+                if selecting { if ids.isSubset(of: picked) { picked.subtract(ids) } else { picked.formUnion(ids) } }
+                else if prefs.askGroupDone { groupAsk = GroupAsk(title: c.title, mails: ms) } else { store.archiveAll(ms) }
             }
             Button { if open { openGroups.remove(c.rawValue) } else { openGroups.insert(c.rawValue) } } label: {
                 VStack(alignment: .leading, spacing: 4) {
@@ -391,8 +393,9 @@ struct InboxView: View {
     private func tapCircle(_ m: Mail, done: Bool, inGroup: Bool) {
         if selecting { pick(m); return }
         if done { store.unarchive(m); doneRows.removeAll { $0.threadID == m.threadID }; return }
-        let stays = !inGroup && !store.isPriority(m) && MailCategory.guess(m) == .people   // greyed in place; a group's or Priority's email just goes
+        let stays = !inGroup && !store.isPriority(m) && !store.isPinned(m) && MailCategory.guess(m) == .people   // greyed in place; a group's, Priority's or pinned email just goes
         store.archive(m)
+        doneRows.removeAll { $0.threadID == m.threadID }   // ticked, undone with the bar, ticked again: one greyed row
         if stays { doneRows.append(m) }
     }
 }
