@@ -4,7 +4,7 @@ import MailCore
 /// The Settings tab: the Mac's pages, grouped the iPhone way. Each line opens its own page.
 struct SettingsView: View {
     var active = true   // the tab is showing: only then are the Gmail settings and the stored size read
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @State private var path = NavigationPath()
     @State private var stored = ""

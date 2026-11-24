@@ -26,58 +26,58 @@ struct ScheduledRow: Identifiable { let draft: DraftRow; let at: Date; var id: S
 struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@MainActor () -> Void)?; var open: URL? = nil }   // open: where the "Open" button leads (a new to-do)
 
 @MainActor
-final class PhoneStore: ObservableObject {
+@Observable final class PhoneStore {
     enum State: Equatable { case loading, signedOut(again: Bool), signedIn }
 
-    @Published var state: State = .loading { didSet { if state == .signedIn, let u = waitingMailto { waitingMailto = nil; openMailto(u) } } }
-    private var waitingMailto: URL?   // an email link that arrived before the saved sign-in was read (a cold launch) or while signed out
-    @Published var inbox: [Mail] = []
-    @Published var tab: MailCategory = .people
-    @Published var refreshing = false
-    @Published var signingIn = false
-    @Published var banner: String?
-    @Published var signInMessage: String?
-    @Published var toast: Toast?
-    @Published var accountEmail = ""
-    @Published var sendAs: [GSendAs] = []
-    @Published var knownCache: [String: Bool] = [:]
-    @Published var sendersChecked = false
-    @Published var drafts: [DraftRow] = []
-    @Published var scheduled: [ScheduledRow] = []   // the drafts the Mail server will send, soonest first
-    @Published var labelList: [GLabel] = []   // Gmail labels; the folders are made from them (PhoneStore+Mailboxes)
-    @Published var folderMails: [Mail] = []   // the emails of the folder that is open
-    @Published var folderLoading = false
-    @Published var blocked: [BlockedEntry] = []
-    @Published var blockedLoaded = false
-    var folderSource: MailListSource?   // what the open list shows: a Gmail label (folders, Snoozed) or a Gmail search (Smart Folders, saved searches)
-    var folderGen = 0   // counts folder openings, so a slow older answer never replaces a newer one
-    @Published var folderNext: String?
-    private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
-    @Published var openReads: [Int: Int] = [:]   // open emails per tab; one hides that tab's bar (the read screen has its own bar, as drawn); per tab, because on iPad you can switch tabs with an email open
-    @Published var padPath = NavigationPath()   // iPad: what the middle column shows (empty = the inbox), set from the sidebar
-    @Published var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
-    @Published var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back
-    @Published var undoDelay: Int { didSet { defaults.set(undoDelay, forKey: "undoDelay") } }
+    var state: State = .loading { didSet { if state == .signedIn, let u = waitingMailto { waitingMailto = nil; openMailto(u) } } }
+    @ObservationIgnored private var waitingMailto: URL?   // an email link that arrived before the saved sign-in was read (a cold launch) or while signed out
+    var inbox: [Mail] = []
+    var tab: MailCategory = .people
+    var refreshing = false
+    var signingIn = false
+    var banner: String?
+    var signInMessage: String?
+    var toast: Toast?
+    var accountEmail = ""
+    var sendAs: [GSendAs] = []
+    var knownCache: [String: Bool] = [:]
+    var sendersChecked = false
+    var drafts: [DraftRow] = []
+    var scheduled: [ScheduledRow] = []   // the drafts the Mail server will send, soonest first
+    var labelList: [GLabel] = []   // Gmail labels; the folders are made from them (PhoneStore+Mailboxes)
+    var folderMails: [Mail] = []   // the emails of the folder that is open
+    var folderLoading = false
+    var blocked: [BlockedEntry] = []
+    var blockedLoaded = false
+    @ObservationIgnored var folderSource: MailListSource?   // what the open list shows: a Gmail label (folders, Snoozed) or a Gmail search (Smart Folders, saved searches)
+    @ObservationIgnored var folderGen = 0   // counts folder openings, so a slow older answer never replaces a newer one
+    var folderNext: String?
+    @ObservationIgnored private var waitingSeeds: [ComposeSeed] = []   // Write screens that must come back while another one is open
+    var openReads: [Int: Int] = [:]   // open emails per tab; one hides that tab's bar (the read screen has its own bar, as drawn); per tab, because on iPad you can switch tabs with an email open
+    var padPath = NavigationPath()   // iPad: what the middle column shows (empty = the inbox), set from the sidebar
+    var sendToast: Toast?   // the "Sending in N seconds. Undo" bar; kept apart so another message cannot hide it
+    var composeSeed: ComposeSeed?   // the Write screen; also how an undone, failed or saved email comes back
+    var undoDelay: Int { didSet { defaults.set(undoDelay, forKey: "undoDelay") } }
     // Gmail settings the Settings pages read and write: the away message and the rules (both live in Gmail, so the Mac and Gmail show the same)
-    @Published var away: AwaySettings?
-    @Published var awayError: String?
-    @Published var rules: [RuleRow] = []
-    @Published var ruleNames: [String: String] = [:]
-    @Published var rulesError: String?
-    @Published var rulesLoaded = false
-    var labelMaking: [String: Task<String?, Never>] = [:]   // a label being made right now, so two quick swipes make it once
+    var away: AwaySettings?
+    var awayError: String?
+    var rules: [RuleRow] = []
+    var ruleNames: [String: String] = [:]
+    var rulesError: String?
+    var rulesLoaded = false
+    @ObservationIgnored var labelMaking: [String: Task<String?, Never>] = [:]   // a label being made right now, so two quick swipes make it once
 
     let sign: PhoneSignIn
-    private(set) var gmail: GmailClient
-    private(set) var flow: BlockFlow
+    @ObservationIgnored private(set) var gmail: GmailClient
+    @ObservationIgnored private(set) var flow: BlockFlow
     let book: SenderBook
     private let cacheURL: URL
-    private var next: String?
-    private var loadingMore = false
-    private var confirmedGone = Set<String>()   // confirmed by Gmail; dropped from `pendingGone` at the start of the next refresh, so a read that began earlier cannot bring them back
-    private var pendingGone = Set<String>()   // conversations moved away on screen whose change Gmail has not confirmed yet
-    private var writeChain: Task<Void, Never>?
-    private var lastRefresh = Date.distantPast
+    @ObservationIgnored private var next: String?
+    @ObservationIgnored private var loadingMore = false
+    @ObservationIgnored private var confirmedGone = Set<String>()   // confirmed by Gmail; dropped from `pendingGone` at the start of the next refresh, so a read that began earlier cannot bring them back
+    @ObservationIgnored private var pendingGone = Set<String>()   // conversations moved away on screen whose change Gmail has not confirmed yet
+    @ObservationIgnored private var writeChain: Task<Void, Never>?
+    @ObservationIgnored private var lastRefresh = Date.distantPast
     static let blockLabelName = "Blocked"
 
     init(sign: PhoneSignIn, gmail: GmailClient, book: SenderBook = SenderBook(), cacheURL: URL = Support.url("inbox.json"), defaults: UserDefaults = .standard,
@@ -102,30 +102,31 @@ final class PhoneStore: ObservableObject {
     let opened: OpenedBook        // full text of emails opened here, kept for "Keep full email text for" days
     let openedURL: URL
     let pics = PhonePictures()    // sender pictures (Settings, Layout)
-    private var bag: [AnyCancellable] = []
+    @ObservationIgnored private var bag: [AnyCancellable] = []
     // shared with the Mac through the Mail server (PhoneStoreShared.swift)
     let server: PhoneServer?
-    @Published var organizer = Organizer()   // Smart Folders and saved searches
-    @Published var smartCounts: [UUID: Int] = [:]
-    @Published var asideCount: Int?   // the Set Aside row's number, as the Mac shows it; nil = not read yet
-    @Published var snoozeCount: Int?  // the same for Snoozed
-    @Published var sharing: Bool?   // nil = not tried yet; false = the last try could not reach the server
-    var organizerBase = Organizer()
-    var organizerBusy = false
+    var organizer = Organizer()   // Smart Folders and saved searches
+    var smartCounts: [UUID: Int] = [:]
+    var asideCount: Int?   // the Set Aside row's number, as the Mac shows it; nil = not read yet
+    var snoozeCount: Int?  // the same for Snoozed
+    var sharing: Bool?   // nil = not tried yet; false = the last try could not reach the server
+    @ObservationIgnored var organizerBase = Organizer()
+    @ObservationIgnored var organizerBusy = false
     let organizerURL: URL
-    @Published var timingView: TimingView?   // the snooze state shared with the Mac; nil = never read yet (rows then look as Gmail has them)
-    var timingBase = TimingView()   // what this phone last agreed on with the server (the merge needs it to tell "I removed it" from "the Mac added it")
+    var timingView: TimingView?   // the snooze state shared with the Mac; nil = never read yet (rows then look as Gmail has them)
+    @ObservationIgnored var timingBase = TimingView()   // what this phone last agreed on with the server (the merge needs it to tell "I removed it" from "the Mac added it")
     let timingURL: URL
-    var timingBusy = false
-    var snoozeBusy = false, snoozeDirty = false
-    var announcer: ([Mail]) async -> Void = Badge.announce   // shows the new-mail banners; the checks swap it
-    @Published var snoozeTarget: Mail?   // the email whose time picker is open (swipe, long press); the open email has its own
+    @ObservationIgnored var timingBusy = false
+    @ObservationIgnored var snoozeBusy = false
+    @ObservationIgnored var snoozeDirty = false
+    @ObservationIgnored var announcer: ([Mail]) async -> Void = Badge.announce   // shows the new-mail banners; the checks swap it
+    var snoozeTarget: Mail?   // the email whose time picker is open (swipe, long press); the open email has its own
     // snoozes made on this phone that the server must hold, and early returns it must forget (Undo): kept on the phone until the server has answered
     var phoneSnoozes: [String: Int] { get { defaults.dictionary(forKey: "phoneSnoozes") as? [String: Int] ?? [:] } set { defaults.set(newValue, forKey: "phoneSnoozes") } }
     var snoozeCancels: Set<String> { get { Set(defaults.stringArray(forKey: "snoozeCancels") ?? []) } set { defaults.set(Array(newValue).sorted(), forKey: "snoozeCancels") } }
     // the server holds one snooze per conversation (its newest email); the other inbox emails of the row wait here for that one to come back
     var snoozeKin: [String: [String]] { get { defaults.dictionary(forKey: "snoozeKin") as? [String: [String]] ?? [:] } set { defaults.set(newValue, forKey: "snoozeKin") } }
-    var refreshAgain = false   // asked for while a refresh was running: it goes round once more
+    @ObservationIgnored var refreshAgain = false   // asked for while a refresh was running: it goes round once more
 
     // MARK: - Start, sign in, sign out
 
@@ -592,9 +593,9 @@ final class PhoneStore: ObservableObject {
         var prep: Task<Void, Never>?    // saving the draft and telling the server
         var run: Task<Void, Never>?     // set once the email is on its way: after this it can no longer be undone
     }
-    private(set) var pending: [UUID: PendingSend] = [:]
-    private var undoTask: Task<Void, Never>?
-    var heldTask: Task<Void, Never>?   // watching an email the server held while the app was closed (PhoneStoreHeld.swift)
+    @ObservationIgnored private(set) var pending: [UUID: PendingSend] = [:]
+    @ObservationIgnored private var undoTask: Task<Void, Never>?
+    @ObservationIgnored var heldTask: Task<Void, Never>?   // watching an email the server held while the app was closed (PhoneStoreHeld.swift)
 
     func queueSend(_ snap: ComposeSnapshot, out: MIME.Outgoing, threadID: String?) {
         for earlier in pending.keys { pending[earlier]?.countdown?.cancel(); startDelivery(earlier) }   // one Undo bar at a time: an email still waiting goes out now

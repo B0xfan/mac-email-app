@@ -25,7 +25,7 @@ extension MailStore {
 }
 
 struct AwayStrip: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         if let a = store.away, a.showsStrip() {
             HStack(spacing: 8) {
@@ -41,7 +41,7 @@ struct AwayStrip: View {
 }
 
 struct AwayPanel: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @StateObject private var d = Box(AwaySettings())
     @StateObject private var msg = Box("")
     var body: some View {

@@ -216,7 +216,7 @@ final class SignInModel: ObservableObject {
 
 /// File > Print: grey with no email open (its own view, so the menu follows the store).
 struct PrintMenuItem: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         Button("Print...") { if let m = store.openMail { store.startPrint(m) } }.keyboardShortcut("p").disabled(store.openMail == nil)
     }
@@ -224,7 +224,7 @@ struct PrintMenuItem: View {
 
 /// The Mailbox menu of the design plan's command map.
 struct MailboxMenu: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         Button("Check for New Email") { Task { await store.refresh(reloadList: true) } }.disabled(store.loading || store.accountEmail.isEmpty)
     }
@@ -233,7 +233,7 @@ struct MailboxMenu: View {
 /// The Message menu: the same actions and limits as the list's keys. The keys are named in the titles and not set on the items:
 /// a plain key set on a menu item would also fire while typing in a text field.
 struct MessageMenu: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject private var settings = AppSettings.shared
     private func key(_ title: String, _ k: String) -> String { settings.shortcuts ? "\(title) (\(k))" : title }
     private func run(_ work: @escaping @MainActor () async -> Void) { Task { await work() } }

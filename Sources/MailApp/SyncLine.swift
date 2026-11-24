@@ -10,7 +10,7 @@ extension SyncProgress {
 
 /// A thin progress line at the top of the email list while the first copy of the mailbox is made. Mail stays usable; the line goes when the copy is done.
 struct SyncLine: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         if let l = store.syncProgress.line {
             VStack(spacing: 4) {

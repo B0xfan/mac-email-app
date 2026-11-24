@@ -47,7 +47,7 @@ extension MailStore {
 }
 
 struct RulesPanel: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @StateObject private var d = Box(MailRule())
     @StateObject private var open = Box(false)
     @StateObject private var msg = Box("")
@@ -101,7 +101,7 @@ struct RulesPanel: View {
             } }
             if open.v { editor }
         }
-        .onReceive(store.$rulePrefill) { p in
+        .onChange(of: store.rulePrefill, initial: true) { _, p in
             guard let p else { return }
             if open.v && d.v != orig.v { replaceWith.v = p } else { start(MailRule(from: p)) }
             store.rulePrefill = nil

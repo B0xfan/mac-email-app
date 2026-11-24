@@ -135,7 +135,7 @@ extension TimingData {
     }
 }
 
-final class TimingBook {
+@Observable final class TimingBook {
     private(set) var data: TimingData
     private let url: URL?
     init(url: URL? = TimingBook.defaultURL) {
@@ -259,7 +259,7 @@ struct PickerRowBody: View {
 
 /// The picker floating over the window, closed by clicking outside it.
 struct TimePickerLayer: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         if let k = store.picker, store.pickerIsForList {
             ZStack(alignment: .topTrailing) {
@@ -274,7 +274,7 @@ struct TimePickerLayer: View {
 // MARK: - Snoozed and Scheduled places
 
 struct SnoozedList: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
             PlaceHeader(title: "Snoozed", note: "Hidden until the time shown, then back at the top of your inbox, marked unread. Audrey Mail must be open for this to happen on time.")
@@ -292,7 +292,7 @@ struct SnoozedList: View {
 }
 
 struct ScheduledList: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         VStack(spacing: 8) {
             PlaceHeader(title: "Scheduled", note: "Emails waiting to be sent. They wait in Gmail as drafts, so your phone shows them in Drafts. If this Mac is off, the timing service sends them.")
@@ -347,7 +347,7 @@ struct Tag: View {
 // MARK: - Quick Replies under an open email
 
 struct QuickReplyRow: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings = AppSettings.shared
     let mail: Mail
     var body: some View {

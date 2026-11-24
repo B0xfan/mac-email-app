@@ -3,7 +3,7 @@ import AppKit
 import MailCore
 
 struct MailRoot: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -94,7 +94,7 @@ struct ErrorBar: View {
 }
 
 struct ToastView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let toast: ToastInfo
     var body: some View {
         HStack(spacing: 12) {
@@ -122,7 +122,7 @@ struct ToastView: View {
 // MARK: - Sidebar
 
 struct SidebarView: View {
-    @ObservedObject var store: MailStore
+    @Bindable var store: MailStore
     @ObservedObject private var layout = AppSettings.shared
     @FocusState private var searchFocus: Bool
     var body: some View {
@@ -247,7 +247,7 @@ struct NavRow: View {
 
 /// The list, the draggable line, and the reading pane. Own view so a drag redraws only this, not the whole window.
 struct ListReaderSplit<Reader: View>: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let reader: Reader
     init(store: MailStore, @ViewBuilder reader: () -> Reader) { self.store = store; self.reader = reader() }
     @State private var saved = ListDivider.savedWidth()   // the width John chose; kept across restarts
@@ -309,7 +309,7 @@ struct ListDivider: View {
 
 /// What the toolbar has no room for (design review finding 17): the same actions the buttons had.
 struct MoreMenu: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let canAct: Bool
     var body: some View {
         Menu {
@@ -330,7 +330,7 @@ struct MoreMenu: View {
 }
 
 struct ToolbarView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         let canAct = store.openMail != nil && !store.selectedIsNewSender && store.compose == nil
         let multi = store.isMulti, n = store.bulk.count, multiInbox = multi && store.mailbox == .inbox   // several selected: Archive, Set Aside, Snooze and To-do act on all, the one-email buttons go grey
@@ -388,7 +388,7 @@ struct ToolbarView: View {
 // MARK: - Message list
 
 struct ListPane: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings = AppSettings.shared
     var body: some View {
         ScrollViewReader { proxy in
@@ -536,7 +536,7 @@ struct ListPane: View {
 
 /// Under the results from this Mac: the clear way to search all of Gmail too (the approved drawing, panel 2). After it, a note about opening what it found.
 struct SearchMoreCard: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         switch store.searchMore {
         case .offer, .searching:
@@ -701,7 +701,7 @@ enum Fmt {
 // MARK: - New senders strip
 
 struct NewSendersStrip: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         let rows = store.newSenderRows
         Card {
@@ -753,7 +753,7 @@ struct NewSendersStrip: View {
 }
 
 struct ApproveBlock: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mail: Mail
     let key: String
     var small = false
@@ -771,7 +771,7 @@ struct ApproveBlock: View {
 }
 
 struct BlockMenu: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let addr: Address
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -804,7 +804,7 @@ struct MenuItem: View {
 // MARK: - Reading pane
 
 struct ReadingPane: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         Group {
             if store.isMulti { MultiPanel(store: store) }
@@ -822,7 +822,7 @@ struct ReadingPane: View {
 }
 
 struct ReadingContent: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mail: Mail
     /// The newest message kept open beside an older one (fold setting off): the same view, without the folded lines, the quick reply or the outer padding.
     var embedded = false

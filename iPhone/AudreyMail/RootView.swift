@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct RootView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.scenePhase) private var phase
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -15,6 +15,7 @@ struct RootView: View {
     private var pad: Bool { padIdiom && sizeClass == .regular }   // iPad at full or wide Split View width; narrow Split View keeps the phone layout
 
     var body: some View {
+        @Bindable var store = store
         ZStack(alignment: .bottom) {
             switch store.state {
             case .loading: Theme.bg.ignoresSafeArea()
@@ -119,7 +120,7 @@ struct RootView: View {
 struct PadSidebar: View {
     @Binding var sel: Int
     @Binding var folded: Bool
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var picked: MailboxRoute?   // the mailbox shown picked in the folded strip while its list is open in the middle
     @State private var tapped = false   // the next list change came from a sidebar tap
 

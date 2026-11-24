@@ -288,7 +288,7 @@ enum SnapshotMode { nonisolated(unsafe) static var on = false; nonisolated(unsaf
 
 /// The tags under the search bar: what Mail understood from the typed words. Clicking a tag removes it and searches again.
 struct SearchChips: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let read: PlainSearch.Result
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {

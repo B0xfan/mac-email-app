@@ -11,7 +11,6 @@ extension MailStore {
         book.approve(m.from.email); knownCache[m.from.email] = true
         status = "Approved \(m.from.display). Their emails now reach your inbox."
         blockMenuFor = nil
-        objectWillChange.send()
         if mailbox == .newSenders, openMail?.id == m.id, await select(.inbox) { await open(m) }
         await shareApprovals([m.from.email])   // last: the approval shows at once, even offline
     }
@@ -20,7 +19,6 @@ extension MailStore {
         let emails = newSenderRows.map { $0.from.email }
         book.approve(all: emails); emails.forEach { knownCache[$0] = true }
         status = "Approved everyone. Their emails now reach your inbox."
-        objectWillChange.send()
         await shareApprovals(emails)
     }
 

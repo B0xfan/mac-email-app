@@ -7,7 +7,7 @@ extension MailStore {
     private func markScheduled(_ id: String, _ f: (inout ScheduledSend) -> Void) {
         timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { f(&t.scheduled[i]) } }
     }
-    private func dropScheduled(_ id: String) { timing.change { $0.scheduled.removeAll { $0.draftID == id } }; objectWillChange.send() }
+    private func dropScheduled(_ id: String) { timing.change { $0.scheduled.removeAll { $0.draftID == id } } }
 
     static let macMustBeOpenTag = "Mac must be open"
     static let cannotCancelText = "Could not reach the timing service, so Audrey Mail cannot be sure this email will stay unsent. Please try again in a moment."
@@ -47,7 +47,6 @@ extension MailStore {
                         t.scheduled.removeAll { $0.draftID == s.draftID }
                         if let r = s.remindAt, !j.sentID.isEmpty { t.followUps.append(FollowUp(messageID: j.sentID, threadID: j.threadID, sentAt: s.at, at: r, to: s.to, subject: s.subject)) }
                     }
-                    objectWillChange.send()
                     showToast("\u{201C}\(s.subject)\u{201D} went out on time while Audrey Mail was closed.", seconds: 8)
                 case "gone":
                     dropScheduled(s.draftID)
@@ -94,7 +93,7 @@ extension MailStore {
                 let r = try await TimingViewSync.run(base: timing.data.sharedView ?? TimingView(), local: before, link: srv)
                 timingViewSynced = true
                 if timing.data.view != before { continue }   // changed meanwhile: merge again so the change is not overwritten
-                if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) }; objectWillChange.send() }
+                if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) } }
                 return
             } catch MailServerError.unreachable { markOffline(); return }
             catch { timingViewRetryAt = Date().addingTimeInterval(600); return }   // refused (an older server, too big) or busy: the Mac works on its own; tries again in 10 minutes

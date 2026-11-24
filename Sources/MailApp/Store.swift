@@ -11,45 +11,45 @@ struct ToastInfo: Equatable { var text: String; var action: String?; var link: U
 enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) }
 
 @MainActor
-final class MailStore: ObservableObject {
+@Observable final class MailStore {
     // sign-in
-    @Published var auth: SignInModel
+    var auth: SignInModel
     // data
-    @Published var mailbox: Mailbox = .inbox
-    @Published var inbox: [Mail] = []          // everything in Gmail's inbox
-    @Published var other: [Mail] = []          // sent / drafts / archive / search
-    @Published var blocked: [BlockedEntry] = []
-    @Published var selectedID: String?
+    var mailbox: Mailbox = .inbox
+    var inbox: [Mail] = []          // everything in Gmail's inbox
+    var other: [Mail] = []          // sent / drafts / archive / search
+    var blocked: [BlockedEntry] = []
+    var selectedID: String?
     /// Unread first: the email opened while unread. It holds its place in the list while it stays selected.
-    var heldUnreadID: String?
+    @ObservationIgnored var heldUnreadID: String?
     /// While the held email is part of a multi-selection it keeps its place too (the list must not shuffle under the cursor).
     var heldOpenID: String? { guard let h = heldUnreadID else { return nil }; return selectedID == h || picked.contains(h) ? h : nil }
     /// Select several emails: the ones ticked with Command/Shift-click or Command-A (Inbox only). Never overlaps the open email.
-    @Published var picked: Set<String> = []
-    var pickAnchor: String?     // the last email clicked: where Shift-click starts
-    var batching = false        // a group action is running: the single-email paths add to one undo step instead of making their own
+    var picked: Set<String> = []
+    @ObservationIgnored var pickAnchor: String?     // the last email clicked: where Shift-click starts
+    @ObservationIgnored var batching = false        // a group action is running: the single-email paths add to one undo step instead of making their own
     /// Conversations on: an older message of the open conversation that was clicked open (full text). nil = the open email itself is shown.
-    @Published var convoShown: Mail?
-    @Published var openMail: Mail? {
+    var convoShown: Mail?
+    var openMail: Mail? {
         didSet { if oldValue?.id != openMail?.id { convoShown = nil }; if !NoteHeader.keepsState(from: oldValue?.threadID, to: openMail?.threadID) { noteOpen = nil; noteEdit = nil } }
     }
-    @Published var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
-    @Published var search = ""
-    var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
-    @Published var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
-    @Published var loadingOtherMore = false
-    var otherSource: OtherSource?
+    var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
+    var search = ""
+    @ObservationIgnored var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
+    var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
+    var loadingOtherMore = false
+    @ObservationIgnored var otherSource: OtherSource?
     /// Search: the Mac first. `offer` = the "Search all of Gmail too" card is showing, `searching` = Gmail is being asked, `done` = its older results are added under their own heading.
     enum SearchMore { case hidden, offer, searching, done }
-    @Published var searchMore: SearchMore = .hidden
+    var searchMore: SearchMore = .hidden
     /// The ids of the results that came from Gmail (older mail); they sit at the end of the list under their own heading.
-    var extraIDs: Set<String> = []
+    @ObservationIgnored var extraIDs: Set<String> = []
     var extraFirstID: String? { extraIDs.isEmpty ? nil : other.first { extraIDs.contains($0.id) }?.id }
     /// A list John just left (Archive, Sent, a folder ...) is kept for a short while, so going back to it asks Gmail for nothing.
     struct KeptList { var mails: [Mail]; var next: String?; var source: OtherSource?; var at: Date; var writes: Int }
-    var keptLists: [String: KeptList] = [:]
+    @ObservationIgnored var keptLists: [String: KeptList] = [:]
     /// The change counter of the Gmail client as it stood when the open list started loading: a change after that (even one that landed while it loaded) makes the list stale.
-    var otherWrites = 0
+    @ObservationIgnored var otherWrites = 0
     static let keepListFor: TimeInterval = 120
     /// Lists that are plain Gmail lists; search, Drafts and Recently Seen change on their own and are always read fresh.
     func keptKey(_ box: Mailbox) -> String? {
@@ -57,39 +57,39 @@ final class MailStore: ObservableObject {
     }
     /// The Check button throws every kept list away (changes through Mail are caught by the write counter in the Gmail client).
     func forgetKeptLists() { keptLists = [:] }
-    var otherGen = 0
-    var autoPagesLeft = MailStore.autoPages
+    @ObservationIgnored var otherGen = 0
+    @ObservationIgnored var autoPagesLeft = MailStore.autoPages
     // Translate (in memory only; never saved or sent to Gmail)
-    @Published var translations: [String: MailTranslation] = [:]
-    @Published var translationShown: Set<String> = []
-    @Published var translating: Set<String> = []
-    var languageGuesses: [String: String] = [:]   // mail id -> language code, "" = not foreign
-    @Published var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
-    @Published var status = ""                 // spoken-style status line
+    var translations: [String: MailTranslation] = [:]
+    var translationShown: Set<String> = []
+    var translating: Set<String> = []
+    @ObservationIgnored var languageGuesses: [String: String] = [:]   // mail id -> language code, "" = not foreign
+    var searchRead: PlainSearch.Result?   // what Mail understood from the typed words (nil outside a search)
+    var status = ""                 // spoken-style status line
     /// VoiceOver reads each new toast once; a send's countdown keeps its id, so it is not read again every second.
-    @Published var toast: ToastInfo? { didSet { if let t = toast, t.id != oldValue?.id { MailStore.announce(t.text) } } }
+    var toast: ToastInfo? { didSet { if let t = toast, t.id != oldValue?.id { MailStore.announce(t.text) } } }
     nonisolated(unsafe) static var announce: (String) -> Void = { AccessibilityNotification.Announcement($0).post() }   // a test swaps it
-    @Published var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
-    @Published var awayError: String?
-    @Published var rules: [RuleRow] = []   // Gmail filters, read when the Rules page opens
-    @Published var ruleNames: [String: String] = [:]   // label id -> name
-    @Published var rulesError: String?
-    @Published var rulePrefill: String?   // "Make a rule from this email" hands the From over
-    @Published var loading = false
-    @Published var error: String?
-    @Published var confirmBlockAll = false
-    @Published var blockMenuFor: String?
-    @Published var unsubStage: UnsubStage = .idle
-    @Published var compose: ComposeDraft? { didSet { if compose != nil && (oldValue == nil || oldValue?.mode != compose?.mode || oldValue?.threadID != compose?.threadID) { composeID = UUID() } } }
-    @Published var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil; composeRestored = false } }   // the old view's contents must not be read for the new email; the new view sets it again
+    var away: AwaySettings?   // Gmail's away message, read at launch; nil until a read succeeds
+    var awayError: String?
+    var rules: [RuleRow] = []   // Gmail filters, read when the Rules page opens
+    var ruleNames: [String: String] = [:]   // label id -> name
+    var rulesError: String?
+    var rulePrefill: String?   // "Make a rule from this email" hands the From over
+    var loading = false
+    var error: String?
+    var confirmBlockAll = false
+    var blockMenuFor: String?
+    var unsubStage: UnsubStage = .idle
+    var compose: ComposeDraft? { didSet { if compose != nil && (oldValue == nil || oldValue?.mode != compose?.mode || oldValue?.threadID != compose?.threadID) { composeID = UUID() } } }
+    var composeID = UUID() { didSet { composeContents = nil; composeEditDraft = nil; composeRestored = false } }   // the old view's contents must not be read for the new email; the new view sets it again
     /// Set by the open ComposeView: only it knows what has been typed.
-    var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool, busy: Bool))?
-    var composeRestored = false   // brought back by Undo Send or a failed send: never saved, so it counts as typed
-    var leaveSave: Task<Bool, Never>?   // the save before leaving the open email; a second click while it runs waits for it instead of saving again
-    var leaveCount = 0                  // every way out asked for; only the latest one goes on
-    var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
-    @Published var sendAs: [GSendAs] = []
-    @Published var accountEmail = ""
+    @ObservationIgnored var composeContents: (() async -> (draft: ComposeDraft, html: String, changed: Bool, busy: Bool))?
+    @ObservationIgnored var composeRestored = false   // brought back by Undo Send or a failed send: never saved, so it counts as typed
+    @ObservationIgnored var leaveSave: Task<Bool, Never>?   // the save before leaving the open email; a second click while it runs waits for it instead of saving again
+    @ObservationIgnored var leaveCount = 0                  // every way out asked for; only the latest one goes on
+    @ObservationIgnored var composeEditDraft: (((inout ComposeDraft) -> Void) -> Void)?   // edits the open ComposeView's own copy
+    var sendAs: [GSendAs] = []
+    var accountEmail = ""
     /// Which of John's addresses an opened email names (an extra one, or the main one when he has several); nil keeps "to me".
     func cameTo(_ m: Mail) -> String? { GSendAs.cameTo(m, in: sendAs, account: accountEmail) }
     func addressColor(_ e: String) -> Int { GSendAs.color(e, in: sendAs, account: accountEmail) }
@@ -97,55 +97,60 @@ final class MailStore: ObservableObject {
     func rowTag(_ m: Mail) -> (text: String, color: Int)? {
         GSendAs.extraAddress(of: m, in: sendAs, account: accountEmail).map { (GSendAs.label($0, in: sendAs, account: accountEmail), addressColor($0)) }
     }
-    @Published var homeShown = false
-    var homeNowOverride: Date?   // drawn-screen tests only
+    var homeShown = false
+    @ObservationIgnored var homeNowOverride: Date?   // drawn-screen tests only
     /// "Unread only" filter on: emails opened while it was on stay in the list (they turn read on opening) until they leave the Inbox. Cleared when the filter goes off.
-    @Published var unreadOnly = false { didSet { if !unreadOnly { keptOpen = [] } } }
-    var keptOpen: Set<String> = []
+    var unreadOnly = false { didSet { if !unreadOnly { keptOpen = [] } } }
+    @ObservationIgnored var keptOpen: Set<String> = []
     /// Gmail id of the "Pinned" label; nil until it exists. Pins are a Gmail label so they also show on the phone.
-    @Published var pinLabelID: String?
-    var approvedLabelID: String?   // the hidden "Approved senders" label (MailCore Approvals), once it exists
+    var pinLabelID: String?
+    @ObservationIgnored var approvedLabelID: String?   // the hidden "Approved senders" label (MailCore Approvals), once it exists
     /// Set Aside is also a Gmail label (so it shows on the phone). `aside` holds the emails that carry it.
-    @Published var asideLabelID: String?
-    @Published var aside: [Mail] = []
+    var asideLabelID: String?
+    var aside: [Mail] = []
     static let asideLabelName = "Set Aside"
-    var undoAside = false
+    @ObservationIgnored var undoAside = false
     static let pinLabelName = "Pinned"
-    @Published var focusSearchTick = 0
-    @Published var searchPeek = false   // strip temporarily opened for search; never saved
+    var focusSearchTick = 0
+    var searchPeek = false   // strip temporarily opened for search; never saved
     // Phase 4
-    @Published var commandCenterOpen = false
-    @Published var noteOpen: String?        // conversation whose private-note strip is showing
-    @Published var noteEdit: String?        // conversation whose private note is being typed
-    @Published var todoMail: Mail? { didSet { if todoMail == nil { todoBulk = [] } } }   // the to-do box is open for this email
-    var todoBulk: [Mail] = []               // several selected emails: the box adds one task for each
-    @Published var savingNote = false       // "Save as Note" is running (no double notes from a double click)
-    @Published var printAsk: Mail?          // "this email or the whole conversation?"
-    var todoSender = TodoSender()
+    var commandCenterOpen = false
+    var noteOpen: String?        // conversation whose private-note strip is showing
+    var noteEdit: String?        // conversation whose private note is being typed
+    var todoMail: Mail? { didSet { if todoMail == nil { todoBulk = [] } } }   // the to-do box is open for this email
+    @ObservationIgnored var todoBulk: [Mail] = []               // several selected emails: the box adds one task for each
+    var savingNote = false       // "Save as Note" is running (no double notes from a double click)
+    var printAsk: Mail?          // "this email or the whole conversation?"
+    @ObservationIgnored var todoSender = TodoSender()
     var todoVault: URL { URL(fileURLWithPath: settings.vaultPath) }
-    var printToFile: URL?                   // tests only: print to this PDF instead of the print window
+    @ObservationIgnored var printToFile: URL?                   // tests only: print to this PDF instead of the print window
     // Phase 3: timing. The times live on this Mac (timing.json); Snoozed is also a Gmail label so the phone hides them too.
-    @Published var snoozeLabelID: String?
-    @Published var snoozed: [Mail] = []
-    @Published var picker: TimePickerKind?
-    var pendingScheduled: (draftID: String, tid: UUID)?
-    var scheduledTask: Task<Void, Never>?
-    var timersBusy = false
-    var timingServer: TimingServer?   // nil in tests that do not use it
-    var serverBusy = false, signinRetried = false, signinWarned = false, reminderBusy = false, registerDone = false, offline = false
-    @Published var timingSigninBad = false
+    var snoozeLabelID: String?
+    var snoozed: [Mail] = []
+    var picker: TimePickerKind?
+    @ObservationIgnored var pendingScheduled: (draftID: String, tid: UUID)?
+    @ObservationIgnored var scheduledTask: Task<Void, Never>?
+    @ObservationIgnored var timersBusy = false
+    @ObservationIgnored var timingServer: TimingServer?   // nil in tests that do not use it
+    @ObservationIgnored var serverBusy = false
+    @ObservationIgnored var signinRetried = false
+    @ObservationIgnored var signinWarned = false
+    @ObservationIgnored var reminderBusy = false
+    @ObservationIgnored var registerDone = false
+    @ObservationIgnored var offline = false
+    var timingSigninBad = false
     let timing: TimingBook
     // Phase 2 section 5: folders (Gmail labels), Smart Folders and saved searches (the last two live on this Mac)
-    @Published var folders: [FolderNode] = []
-    @Published var smartCounts: [UUID: Int] = [:]
-    @Published var editor: OrganizerEditor?
-    @Published var editorMessage: String?
-    var labelList: [GLabel] = []
-    var undoFolder: (add: [String], remove: [String])?
-    var undoUntrash = false
-    var undoRows: [(box: Mailbox, query: String, at: Int, mail: Mail)] = []   // rows the undo step took out of the open list
-    var undoAsideDays: [String: Date] = [:]   // the day each email was set aside, for its stamp
-    var undoReopen: String?   // Archive only: the email Undo opens again when it did not go back to the Inbox
+    var folders: [FolderNode] = []
+    var smartCounts: [UUID: Int] = [:]
+    var editor: OrganizerEditor?
+    var editorMessage: String?
+    @ObservationIgnored var labelList: [GLabel] = []
+    @ObservationIgnored var undoFolder: (add: [String], remove: [String])?
+    @ObservationIgnored var undoUntrash = false
+    @ObservationIgnored var undoRows: [(box: Mailbox, query: String, at: Int, mail: Mail)] = []   // rows the undo step took out of the open list
+    @ObservationIgnored var undoAsideDays: [String: Date] = [:]   // the day each email was set aside, for its stamp
+    @ObservationIgnored var undoReopen: String?   // Archive only: the email Undo opens again when it did not go back to the Inbox
 
     enum UnsubStage: Equatable { case idle, asking(String), done(String) }
 
@@ -156,44 +161,50 @@ final class MailStore: ObservableObject {
     let asides: AsideBook
     let organizer: OrganizerBook
     let contacts = ContactDirectory()
-    var keyMonitor: Any?
-    var pickWatch: [AnyCancellable] = []   // clears the selection when the Smart tab or the Inbox view changes
-    private(set) var gmail: GmailClient
+    @ObservationIgnored var keyMonitor: Any?
+    @ObservationIgnored var pickWatch: [AnyCancellable] = []   // clears the selection when the Smart tab or the Inbox view changes
+    @ObservationIgnored private(set) var gmail: GmailClient
     /// The block steps shared with the iPhone app.
-    lazy var blockFlow = BlockFlow(gmail: gmail, labelName: blockLabelName) { [weak self] ids, add, remove in
+    @ObservationIgnored lazy var blockFlow = BlockFlow(gmail: gmail, labelName: blockLabelName) { [weak self] ids, add, remove in
         guard let self else { throw CancellationError() }   // the store is gone: never report a move that did not happen
         try await self.change(ids: ids, add: add, remove: remove)
     }
     let blockLabelName: String
     var knownCache: [String: Bool] = [:]
     var sendersChecked = false   // false until the first new-sender check has run since launch
-    @Published var inboxNext: String?            // Gmail page token for the next batch of inbox conversations (from the mail kept on this Mac: how many are shown now)
-    var inboxFromMac = false                     // the Inbox on screen was read from the mail kept on this Mac, so `inboxNext` is not a Gmail token
+    var inboxNext: String?            // Gmail page token for the next batch of inbox conversations (from the mail kept on this Mac: how many are shown now)
+    @ObservationIgnored var inboxFromMac = false                     // the Inbox on screen was read from the mail kept on this Mac, so `inboxNext` is not a Gmail token
     static let inboxPage = 80
-    @Published var loadingMore = false
-    var lastLabelsAt: Date?, lastSmartAt: Date?, lastOrganizerAt: Date?, organizerBusy = false, timingViewBusy = false, timingViewSynced = false, timingViewRetryAt = Date.distantPast
+    var loadingMore = false
+    @ObservationIgnored var lastLabelsAt: Date?
+    @ObservationIgnored var lastSmartAt: Date?
+    @ObservationIgnored var lastOrganizerAt: Date?
+    @ObservationIgnored var organizerBusy = false
+    @ObservationIgnored var timingViewBusy = false
+    @ObservationIgnored var timingViewSynced = false
+    @ObservationIgnored var timingViewRetryAt = Date.distantPast
     static let slowRefresh: TimeInterval = 300   // labels and Smart Folder counts change rarely
-    var pendingSends: [UUID: Task<Void, Never>] = [:]
-    var pendingMail: [UUID: (ComposeDraft, String)] = [:]   // the mail behind each countdown (draft, body)
-    var inFlight: [String: SendMarker] = [:]   // sends going out right now, by send token or scheduled draft id
-    var undoSend: (UUID, ComposeDraft, String, UUID)?
-    var undoArchive: [String] = []
-    weak var menuUndo: UndoManager?   // the window's Edit > Undo, see offerMenuUndo()
-    var undoSibs: [String] = []     // other emails of a conversation that only left the inbox (Move/Snooze): Undo puts them back
-    var draftMap: [String: String] = [:]   // message id -> draft id
+    @ObservationIgnored var pendingSends: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored var pendingMail: [UUID: (ComposeDraft, String)] = [:]   // the mail behind each countdown (draft, body)
+    @ObservationIgnored var inFlight: [String: SendMarker] = [:]   // sends going out right now, by send token or scheduled draft id
+    @ObservationIgnored var undoSend: (UUID, ComposeDraft, String, UUID)?
+    @ObservationIgnored var undoArchive: [String] = []
+    @ObservationIgnored weak var menuUndo: UndoManager?   // the window's Edit > Undo, see offerMenuUndo()
+    @ObservationIgnored var undoSibs: [String] = []     // other emails of a conversation that only left the inbox (Move/Snooze): Undo puts them back
+    @ObservationIgnored var draftMap: [String: String] = [:]   // message id -> draft id
 
     /// Last inbox list, shown at launch while Gmail refreshes. nil = no cache (tests).
     let cacheURL: URL?
     /// Mail kept on this Mac (plan-local-mail-storage.md). nil = tests and anything that does not use it: every list is then read from Gmail as before.
     let db: MailDB?
     /// Copies the mailbox into `db` in the background and keeps it current (nil without a database).
-    var engine: SyncEngine?
+    @ObservationIgnored var engine: SyncEngine?
     /// Where the attachments John downloaded are kept (a check points it somewhere else).
-    var attachmentsBase = MailStore.attachmentsFolder
+    @ObservationIgnored var attachmentsBase = MailStore.attachmentsFolder
     /// John's own changes so far (see `storedRead`).
     let changes = ChangeCounter()
     /// How far the first full copy has come. No screen shows it yet (it needs an approved drawing first).
-    @Published var syncProgress = SyncProgress()
+    var syncProgress = SyncProgress()
     /// Folder holding one file per email that is counting down its Undo Send time (nil = tests). Survives a crash.
     let pendingDir: URL?
 
@@ -439,7 +450,6 @@ final class MailStore: ObservableObject {
         }
         if !learned.isEmpty { book.approve(all: learned) }
         sendersChecked = true
-        objectWillChange.send()
     }
 
     /// The page row at the bottom of a list asks for more by itself, but only a few pages per user action; the button always works.

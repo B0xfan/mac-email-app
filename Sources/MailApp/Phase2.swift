@@ -143,7 +143,7 @@ struct LandscapeView: View {
 }
 
 struct HomeScreenView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var fixedNow: Date? = nil
     var body: some View {
         let cal = Calendar.current

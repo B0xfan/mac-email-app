@@ -4,7 +4,7 @@ import MailCore
 // The two Settings pages that Gmail itself keeps: the away message and the rules. A change here shows on the Mac and in Gmail too.
 
 struct AwayPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var d = AwaySettings()
     @State private var msg = ""
     @State private var saving = false
@@ -64,7 +64,7 @@ struct AwayPage: View {
 }
 
 struct RulesPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var deleting: RuleRow?
     var body: some View {
         SettingsPageList(title: "Rules", intro: "Gmail applies these to new emails for you, even when your phone and Mac are off.") {
@@ -118,7 +118,7 @@ private struct RuleLine: View {
 /// New rule or Edit rule: the same choices as the Mac's form. Save stays dimmed until there is something to look for and something to do.
 struct RuleFormPage: View {
     let ruleID: String
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @Environment(\.dismiss) private var dismiss
     @State private var d = MailRule()
     @State private var orig = MailRule()

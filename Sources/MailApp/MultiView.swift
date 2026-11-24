@@ -4,7 +4,7 @@ import MailCore
 
 /// The reading pane when two or more emails are selected (approved drawing mockup-multiselect-threads.html, part 1).
 struct MultiPanel: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     /// "Priya Raman, Andrea Lopez, Shop Updates", each sender once, with "and N more" after eight.
     nonisolated static func names(_ ms: [Mail]) -> String {
         var seen = Set<String>(), out: [String] = []
@@ -57,7 +57,7 @@ struct MultiPanel: View {
 
 /// Block senders...: this address for each selected email, or everyone at their companies (the same two choices as blocking one sender).
 struct BulkBlockMenu: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mails: [Mail]
     var body: some View {
         let people = store.blockTargets(mails, wholeCompany: false).count, companies = store.blockTargets(mails, wholeCompany: true).count   // after leaving out your own address and free email services
@@ -74,7 +74,7 @@ struct BulkBlockMenu: View {
 
 /// Move to folder...: the same folders as the right-click menu.
 struct FolderPick: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if store.folders.isEmpty { Text("No folders yet").font(Theme.body).foregroundStyle(Theme.sub).padding(12) }

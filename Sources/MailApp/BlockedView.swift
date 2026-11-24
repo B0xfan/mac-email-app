@@ -2,7 +2,7 @@ import SwiftUI
 import MailCore
 
 struct BlockedView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @AppStorage("blockedOrder") private var order = BlockedEntry.Order.newest
     var body: some View {
         MaybeScroll {

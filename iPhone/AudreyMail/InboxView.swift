@@ -2,7 +2,7 @@ import SwiftUI
 import MailCore
 
 struct InboxView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @State private var path = NavigationPath()
     @State private var current: String?   // iPad: the email open on the right, shown picked in the list
@@ -18,6 +18,7 @@ struct InboxView: View {
     private var pick: Binding<NavigationPath> { Binding(get: { NavigationPath() }, set: { path = $0 }) }
 
     var body: some View {
+        @Bindable var store = store
         Group {
             if pad {   // the approved iPad mockup (2026-11-18): list in the middle, open email on the right
                 HStack(spacing: 0) {
@@ -450,7 +451,7 @@ struct FlowRow: Layout {
 
 /// The three Smart tabs: People, Notifications, Newsletters, each with its unread number.
 struct SmartTabs: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         HStack(spacing: 6) {
             ForEach(MailCategory.allCases, id: \.self) { c in

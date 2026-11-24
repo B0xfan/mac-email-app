@@ -94,7 +94,7 @@ struct TodoKeyCard: View {
 /// The To-do button on an open email: one typed line, read by the same plain code as on the Mac (no AI), then sent to the chosen list.
 struct TodoSheet: View {
     let mail: Mail
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var line = ""

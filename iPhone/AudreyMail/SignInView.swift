@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SignInView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     let again: Bool
     var body: some View {
         VStack(spacing: 14) {

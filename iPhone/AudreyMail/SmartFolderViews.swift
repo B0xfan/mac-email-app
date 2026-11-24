@@ -9,7 +9,7 @@ struct SearchNameSheet: View {
     }
     let mode: Mode
     var saved: () -> Void = {}
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var message: String?
@@ -61,7 +61,7 @@ struct SmartFolderForm: View {
         var id: String { if case .edit(let f) = self { return f.id.uuidString } else { return "new" } }
     }
     let mode: Mode
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @Environment(\.dismiss) private var dismiss
     @State private var draft: SmartFolder
     @State private var matches: Int??   // nil = counting; .some(nil) = Gmail could not be reached

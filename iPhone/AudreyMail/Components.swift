@@ -12,7 +12,7 @@ struct MailRow: View {
     var count: Int? = nil         // the number of messages when emails are grouped into conversations
     var bare = false              // Focused view and Select: the list draws the unread dot and the done circle in place of the picture
     @EnvironmentObject var prefs: PhoneSettings
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         let people = MailCategory.guess(mail) == .people
         let extra = store.extraAddress(mail)
@@ -276,7 +276,7 @@ struct SwipeButton: View {
     let choice: SwipeChoice
     let mail: Mail
     var needsInbox = false   // in a folder list, Archive only makes sense for an email that is still in the inbox
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         if choice != .none && !(choice == .archive && needsInbox && !mail.labels.contains("INBOX")) && !(choice == .trash && mail.labels.contains("TRASH")) {   // already in Trash: trashing again would change nothing
             Button { store.swipe(choice, mail) } label: { Label(title, systemImage: symbol) }.tint(tint)

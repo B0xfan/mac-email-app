@@ -76,7 +76,7 @@ extension MailStore {
 }
 
 struct CommandCenterView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @StateObject private var query = Box("")
     @StateObject private var sel = Box(0)
     @FocusState private var focus: Bool
@@ -173,7 +173,7 @@ enum MenuBarIcon {
 }
 
 struct MenuBarLabel: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings: AppSettings
     var body: some View {
         let n = MenuBarLogic.unread(store.inboxMails, all: settings.menuBarAll, category: store.category(of:)).count
@@ -183,7 +183,7 @@ struct MenuBarLabel: View {
 }
 
 struct MenuBarContent: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings: AppSettings
     var body: some View {
         let list = MenuBarLogic.unread(store.inboxMails, all: settings.menuBarAll, category: store.category(of:))
@@ -329,7 +329,7 @@ extension MailStore {
 }
 
 struct PrintAskView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mail: Mail
     var body: some View {
         ZStack {
@@ -392,7 +392,7 @@ extension MailStore {
 }
 
 struct TodoBoxView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings: AppSettings
     let mail: Mail
     @StateObject private var line = Box("")
