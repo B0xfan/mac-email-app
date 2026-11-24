@@ -16,7 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check the shared mail logic
-        run: swift run MailCoreCheck
+        # run the built file directly (like the self-test below); if the system stops it, print why
+        run: |
+          swift build --product MailCoreCheck
+          .build/debug/MailCoreCheck || { rc=$?; codesign -dv --verbose=2 .build/debug/MailCoreCheck 2>&1 | tail -5; log show --last 2m --style compact --predicate 'eventMessage CONTAINS[c] "MailCoreCheck"' | tail -25; exit $rc; }
   # The shared MailCore package must keep compiling for the iPhone. Same manual trigger as the build job; no signing, nothing uploaded.
   ios-core:
     if: ${{ !inputs.core_only }}
