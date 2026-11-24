@@ -1,7 +1,7 @@
 import Foundation
 
 /// One block as Gmail holds it: a filter. Shared with the iPhone app.
-public struct BlockedEntry: Identifiable, Hashable {
+public struct BlockedEntry: Identifiable, Hashable, Sendable {
     public let id: String          // Gmail filter id
     public let from: String        // address or @domain
     public var isCompany: Bool { from.hasPrefix("@") }

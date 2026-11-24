@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Address: Hashable, Codable {
+public struct Address: Hashable, Codable, Sendable {
     /// Every address written anywhere in a header (also inside quoted names and comments), lower case. For safety checks, where more is better.
     public static func allEmails(in raw: String) -> [String] {
         guard let re = try? NSRegularExpression(pattern: "[A-Za-z0-9._%+'\\-]+@[A-Za-z0-9.\\-]+") else { return [] }
@@ -76,7 +76,7 @@ public struct Address: Hashable, Codable {
     }
 }
 
-public struct Attachment: Hashable, Identifiable, Codable {
+public struct Attachment: Hashable, Identifiable, Codable, Sendable {
     public var id: String { attachmentID }
     public let name: String
     public let attachmentID: String
@@ -85,10 +85,10 @@ public struct Attachment: Hashable, Identifiable, Codable {
 }
 
 /// A picture inside an email that the message text refers to as cid:name.
-public struct CIDPart: Hashable, Codable { public var mime: String; public var data: Data?; public var attachmentID: String?
+public struct CIDPart: Hashable, Codable, Sendable { public var mime: String; public var data: Data?; public var attachmentID: String?
     public init(mime: String, data: Data? = nil, attachmentID: String? = nil) { self.mime = mime; self.data = data; self.attachmentID = attachmentID } }
 
-public struct UnsubscribeInfo: Hashable, Codable {
+public struct UnsubscribeInfo: Hashable, Codable, Sendable {
     public var https: URL?
     public var mailto: URL?
     public var oneClick: Bool
@@ -131,7 +131,7 @@ public struct UnsubscribeInfo: Hashable, Codable {
 }
 
 /// One message inside a conversation: enough for the count, the folded lines of the reading pane and "who wrote last".
-public struct ConvMsg: Hashable, Codable, Identifiable {
+public struct ConvMsg: Hashable, Codable, Identifiable, Sendable {
     public let id: String
     public let from: Address
     public let subject: String
@@ -144,7 +144,7 @@ public struct ConvMsg: Hashable, Codable, Identifiable {
     public init(_ m: Mail) { id = m.id; from = m.from; subject = m.subject; snippet = m.snippet; date = m.date; labels = m.labels }
 }
 
-public struct Mail: Identifiable, Hashable, Codable {
+public struct Mail: Identifiable, Hashable, Codable, Sendable {
     public let id: String
     public let threadID: String
     public var labels: [String]

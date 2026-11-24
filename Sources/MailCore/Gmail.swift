@@ -38,9 +38,9 @@ public struct GThread: Decodable { public let id: String; public let historyId: 
 public struct ThreadRef: Sendable { public let id: String; public let historyID: String }
 public struct GLabel: Decodable, Equatable { public let id: String; public let name: String; public let type: String?; public var labelListVisibility: String? = nil
     public init(id: String, name: String, type: String?, labelListVisibility: String? = nil) { self.id = id; self.name = name; self.type = type; self.labelListVisibility = labelListVisibility } }
-public struct GFilter: Decodable {
-    public struct Criteria: Decodable { public let from: String?; public let to: String?; public let subject: String?; public let query: String?; public let negatedQuery: String?; public let hasAttachment: Bool?; public let size: Int?; public let sizeComparison: String?; public let excludeChats: Bool? }
-    public struct Action: Decodable { public let addLabelIds: [String]?; public let removeLabelIds: [String]?; public let forward: String? }
+public struct GFilter: Decodable, Sendable {
+    public struct Criteria: Decodable, Sendable { public let from: String?; public let to: String?; public let subject: String?; public let query: String?; public let negatedQuery: String?; public let hasAttachment: Bool?; public let size: Int?; public let sizeComparison: String?; public let excludeChats: Bool? }
+    public struct Action: Decodable, Sendable { public let addLabelIds: [String]?; public let removeLabelIds: [String]?; public let forward: String? }
     public let id: String
     public let criteria: Criteria?
     public let action: Action?
