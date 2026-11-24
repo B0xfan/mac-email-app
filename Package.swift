@@ -9,6 +9,8 @@ let package = Package(
     targets: [
         // the mail logic shared with the iPhone app: Gmail, sync, stored mail, to-do reading, search. No screens, no Mac-only code.
         .target(name: "MailCore", path: "Sources/MailCore"),
+        // the quick check: MailCore's own checks, no app, no screens (swift run MailCoreCheck; scripts/cloud-build.sh --core)
+        .executableTarget(name: "MailCoreCheck", dependencies: ["MailCore"], path: "Sources/MailCoreCheck"),
         .executableTarget(name: "MailApp", dependencies: ["MailCore", .product(name: "Sparkle", package: "Sparkle")], path: "Sources/MailApp",
                           // the self-test and screenshot harness exists in debug builds only; the shipped release app has none of it
                           swiftSettings: [.define("TESTHARNESS", .when(configuration: .debug))],

@@ -4,6 +4,8 @@ Native Mac email app (Gmail). Builds happen on GitHub, not on John's Mac: `scrip
 `.github/workflows/build.yml` (manual trigger only, free minutes are scarce; never add a push trigger, auto-commit.sh pushes
 every ~10 minutes), then `taskpolicy -b nice -n 19 scripts/install-cloud-build.sh` downloads the latest good build, signs it
 locally and installs it if Mail is closed. Local builds (`scripts/build.sh`, `scripts/safe`) only with John's say-so.
+A change to the shared mail logic alone (`Sources/MailCore`) can be checked quickly with `scripts/cloud-build.sh --core`
+(`swift run MailCoreCheck`: its checks live in `Sources/MailCoreCheck`; checks that need the app stay in `--selftest`).
 
 Updates for other people (James): Audrey Mail checks GitHub Releases through Sparkle (Audrey Mail > Check for Updates, Settings > Updates).
 After a green cloud build, `scripts/release.sh "what is new"` makes the signed package and checks it (dry run); add `--publish` to release it.

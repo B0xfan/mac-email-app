@@ -63,39 +63,6 @@ enum SelfTest {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
 
-        // Extra addresses: an email to john@dateline.app names it and its reply starts from it; mail to the main account stays "to me"
-        let addrs = [GSendAs(sendAsEmail: "jhesch@gmail.com", displayName: "John Hesch", isDefault: true, signature: nil),
-                     GSendAs(sendAsEmail: "john@dateline.app", displayName: "John Hesch", isDefault: false, signature: nil)]
-        let toExtra = Mail(id: "x1", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "John <John@Dateline.app>")
-        let toMain = Mail(id: "x2", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "jhesch@gmail.com, john@dateline.app")
-        let toList = Mail(id: "x3", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "team@x.example")
-        check("an email to an extra address names it, and its reply starts from it",
-              GSendAs.extraAddress(of: toExtra, in: addrs, account: "jhesch@gmail.com") == "john@dateline.app"
-              && GSendAs.replyFrom(toExtra, in: addrs, account: "jhesch@gmail.com") == "John Hesch <john@dateline.app>")
-        let sent = Mail(id: "x4", from: Address(name: "John", email: "john@dateline.app"), subject: "s", snippet: "s", date: Date(), to: "sam@x.example")
-        check("replying to John's own email keeps the address he sent it from",
-              GSendAs.replyFrom(sent, in: addrs, account: "jhesch@gmail.com") == "John Hesch <john@dateline.app>")
-        check("an email to the main address, or to none of John's, names no extra address",
-              GSendAs.extraAddress(of: toMain, in: addrs, account: "jhesch@gmail.com") == nil && GSendAs.replyFrom(toList, in: addrs, account: "jhesch@gmail.com") == nil)
-
-        // Inbox pills and the opened email's "to" line (shared with the iPhone)
-        let addrs3 = addrs + [GSendAs(sendAsEmail: "hello@dateline.app", displayName: "John Hesch", isDefault: false, signature: nil),
-                              GSendAs(sendAsEmail: "john@trailclub.example", displayName: "John Hesch", isDefault: false, signature: nil)]
-        check("an extra address alone on its domain shows the domain; two on one domain show the whole address",
-              GSendAs.label("john@dateline.app", in: addrs, account: "jhesch@gmail.com") == "dateline.app"
-              && GSendAs.label("john@dateline.app", in: addrs3, account: "jhesch@gmail.com") == "john@dateline.app")
-        check("each extra address gets its own color, the same on every device",
-              Set(addrs3.dropFirst().map { GSendAs.color($0.sendAsEmail, in: addrs3, account: "jhesch@gmail.com") }).count == 3)
-        let toMainOnly = Mail(id: "x5", from: Address(name: "Sam", email: "sam@x.example"), subject: "s", snippet: "s", date: Date(), to: "jhesch@gmail.com")
-        let oneAddr = [addrs[0]]
-        check("the opened email names the main address when there are several, and keeps \"to me\" with one",
-              GSendAs.cameTo(toMainOnly, in: addrs, account: "jhesch@gmail.com") == "jhesch@gmail.com"
-              && GSendAs.cameTo(toMainOnly, in: oneAddr, account: "jhesch@gmail.com") == nil
-              && GSendAs.cameTo(toExtra, in: addrs, account: "jhesch@gmail.com") == "john@dateline.app")
-
-        // RFC 7636 appendix B vector
-        check("PKCE challenge matches RFC 7636 vector",
-              PKCE.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk") == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
         // The Google client file is not on the CI runner: skip there only; locally a missing file still FAILs.
         if (try? ClientCredentials.load()) == nil, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil {
             print("SKIP client file loads (CI)")
@@ -217,16 +184,6 @@ enum SelfTest {
         }
         check("make a rule: if Settings cannot open, the handed-over From is dropped", prefillCleared)
 
-        // images: trackers always removed, normal images kept, load decision
-        let page = "<img src=\"https://cdn.shop.example/hero.jpg\"><img src=\"https://x.example/a.png\" width=\"1\" height=\"1\"><img src=\"https://u1.ct.sendgrid.net/wf/open?x=1\"><img src='https://s.example/i.gif' style='display:none'><img src=\"cid:logo\">"
-        let r = HTMLSafety.process(page)
-        check("images: 3 trackers removed, 1 normal image kept", r.report.trackers == 3 && r.report.remoteImages == 1 && r.html?.contains("hero.jpg") == true && r.html?.contains("sendgrid") == false && r.html?.contains("a.png") == false)
-        check("images: tracker line wording", HTMLSafety.Report(trackers: 1, remoteImages: 0).line == "1 tracker blocked" && r.report.line == "3 trackers blocked")
-        check("images: tracker blocking off leaves page alone", HTMLSafety.process(page, blockTrackers: false).html == page)
-        check("images: load decision", HTMLSafety.shouldLoadImages(auto: true, senderAllowed: false, loadedThisEmail: false)
-              && !HTMLSafety.shouldLoadImages(auto: false, senderAllowed: false, loadedThisEmail: false)
-              && HTMLSafety.shouldLoadImages(auto: false, senderAllowed: true, loadedThisEmail: false)
-              && HTMLSafety.shouldLoadImages(auto: false, senderAllowed: false, loadedThisEmail: true))
         check("check frequency: default 1 minute, each choice maps to its interval, unknown falls back",
               AppSettings.checkSeconds(minutes: nil) == 60 && AppSettings.checkSeconds(minutes: 2) == 120 && AppSettings.checkSeconds(minutes: 5) == 300
               && AppSettings.checkSeconds(minutes: 15) == 900 && AppSettings.checkSeconds(minutes: 30) == 1800 && AppSettings.checkSeconds(minutes: 7) == 60
@@ -237,12 +194,6 @@ enum SelfTest {
         let pm = mk("p", "priya@x.example", unread: true, h: 1), nm = mk("n", "noreply@bank.example", unread: true, h: 2), lm = mk("l", "digest@x.example", unsub: true, h: 3)
         check("smart inbox: guesses People, Notifications, Newsletters",
               MailCategory.guess(pm) == .people && MailCategory.guess(nm) == .notifications && MailCategory.guess(lm) == .newsletters)
-        check("unsubscribe link in the email: the https link whose text says Unsubscribe, entities decoded; http, mailto and other links refused",
-              UnsubscribeInfo.bodyLink(html: "<a href=\"https://x.example/a\">Shop</a> <a class=\"f\" href=\"https://x.example/u?a=1&amp;b=2\"><span>Unsubscribe</span></a>")?.absoluteString == "https://x.example/u?a=1&b=2"
-              && UnsubscribeInfo.bodyLink(html: "<a href=\"http://x.example/u\">Unsubscribe</a>") == nil
-              && UnsubscribeInfo.bodyLink(html: "<a href=\"mailto:u@x.example\">unsubscribe</a>") == nil
-              && UnsubscribeInfo.bodyLink(html: "<a href=\"https://x.example/a\">Read more</a> to unsubscribe reply STOP") == nil
-              && UnsubscribeInfo.bodyLink(html: nil) == nil)
         let gs = SmartInbox.groups([lm, pm, nm], category: { cb.learned($0.from.email) ?? .guess($0) })
         check("smart inbox: groups in fixed order, newest first, empty groups left out",
               gs.map(\.id) == ["people", "notifications", "newsletters"] && SmartInbox.groups([pm], category: MailCategory.guess).count == 1 && gs[0].unread == 1)
