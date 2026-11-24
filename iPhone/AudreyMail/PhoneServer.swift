@@ -5,8 +5,6 @@ import MailCore
 /// The Mail server on the droplet (spec: server-api-v3.md). It does two jobs for the phone:
 /// it holds an email during Undo Send so the email still leaves if the app is closed, and it keeps the Smart Folders and saved searches the Mac shares.
 /// It holds only the Gmail draft id and a time, and names and search words; never email text. Every call is optional help: without the server the phone works as before.
-enum PhoneServerError: Error, Equatable { case unreachable, timedOut, busy, refused(Int) }   // timedOut: the request may have reached the server
-
 /// The server's key for this phone. Only the Keychain holds it on a real phone; the built-in checks use memory (they never touch the Keychain).
 protocol ServerKeyStore: Sendable {
     func load() -> String?
@@ -59,27 +57,17 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
     }
 
     private func register() async throws -> String {
-        guard let rt = await refreshToken() else { throw PhoneServerError.refused(401) }
+        guard let rt = await refreshToken() else { throw MailServerError.refused(401) }
         let (code, o) = try await call("POST", "register", ["refresh_token": rt, "device": Self.device, "client_id": clientID], keyed: false)
-        guard code == 200, let k = o["api_key"] as? String, !k.isEmpty else { throw PhoneServerError.refused(code) }
+        guard code == 200, let k = o["api_key"] as? String, !k.isEmpty else { throw MailServerError.refused(code) }
         keys.save(k)
         return k
     }
 
-    /// Server trouble (no answer, 5xx, an answer that is not JSON) is "unreachable": the phone carries on as before.
-    private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true, retry: Bool = true) async throws -> (Int, [String: Any]) {
-        var req = URLRequest(url: base.appendingPathComponent(path))
-        req.httpMethod = method; req.timeoutInterval = 15
-        if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body); req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
-        if keyed { req.setValue("Bearer " + (try await key()), forHTTPHeaderField: "Authorization") }
-        let data: Data, resp: URLResponse
-        do { (data, resp) = try await session.data(for: req) }
-        catch let e as URLError where e.code == .timedOut || e.code == .networkConnectionLost { throw PhoneServerError.timedOut }
-        catch { throw PhoneServerError.unreachable }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 401 && keyed && retry { keys.save(nil); return try await call(method, path, body, retry: false) }   // key replaced or unknown: register again once
-        guard code > 0, code < 500, let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw PhoneServerError.unreachable }
-        return (code, o)
+    /// The shared request (MailCore MailServer); the key lives in the Keychain.
+    private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true) async throws -> (Int, [String: Any]) {
+        try await MailServer.call(method, base.appendingPathComponent(path), body, session: session,
+                                  keyed: keyed, key: { try await self.key() }, dropKey: { self.keys.save(nil) })
     }
 
     // MARK: Undo Send
@@ -87,22 +75,22 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
     /// Puts a Gmail draft on the server to be sent `seconds` from now. The server counts from the moment it receives the call, so a wrong phone clock cannot send early.
     func hold(draftID: String, seconds: Int) async throws {
         let (c, _) = try await call("PUT", "jobs/" + draftID, ["send_in_seconds": seconds, "grace_seconds": Self.grace])
-        guard c == 200 else { throw PhoneServerError.refused(c) }
+        guard c == 200 else { throw MailServerError.refused(c) }
     }
 
     /// Undo, and the "all done" call after the app sent the draft itself. Returns the server's word: pending (cancelled in time), sent, gone, none. 409 = busy sending.
     @discardableResult
     func release(draftID: String) async throws -> String {
         let (c, o) = try await call("DELETE", "jobs/" + draftID)
-        if c == 409 { throw PhoneServerError.busy }
-        guard c == 200 else { throw PhoneServerError.refused(c) }
+        if c == 409 { throw MailServerError.busy }
+        guard c == 200 else { throw MailServerError.refused(c) }
         return o["status"] as? String ?? "none"
     }
 
     /// Every scheduled send waiting at the server for this person (made on the Mac or held here): draft id -> unix send time.
     func pendingJobs() async throws -> [String: Int] {
         let (c, o) = try await call("GET", "jobs")
-        guard c == 200, let list = o["jobs"] as? [[String: Any]] else { throw PhoneServerError.refused(c) }
+        guard c == 200, let list = o["jobs"] as? [[String: Any]] else { throw MailServerError.refused(c) }
         return Dictionary(list.compactMap { r -> (String, Int)? in
             guard r["status"] as? String == "pending", let id = r["draft_id"] as? String, let at = (r["send_at"] as? NSNumber)?.intValue else { return nil }
             return (id, at)
@@ -115,7 +103,7 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
         let (c, o) = try await call("PUT", "timing-view", TimingViewWire.body(base: base, view))
         if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
         if c == 409, let r = TimingViewWire.decode(o) { return .conflict(version: r.version, r.view) }   // someone saved after we read: merge onto theirs
-        throw PhoneServerError.refused(c)
+        throw MailServerError.refused(c)
     }
 
     // MARK: Snooze return (the server puts the email back in the inbox at its time, phone off or not)
@@ -138,7 +126,7 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
             let (c, _) = try await call(method, "snoozes/" + id, body)
             if c == 200 { return }
             if c == 409, attempt < 3 { try? await Task.sleep(nanoseconds: UInt64(Self.busyPause * 1_000_000_000)); continue }
-            throw c == 409 ? PhoneServerError.busy : PhoneServerError.refused(c)   // 400: a time the server will not take; 429: 200 pending already
+            throw c == 409 ? MailServerError.busy : MailServerError.refused(c)   // 400: a time the server will not take; 429: 200 pending already
         }
     }
 
@@ -151,7 +139,7 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
     /// What the server holds for this person: message id -> (unix time, status). The phone re-reads it on open to find snoozes the server never heard about.
     func snoozes() async throws -> [String: (wakeAt: Int, status: String)] {
         let (c, o) = try await call("GET", "snoozes")
-        guard c == 200, let list = o["snoozes"] as? [[String: Any]] else { throw PhoneServerError.refused(c) }
+        guard c == 200, let list = o["snoozes"] as? [[String: Any]] else { throw MailServerError.refused(c) }
         return Dictionary(list.compactMap { r -> (String, (wakeAt: Int, status: String))? in
             guard let id = r["message_id"] as? String, let at = (r["wake_at"] as? NSNumber)?.intValue else { return nil }
             return (id, (at, r["status"] as? String ?? ""))
@@ -162,8 +150,8 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
 
     func readTiming() async throws -> (version: Int, view: TimingView) {
         let (c, o) = try await call("GET", "timing-view")
-        guard c == 200 else { throw PhoneServerError.refused(c) }
-        guard let r = TimingViewWire.decode(o) else { throw PhoneServerError.refused(c) }   // an odd answer is not "empty"
+        guard c == 200 else { throw MailServerError.refused(c) }
+        guard let r = TimingViewWire.decode(o) else { throw MailServerError.refused(c) }   // an odd answer is not "empty"
         return r
     }
 
@@ -171,7 +159,7 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
 
     func read() async throws -> (version: Int, organizer: Organizer) {
         let (c, o) = try await call("GET", "organizer")
-        guard c == 200 else { throw PhoneServerError.refused(c) }
+        guard c == 200 else { throw MailServerError.refused(c) }
         let r = OrganizerWire.decode(o)
         return (r.version, r.organizer)
     }
@@ -180,6 +168,6 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
         let (c, o) = try await call("PUT", "organizer", OrganizerWire.body(base: base, organizer))
         if c == 200, let v = o["version"] as? Int { return .saved(version: v) }
         if c == 409 { let r = OrganizerWire.decode(o); return .conflict(version: r.version, r.organizer) }   // someone saved after we read: merge onto theirs
-        throw PhoneServerError.refused(c)
+        throw MailServerError.refused(c)
     }
 }

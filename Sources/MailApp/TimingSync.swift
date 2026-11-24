@@ -19,9 +19,9 @@ extension MailStore {
         do {
             for s in timing.data.scheduled where s.server == nil || s.server == "maybe" {
                 do { try await srv.put(s.draftID, at: s.at, remindAt: s.remindAt); markScheduled(s.draftID) { $0.server = "on" } }
-                catch TimingServerError.timedOut { markScheduled(s.draftID) { $0.server = "maybe" }; throw TimingServerError.timedOut }   // it may have stored the job
-                catch TimingServerError.refused(429) { continue }   // too many at the service right now: try again next time
-                catch TimingServerError.refused {   // the service will not hold it: Mail sends it, but not while the Mac is off, and John should see that
+                catch MailServerError.timedOut { markScheduled(s.draftID) { $0.server = "maybe" }; throw MailServerError.timedOut }   // it may have stored the job
+                catch MailServerError.refused(429) { continue }   // too many at the service right now: try again next time
+                catch MailServerError.refused {   // the service will not hold it: Mail sends it, but not while the Mac is off, and John should see that
                     markScheduled(s.draftID) { $0.server = "off"; $0.problem = Self.macMustBeOpenTag }
                 }
             }
@@ -62,7 +62,7 @@ extension MailStore {
                     if s.problem != nil { markScheduled(s.draftID) { $0.problem = nil } }
                 }
             }
-        } catch TimingServerError.unreachable { markOffline() }
+        } catch MailServerError.unreachable { markOffline() }
         catch {}   // refused or timed out: nothing to do now, the next check tries again
     }
 
@@ -75,8 +75,8 @@ extension MailStore {
     func registerWithServer() async {
         guard let srv = timingServer, !registerDone, !offline else { return }
         do { _ = try await srv.reminders(); registerDone = true }
-        catch TimingServerError.refused(let c) where c == 400 || c == 403 { registerDone = true }   // not on the list: do not ask again this launch
-        catch TimingServerError.unreachable { markOffline() }
+        catch MailServerError.refused(let c) where c == 400 || c == 403 { registerDone = true }   // not on the list: do not ask again this launch
+        catch MailServerError.unreachable { markOffline() }
         catch {}   // no sign-in yet: the next check tries again
     }
 
@@ -96,7 +96,7 @@ extension MailStore {
                 if timing.data.view != before { continue }   // changed meanwhile: merge again so the change is not overwritten
                 if r.merged != before || timing.data.sharedView != r.merged { timing.change { $0.adopt(r.merged) }; objectWillChange.send() }
                 return
-            } catch TimingServerError.unreachable { markOffline(); return }
+            } catch MailServerError.unreachable { markOffline(); return }
             catch { timingViewRetryAt = Date().addingTimeInterval(600); return }   // refused (an older server, too big) or busy: the Mac works on its own; tries again in 10 minutes
         }
     }
@@ -112,9 +112,9 @@ extension MailStore {
         do {
             for f in timing.data.followUps where f.server == nil {
                 do { try await srv.putReminder(f.messageID, thread: f.threadID, at: f.at); markFollow(f.messageID) { $0.server = "on" } }
-                catch TimingServerError.refused(429) { continue }   // too many at the service right now: next time
-                catch TimingServerError.refused(400) { markFollow(f.messageID) { $0.server = "off" } }   // it will not hold this one: Mail does it
-                catch TimingServerError.refused { continue }   // 401, 403, 404...: not a verdict on this reminder, try again next time
+                catch MailServerError.refused(429) { continue }   // too many at the service right now: next time
+                catch MailServerError.refused(400) { markFollow(f.messageID) { $0.server = "off" } }   // it will not hold this one: Mail does it
+                catch MailServerError.refused { continue }   // 401, 403, 404...: not a verdict on this reminder, try again next time
             }
             let list = try await srv.reminders()
             for f in timing.data.followUps where f.server == "on" {
@@ -128,7 +128,7 @@ extension MailStore {
                 timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }
                 _ = try? await srv.cancel(f.messageID, reminder: true)   // acknowledge
             }
-        } catch TimingServerError.unreachable { markOffline() }
+        } catch MailServerError.unreachable { markOffline() }
         catch {}   // refused: the Mac's own check still works
     }
 
@@ -138,14 +138,14 @@ extension MailStore {
         do {
             if let t = newTime { try await srv.put(id, at: t, remindAt: s.remindAt) } else { try await cancelWithRetry(srv, id) }
             return true
-        } catch TimingServerError.unreachable where s.server == nil { return true }   // it never reached the service
-        catch TimingServerError.unreachable, TimingServerError.timedOut, TimingServerError.busy { error = Self.cannotCancelText; return false }
+        } catch MailServerError.unreachable where s.server == nil { return true }   // it never reached the service
+        catch MailServerError.unreachable, MailServerError.timedOut, MailServerError.busy { error = Self.cannotCancelText; return false }
         catch { return true }   // the service refuses this one: it holds nothing
     }
 
     private func cancelWithRetry(_ srv: TimingServer, _ id: String) async throws {
         do { try await srv.cancel(id) }
-        catch TimingServerError.busy { try await Task.sleep(nanoseconds: 3_000_000_000); try await srv.cancel(id) }
+        catch MailServerError.busy { try await Task.sleep(nanoseconds: 3_000_000_000); try await srv.cancel(id) }
     }
 
     /// Just before Mac sends a draft itself (Send now, or its time came): ask the service to forget it. Best effort;
@@ -154,7 +154,7 @@ extension MailStore {
     func releaseServer(_ id: String) async {
         guard let srv = timingServer else { return }
         do { _ = try await srv.cancel(id) }
-        catch TimingServerError.refused {}   // it holds nothing for us
+        catch MailServerError.refused {}   // it holds nothing for us
         catch { return }
         markScheduled(id) { $0.server = "off" }
     }

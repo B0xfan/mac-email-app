@@ -637,7 +637,7 @@ final class PhoneStore: ObservableObject {
         pending[token]?.draftID = id; pending[token]?.snapshot.draftID = id
         guard let server else { return }
         do { try await server.hold(draftID: id, seconds: delay) }
-        catch PhoneServerError.timedOut { pending[token]?.maybeHeld = true; return }
+        catch MailServerError.timedOut { pending[token]?.maybeHeld = true; return }
         catch { return }
         pending[token]?.held = true
         remember(HeldSend(draftID: id, subject: p.snapshot.subject, deadline: Date().addingTimeInterval(Double(delay))))
@@ -704,7 +704,7 @@ final class PhoneStore: ObservableObject {
         guard let server else { return nil }
         for _ in 0..<3 {
             do { return try await server.release(draftID: draftID) }
-            catch PhoneServerError.busy { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+            catch MailServerError.busy { try? await Task.sleep(nanoseconds: 2_000_000_000) }
             catch { return nil }
         }
         return nil

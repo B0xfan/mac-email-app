@@ -106,7 +106,7 @@ extension MailStore {
                     if r.merged != before { await refreshSmartCounts() }
                 }
                 return
-            } catch TimingServerError.unreachable { markOffline(); return }
+            } catch MailServerError.unreachable { markOffline(); return }
             catch { return }   // refused or busy: the list on this Mac still works; the next pass tries again
         }
     }

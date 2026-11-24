@@ -114,9 +114,9 @@ extension PhoneStore {
             do {
                 for id in snoozeCancels.sorted() {
                     do { try await server.deleteSnooze(id); snoozeCancels.remove(id) }
-                    catch PhoneServerError.refused(let c) where c == 400 || c == 404 { snoozeCancels.remove(id) }   // the server will not take it, or does not know it: nothing to cancel
-                    catch PhoneServerError.refused(_) {}   // too many calls, signed out, a server or proxy fault: the cancel stays for next time
-                    catch PhoneServerError.busy {}
+                    catch MailServerError.refused(let c) where c == 400 || c == 404 { snoozeCancels.remove(id) }   // the server will not take it, or does not know it: nothing to cancel
+                    catch MailServerError.refused(_) {}   // too many calls, signed out, a server or proxy fault: the cancel stays for next time
+                    catch MailServerError.busy {}
                 }
                 guard !phoneSnoozes.isEmpty else { continue }
                 let have = try await server.snoozes(), now = Int(Date().timeIntervalSince1970)
@@ -139,9 +139,9 @@ extension PhoneStore {
                     guard shared == at else { if at <= now { late.append(id) }; continue }   // not in the shared view yet: the server must not hear of it first
                     if at < now - 3600 { late.append(id); continue }   // the server takes no time over an hour past
                     do { try await server.putSnooze(id, wakeAt: at) }
-                    catch PhoneServerError.refused(400) { late.append(id) }   // a time the server will not take: it comes back now
-                    catch PhoneServerError.refused(_) {}   // 429 and the like: this one waits for the next open, the others go on
-                    catch PhoneServerError.busy {}
+                    catch MailServerError.refused(400) { late.append(id) }   // a time the server will not take: it comes back now
+                    catch MailServerError.refused(_) {}   // 429 and the like: this one waits for the next open, the others go on
+                    catch MailServerError.busy {}
                 }
                 if !late.isEmpty || !handled.isEmpty {
                     var all: [String] = []
