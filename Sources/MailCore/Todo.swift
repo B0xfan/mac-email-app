@@ -207,7 +207,7 @@ public struct TodoTask: Equatable {
     }
 }
 
-public enum TodoList: String, CaseIterable {
+public enum TodoList: String, CaseIterable, Sendable {
     case obsidian, reminders, todoist, clickup
     public var title: String { switch self { case .obsidian: return "Obsidian (A4 task notes)"; case .reminders: return "Apple Reminders"; case .todoist: return "Todoist"; case .clickup: return "ClickUp" } }
 }

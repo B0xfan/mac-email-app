@@ -65,8 +65,9 @@ extension SelfTest {
               c2.unread && c2.id == "c2b" && c2.convo?.filter(\.unread).count == 1 && c1.unread && c1.convo?.filter(\.unread).count == 1 && !c3.unread)
         // the switch
         let off = await MainActor.run { (st.rowFace(c1), st.rowCount(c1), st.listMails.map(\.id)) }
+        let groupDefault = await MainActor.run { AppSettings().groupConversations }
         check("switch off (the default): rows are exactly as before, no count, no change of sender, subject, preview or time",
-              !AppSettings().groupConversations && off.0 == c1 && off.1 == nil)
+              !groupDefault && off.0 == c1 && off.1 == nil)
         await MainActor.run { st.settings.groupConversations = true }
         let on = await MainActor.run { (st.rowFace(c1), st.rowCount(c1), st.rowCount(c3), st.listMails.map(\.id)) }
         check("switch on: the row shows the count (not for a single email) and the newest message's sender, subject and preview; same id, same unread state",
@@ -223,9 +224,9 @@ extension SelfTest {
         let kindLoading = ReadingContent.bodyKind(cleanHTML: nil, loadingMsg), kindText = ReadingContent.bodyKind(cleanHTML: nil, { var t = c1r; t.html = nil; t.text = "plain"; return t }())
         check("fold setting off: the kept-open newest message with only a web version shows the web version (not the snippet); loading shows nothing yet; plain text as text",
               kindHTML == .html && kindLoading == .loading && kindText == .text)
-        let kept = AppSettings().foldOthers
+        let kept = await MainActor.run { AppSettings().foldOthers }
         UserDefaults.standard.removeObject(forKey: "foldOthers")
-        let fresh = AppSettings().foldOthers
+        let fresh = await MainActor.run { AppSettings().foldOthers }
         check("fold setting: it is saved with the other settings, and a settings file without it loads as on", !kept && fresh)
         await MainActor.run { st.settings.foldOthers = true }
         UserDefaults.standard.removeObject(forKey: "foldOthers")

@@ -29,7 +29,7 @@ struct ReadingContent: View {
     var embedded = false
     enum BodyKind { case html, loading, text }
     /// What the pane shows for a message once its web text is cleaned: the web version, nothing yet while it loads, or plain text (snippet last).
-    static func bodyKind(cleanHTML: String?, _ m: Mail) -> BodyKind {
+    nonisolated static func bodyKind(cleanHTML: String?, _ m: Mail) -> BodyKind {
         if let h = cleanHTML, !h.isEmpty { return .html }
         return m.html == nil && m.text == nil && !SnapshotMode.on ? .loading : .text
     }

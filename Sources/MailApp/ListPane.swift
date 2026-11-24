@@ -25,7 +25,7 @@ struct ListReaderSplit<Reader: View>: View {
 
 /// The line between the list and the reading pane, with a little room to grab and the usual left-right resize cursor.
 struct ListDivider: View {
-    static let standard = 400.0, minList = 320.0, minReader = 360.0, maxList = 700.0, key = "listWidth"
+    nonisolated static let standard = 400.0, minList = 320.0, minReader = 360.0, maxList = 700.0, key = "listWidth"
     let width: Double          // the width on screen right now
     let total: Double
     @Binding var live: Double?
@@ -33,13 +33,13 @@ struct ListDivider: View {
     @State private var start: Double?
     @State private var hovering = false
     @State private var pushed = false
-    static func savedWidth() -> Double { UserDefaults.standard.object(forKey: key) as? Double ?? standard }
+    nonisolated static func savedWidth() -> Double { UserDefaults.standard.object(forKey: key) as? Double ?? standard }
     /// Keeps the list between its smallest width and what leaves the reading pane its smallest width.
-    static func clamp(_ w: Double, total: Double) -> Double {
+    nonisolated static func clamp(_ w: Double, total: Double) -> Double {
         min(max(w, minList), min(maxList, max(minList, total - minReader)))
     }
     /// A drag begins from the width on screen, not the stored one (they differ in a narrow window).
-    static func dragged(from onScreen: Double, by dx: Double, total: Double) -> Double { clamp(onScreen + dx, total: total) }
+    nonisolated static func dragged(from onScreen: Double, by dx: Double, total: Double) -> Double { clamp(onScreen + dx, total: total) }
     private func save(_ v: Double) { saved = v; live = nil; UserDefaults.standard.set(v, forKey: Self.key) }
     private func setCursor() {
         let want = hovering || start != nil
