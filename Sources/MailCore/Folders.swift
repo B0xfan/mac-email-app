@@ -1,7 +1,7 @@
 import Foundation
 
 /// A Gmail label shown as a folder. Shared with the iPhone app.
-public struct FolderNode: Identifiable, Hashable {
+public struct FolderNode: Identifiable, Hashable, Sendable {
     public let id: String          // Gmail label id
     public let name: String        // full Gmail name, "Travel/Italy"
     public init(id: String, name: String) { self.id = id; self.name = name }

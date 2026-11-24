@@ -116,7 +116,7 @@ public final class BlockFlow: @unchecked Sendable {
     }
 
     /// The filter is gone; `moveBackFailure` is set when their old mail could not be moved back to the inbox (the unblock itself has happened).
-    public struct UnblockResult: @unchecked Sendable { public var moveBackFailure: Error? }   // the error is only read and rethrown, never changed
+    public struct UnblockResult: Sendable { public var moveBackFailure: Error? }
 
     /// Deletes the filter (404 = already gone), then moves their old mail back to the inbox unless `covered` (another filter still blocks them) or it is an old Trash block.
     /// Throws only when the filter itself could not be deleted.

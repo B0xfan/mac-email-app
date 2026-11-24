@@ -14,7 +14,7 @@ enum Fetch { case ok(Data), none, error }
     static let shared = SenderPictures(dir: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail/SenderPictures", isDirectory: true), fetch: SenderPictures.web)
 
     enum Kind { case page, icon }   // page: the home page, read only as far as the cap; icon: refused if bigger
-    typealias Fetcher = (URL, Kind) async -> Fetch
+    typealias Fetcher = @MainActor (URL, Kind) async -> Fetch   // main actor: safe to hand to the off-main lookup; web() itself still runs off the main thread
     struct Entry: Codable { var at: Date; var hit: Bool }
     struct Pic { let image: NSImage; let px: Int; let icon: Bool }
 

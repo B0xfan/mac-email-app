@@ -7,7 +7,7 @@ import MailCore
 /// the app delegate, so the request is caught directly.
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set by the main window once it has appeared; opens a fresh window after the last one was closed.
-    nonisolated(unsafe) static var openMainWindow: (() -> Void)?
+    static var openMainWindow: (() -> Void)?
     var openMainWindow: (() -> Void)? { Self.openMainWindow }
     /// Set by the main window; SwiftUI's openSettings can only be called from a view.
     nonisolated(unsafe) static var openSettings: (() -> Void)?

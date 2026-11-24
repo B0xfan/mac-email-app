@@ -1,6 +1,6 @@
 import SwiftUI
 import NaturalLanguage
-import Translation
+@preconcurrency import Translation   // Apple has not marked TranslationSession thread-safe yet; the session is used by one task at a time
 import MailCore
 
 /// Pure helpers for Translate: which emails are foreign, how text is cut for the translator and put back together.
