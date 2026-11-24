@@ -231,16 +231,10 @@ final class MailStore: ObservableObject {
         return unreadOnly ? base.filter { $0.unread || keptOpen.contains($0.id) } : base
     }
     func isNew(_ m: Mail) -> Bool {
-        if m.labels.contains("SENT") { return false }
-        if book.isApproved(m.from.email) { return false }
-        return knownCache[m.from.email] == false || (knownCache[m.from.email] == nil && m.date > book.screeningStart)
+        Screening.isNew(m, book: book, known: knownCache)
     }
     /// One entry per sender, newest first.
-    var newSenderRows: [Mail] {
-        var seen = Set<String>(); var out: [Mail] = []
-        for m in newSenderMails.sorted(by: { $0.date > $1.date }) where seen.insert(m.from.email).inserted { out.append(m) }
-        return out
-    }
+    var newSenderRows: [Mail] { Screening.onePerSender(newSenderMails) }
     var listMails: [Mail] {
         switch mailbox {
         case .inbox:
@@ -433,18 +427,10 @@ final class MailStore: ObservableObject {
         guard settings.screenNewSenders else { return }
         let elsewhere = Approvals.approvedElsewhere(inbox, labelID: approvedLabelID).filter { !book.isApproved($0) }   // approved on the iPhone
         if !elsewhere.isEmpty { book.approve(all: Array(elsewhere)); elsewhere.forEach { knownCache[$0] = true } }
-        let unshared = Set(inbox.filter { $0.date > book.screeningStart && book.isApproved($0.from.email) && !$0.labels.contains(approvedLabelID ?? "") }.map(\.from.email))
+        let unshared = Screening.unshared(inbox, book: book, labelID: approvedLabelID)
         if !unshared.isEmpty { await shareApprovals(Array(unshared)) }   // approvals made here before the label existed, and new mail from approved senders
-        let unknown = Array(Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil })
-        let cutoff = DateFormatter.gmailDay.string(from: book.screeningStart)
-        let g = gmail
-        // known = wrote to us before screening started, or we wrote to them
-        let results = await mapLimited(unknown, limit: 4) { addr -> (String, Bool?) in
-            do {
-                if try await g.countEstimate(q: "from:\(GmailQuery.term(addr)) before:\(cutoff)") > 0 { return (addr, true) }
-                return (addr, try await g.countEstimate(q: "in:sent to:\(GmailQuery.term(addr))") > 0)
-            } catch { return (addr, nil) }
-        }
+        let unknown = Screening.unknown(inbox, book: book, known: knownCache)
+        let results = await Screening.lookUp(unknown, since: book.screeningStart, gmail: gmail)
         var learned: [String] = []
         for (addr, known) in results {
             guard let known else { continue }
@@ -624,9 +610,6 @@ final class MailStore: ObservableObject {
 }
 
 extension DateFormatter {
-    static let gmailDay: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "yyyy/MM/dd"; f.timeZone = .current; return f
-    }()
     static let long: DateFormatter = {
         let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short; return f
     }()

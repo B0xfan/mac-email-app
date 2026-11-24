@@ -14,20 +14,9 @@ enum Support {
     static func url(_ name: String) -> URL { dir.appendingPathComponent(name) }
 }
 
-/// Senders the phone has approved, and when screening began (mail from people who wrote before that day is never "new").
-final class SenderBook {
-    struct Data: Codable { var screeningStart: Date; var approved: Set<String> }
-    private(set) var data: Data
-    private let url: URL
-    init(url: URL = Support.url("senders.json"), start: Date = Date()) {
-        self.url = url
-        if let d = try? Foundation.Data(contentsOf: url), let v = try? JSONDecoder().decode(Data.self, from: d) { data = v }
-        else { data = Data(screeningStart: start, approved: []); save() }
-    }
-    func isApproved(_ e: String) -> Bool { data.approved.contains(e.lowercased()) }
-    func approve(all es: [String]) { es.forEach { data.approved.insert($0.lowercased()) }; save() }
-    var screeningStart: Date { data.screeningStart }
-    private func save() { if let d = try? JSONEncoder().encode(data) { try? d.write(to: url, options: .atomic) } }
+extension SenderBook {
+    /// The phone's approved senders (the book itself is shared with the Mac app, in MailCore).
+    convenience init() { self.init(url: Support.url("senders.json")) }
 }
 
 /// A saved Gmail draft, as a row in the Drafts list (`id` is the draft's id, `mail` its message).
@@ -96,7 +85,7 @@ final class PhoneStore: ObservableObject {
          seen: SeenBook? = nil, openedURL: URL = Support.url("opened.json")) {
         self.sign = sign; self.gmail = gmail; self.book = book; self.cacheURL = cacheURL
         let p = PhoneSettings(defaults: defaults)
-        prefs = p; self.seen = seen ?? SeenBook(); opened = OpenedBook(url: openedURL, keepDays: p.keepTextDays); self.openedURL = openedURL
+        prefs = p; self.seen = seen ?? .onPhone(); opened = OpenedBook(url: openedURL, keepDays: p.keepTextDays); self.openedURL = openedURL
         self.defaults = defaults; self.server = server; self.organizerURL = organizerURL; self.timingURL = timingURL
         self.flow = BlockFlow(gmail: gmail, labelName: Self.blockLabelName) { ids, add, remove in try await gmail.modify(ids: ids, add: add, remove: remove) }
         tab = MailCategory(rawValue: defaults.string(forKey: "smartTab") ?? "") ?? .people
@@ -330,14 +319,11 @@ final class PhoneStore: ObservableObject {
 
     func isNew(_ m: Mail) -> Bool {
         if !prefs.screenNewSenders { return false }
-        if m.labels.contains("SENT") || book.isApproved(m.from.email) { return false }
-        return knownCache[m.from.email] == false || (knownCache[m.from.email] == nil && m.date > book.screeningStart)
+        return Screening.isNew(m, book: book, known: knownCache)
     }
     /// Until the first check ran, an unchecked sender is shown nowhere (it may turn out to be known): no flash of a wrong count.
     var newSenderRows: [Mail] {
-        var seen = Set<String>(), out: [Mail] = []
-        for m in inbox.sorted(by: { $0.date > $1.date }) where isNew(m) && (sendersChecked || knownCache[m.from.email] != nil) && seen.insert(m.from.email).inserted { out.append(m) }
-        return out
+        Screening.onePerSender(inbox.filter { isNew($0) && (sendersChecked || knownCache[$0.from.email] != nil) })
     }
     /// A company logo is a visit to the sender's website, so only a contact, an approved or a known sender gets one; never a blocked or a new one.
     func logoOK(_ email: String) -> Bool {
@@ -357,18 +343,11 @@ final class PhoneStore: ObservableObject {
         let shared = labelList.first { $0.name == Approvals.labelName }?.id
         let elsewhere = Approvals.approvedElsewhere(inbox, labelID: shared).filter { !book.isApproved($0) }   // approved on the Mac
         if !elsewhere.isEmpty { book.approve(all: Array(elsewhere)); elsewhere.forEach { knownCache[$0] = true }; pics.recheck() }
-        let unshared = Set(inbox.filter { $0.date > book.screeningStart && book.isApproved($0.from.email) && !$0.labels.contains(shared ?? "") }.map(\.from.email))
+        let unshared = Screening.unshared(inbox, book: book, labelID: shared)
         if shared != nil, !unshared.isEmpty { await shareApprovals(Array(unshared)) }   // approvals made here before the label existed, and new mail from approved senders (once the label exists, so a background check never shows a label error)
-        let unknown = Array(Set(inbox.map { $0.from.email }).filter { !book.isApproved($0) && knownCache[$0] == nil })
+        let unknown = Screening.unknown(inbox, book: book, known: knownCache)
         guard !unknown.isEmpty else { return }
-        let f = DateFormatter(); f.calendar = Calendar(identifier: .gregorian); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy/MM/dd"   // Gmail reads Western digits and years only
-        let cutoff = f.string(from: book.screeningStart), g = gmail
-        let results = await mapLimited(unknown, limit: 4) { addr -> (String, Bool?) in
-            do {
-                if try await g.countEstimate(q: "from:\(GmailQuery.term(addr)) before:\(cutoff)") > 0 { return (addr, true) }
-                return (addr, try await g.countEstimate(q: "in:sent to:\(GmailQuery.term(addr))") > 0)
-            } catch { return (addr, nil) }
-        }
+        let results = await Screening.lookUp(unknown, since: book.screeningStart, gmail: gmail)
         var learned: [String] = []
         for (addr, known) in results { if let known { knownCache[addr] = known; if known { learned.append(addr) } } }
         if !learned.isEmpty { book.approve(all: learned); pics.recheck() }

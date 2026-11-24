@@ -5,33 +5,9 @@ import MailCore
 
 // MARK: - Recently Seen: emails opened in this app, kept on this Mac
 
-struct SeenEntry: Codable, Equatable { var id: String; var at: Date }
-
-final class SeenBook {
-    private(set) var entries: [SeenEntry]
-    private let url: URL
-    static let keepDays = 7
-
-    init(url: URL = SeenBook.defaultURL, now: Date = Date()) {
-        self.url = url
-        entries = JSONStore.load([SeenEntry].self, from: url) ?? []
-        let cutoff = now.addingTimeInterval(-Double(Self.keepDays) * 86400)
-        entries.removeAll { $0.at < cutoff }
-    }
-
-    static var defaultURL: URL { JSONStore.url("seen.json") }
-
-    func record(_ id: String, at: Date = Date()) {
-        entries.removeAll { $0.id == id }
-        entries.append(SeenEntry(id: id, at: at))
-        JSONStore.save(entries, to: url)
-    }
-
-    /// Newest first, only those opened within the last `days` days.
-    func ids(withinDays days: Int, now: Date = Date()) -> [String] {
-        let cutoff = now.addingTimeInterval(-Double(days) * 86400)
-        return entries.filter { $0.at >= cutoff }.sorted { $0.at > $1.at }.map { $0.id }
-    }
+extension SeenBook {
+    /// This Mac's Recently Seen list (the book itself is shared with the iPhone app, in MailCore).
+    convenience init() { self.init(url: JSONStore.url("seen.json")) }
 }
 
 // MARK: - To field suggestions

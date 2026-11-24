@@ -502,7 +502,7 @@ enum DemoMode {
         return PhoneStore(sign: auth, gmail: gmail, book: SenderBook(url: dir.appendingPathComponent("senders.json"), start: Date().addingTimeInterval(-10 * 86400)),
                           cacheURL: dir.appendingPathComponent("inbox.json"), defaults: UserDefaults(suiteName: "demo-\(UUID().uuidString)")!,
                           server: server, organizerURL: dir.appendingPathComponent("organizer.json"), timingURL: dir.appendingPathComponent("timing-view.json"),
-                          seen: SeenBook(url: dir.appendingPathComponent("seen.json")), openedURL: dir.appendingPathComponent("opened.json"))
+                          seen: .onPhone(dir.appendingPathComponent("seen.json")), openedURL: dir.appendingPathComponent("opened.json"))
     }
 
     @MainActor static func make() -> (store: PhoneStore, tab: Int)? {

@@ -126,13 +126,6 @@ final class AppSettings: ObservableObject {
     }
 }
 
-/// Which senders John has already let in. Kept on this Mac, in Application Support (not secret).
-/// Anyone who wrote before screening started counts as known, so the first run does not flag the whole inbox.
-struct SenderBookData: Codable {
-    var screeningStart: Date
-    var approved: Set<String>
-}
-
 /// The one way the small JSON stores (senders, recently seen, set aside, timing) are found, read and saved on this Mac.
 enum JSONStore {
     static let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Audrey Mail")
@@ -150,26 +143,7 @@ enum JSONStore {
     }
 }
 
-final class SenderBook {
-    private(set) var data: SenderBookData
-    private let url: URL
-
-    init(url: URL = SenderBook.defaultURL) {
-        self.url = url
-        if let v = JSONStore.load(SenderBookData.self, from: url) { data = v }
-        else {
-            data = SenderBookData(screeningStart: Date(), approved: [])
-            save()
-        }
-    }
-
-    static var defaultURL: URL { JSONStore.url("senders.json") }
-
-    func isApproved(_ email: String) -> Bool { data.approved.contains(email.lowercased()) }
-    func approve(_ email: String) { data.approved.insert(email.lowercased()); save() }
-    func approve(all emails: [String]) { emails.forEach { data.approved.insert($0.lowercased()) }; save() }
-    func revoke(_ email: String) { data.approved.remove(email.lowercased()); save() }
-    var screeningStart: Date { data.screeningStart }
-
-    private func save() { JSONStore.save(data, to: url) }
+extension SenderBook {
+    /// This Mac's approved senders (the book itself is shared with the iPhone app, in MailCore).
+    convenience init() { self.init(url: JSONStore.url("senders.json")) }
 }
