@@ -77,11 +77,11 @@ enum DemoSelfTest {
         }
         let wv = fitHost!.view, loader = fitHost!.loader
         await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in loader.done = c; wv.loadHTMLString(MailWebView.page(body, allowRemote: false, plain: false), baseURL: nil) }
-        func run(_ js: String) async -> Any? { await withCheckedContinuation { (c: CheckedContinuation<Any?, Never>) in wv.evaluateJavaScript(js) { v, _ in c.resume(returning: v) } } }
-        func width() async -> CGFloat { (await run("document.documentElement.scrollWidth") as? NSNumber).map { CGFloat(truncating: $0) } ?? 0 }
+        func run(_ js: String) async -> String? { await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in wv.evaluateJavaScript(js) { v, _ in c.resume(returning: v.map { "\($0)" }) } } }   // as text: a JS value cannot cross threads
+        func width() async -> CGFloat { (await run("document.documentElement.scrollWidth")).flatMap(Double.init).map { CGFloat($0) } ?? 0 }
         let before = await width()
         _ = await run(MailWebView.fitScript)
-        let zoom = await run("document.body.style.zoom") as? String   // set only when wrapping alone could not make it fit
+        let zoom = await run("document.body.style.zoom")   // set only when wrapping alone could not make it fit
         return (before, await width(), zoom ?? "?")
     }
     final class FitLoader: NSObject, WKNavigationDelegate {
