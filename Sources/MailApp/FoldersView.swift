@@ -33,8 +33,8 @@ struct GroupHead: View {
 }
 
 struct OrganizerSidebar: View {
-    @ObservedObject var store: MailStore
-    private func fold(_ g: String) { store.organizer.toggleFold(g); store.objectWillChange.send() }
+    var store: MailStore
+    private func fold(_ g: String) { store.organizer.toggleFold(g) }
     private func hint(_ t: String) -> some View {
         Text(t).font(Theme.small).foregroundStyle(Theme.sub).padding(.horizontal, 12).padding(.vertical, 4).fixedSize(horizontal: false, vertical: true)
     }
@@ -72,7 +72,7 @@ struct OrganizerSidebar: View {
 }
 
 struct FolderRow: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let f: FolderNode
     @StateObject private var hot = Box(false)
     var body: some View {
@@ -164,7 +164,7 @@ struct MiniMenu<Items: View>: View {
 }
 
 struct EditorPane: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let editor: OrganizerEditor
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -204,14 +204,14 @@ struct EditorPane: View {
 }
 
 struct FormMessage: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     var body: some View {
         if let m = store.editorMessage { Text(m).font(Theme.small).foregroundStyle(Theme.blk).fixedSize(horizontal: false, vertical: true) }
     }
 }
 
 struct NameForm: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let title: String, hint: String, placeholder: String, action: String
     var onDelete: (() -> Void)? = nil
     let submit: (String) -> Void
@@ -239,7 +239,7 @@ struct NameForm: View {
 }
 
 struct ConfirmCard: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let title: String, text: String
     let back: () -> Void
     let run: () async -> Void
@@ -259,7 +259,7 @@ struct ConfirmCard: View {
 }
 
 struct SmartForm: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let isNew: Bool
     @StateObject private var draft: Box<SmartFolder>
     @StateObject private var count: Box<Int?>

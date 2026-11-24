@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 import MailCore
 
 struct ComposeView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @StateObject private var editor = EditorController()
     @StateObject private var draft: Box<ComposeDraft>
     @StateObject private var linkPrompt = Box(false)

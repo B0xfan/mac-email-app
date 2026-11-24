@@ -7,29 +7,9 @@ func writeLater<T: Encodable>(_ value: T, to url: URL) {
     writeQueue.async { if let d = try? JSONEncoder().encode(value) { try? d.write(to: url, options: .atomic) } }
 }
 
-/// Recently Seen: the emails opened on this phone, newest first. Kept on this phone (the Mac keeps its own list), seven days at most.
-final class SeenBook {
-    struct Entry: Codable, Equatable { var id: String; var at: Date }
-    static let keepDays = 7
-    private(set) var entries: [Entry]
-    private let url: URL
-
-    init(url: URL = Support.url("seen.json"), now: Date = Date()) {
-        self.url = url
-        let cutoff = now.addingTimeInterval(-Double(Self.keepDays) * 86400)
-        entries = ((try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []).filter { $0.at >= cutoff }
-    }
-    func record(_ id: String, at: Date = Date()) {
-        entries.removeAll { $0.id == id }
-        entries.append(Entry(id: id, at: at))
-        writeLater(entries, to: url)
-    }
-    /// Newest first, only those opened within the last `days` days.
-    func ids(withinDays days: Int, now: Date = Date()) -> [String] {
-        let cutoff = now.addingTimeInterval(-Double(days) * 86400)
-        return entries.filter { $0.at >= cutoff }.sorted { $0.at > $1.at }.map(\.id)
-    }
-    func clear() { entries = []; writeQueue.async { [url] in try? FileManager.default.removeItem(at: url) } }   // on the same queue as the saves, so a save already waiting cannot bring it back
+extension SeenBook {
+    /// The phone's Recently Seen list (the book itself is shared with the Mac app, in MailCore), saved off the main thread.
+    static func onPhone(_ url: URL = Support.url("seen.json")) -> SeenBook { SeenBook(url: url, write: { writeLater($0, to: $1) }) }
 }
 
 /// Emails opened on this phone keep their full text for "Keep full email text for" days, so they open again without a download.

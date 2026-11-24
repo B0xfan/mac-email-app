@@ -8,7 +8,7 @@ struct ReadView: View {
     var fromFolder: String? = nil   // set when the email was opened from inside a folder
     var inList = false              // opened from a folder, Smart Folder, search or Recently Seen list (not from the inbox)
     var advance: ((Mail) -> Void)? = nil   // "open the next email" after archiving (Settings, Inbox)
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var full: Mail?
@@ -221,7 +221,7 @@ struct MessageBlock: View {
     var onHeaderTap: (() -> Void)? = nil   // set inside a grouped conversation: tapping the sender folds the message
     var onUnsubscribe: (() -> Void)? = nil   // the open email only: an Unsubscribe button beside the sender, as on the Mac
     var notice: AnyView? = nil               // shown under the sender line (the unsubscribe question)
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @State private var loadedFull: Mail?
     @State private var ownFailure: String?

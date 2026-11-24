@@ -62,7 +62,7 @@ enum NoteHeader {
 }
 
 struct NoteButton: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var notes = NotesBook.shared
     let mail: Mail
     var body: some View {
@@ -84,7 +84,7 @@ struct NoteButton: View {
 
 /// Under the subject: the note on one slim line with Edit and Remove; edited in place and saved as you type.
 struct NoteStrip: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var notes = NotesBook.shared
     let mail: Mail
     @StateObject private var draft = Box("")

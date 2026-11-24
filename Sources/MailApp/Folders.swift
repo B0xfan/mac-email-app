@@ -11,7 +11,7 @@ struct OrganizerData: Codable {
     var base: Organizer?      // what this Mac and the server last agreed on (optional so older files still load); nil = never shared yet
 }
 
-final class OrganizerBook {
+@Observable final class OrganizerBook {
     private(set) var data: OrganizerData
     private let url: URL?
     init(url: URL? = OrganizerBook.defaultURL) {
@@ -102,11 +102,11 @@ extension MailStore {
                 lastOrganizerAt = Date()
                 if organizer.current != before { continue }   // edited meanwhile: merge again so the edit is not overwritten
                 if r.merged != before || organizer.shared != r.merged {
-                    organizer.adopt(r.merged); objectWillChange.send()
+                    organizer.adopt(r.merged)
                     if r.merged != before { await refreshSmartCounts() }
                 }
                 return
-            } catch TimingServerError.unreachable { markOffline(); return }
+            } catch MailServerError.unreachable { markOffline(); return }
             catch { return }   // refused or busy: the list on this Mac still works; the next pass tries again
         }
     }
@@ -174,7 +174,7 @@ extension MailStore {
     func saveSmart(_ f: SmartFolder) async {
         var x = f; x.name = f.name.trimmingCharacters(in: .whitespaces)
         guard x.canSave else { editorMessage = "Give it a name and at least one rule."; return }
-        organizer.put(x); closeEditor(); objectWillChange.send()
+        organizer.put(x); closeEditor()
         await syncOrganizer()
         await refreshSmartCounts()
         if mailbox == .smart(x.id) { await loadOther() }
@@ -182,7 +182,7 @@ extension MailStore {
     func deleteSmart(_ id: UUID) async {
         organizer.removeSmart(id); smartCounts[id] = nil
         let wasHere = mailbox == .smart(id)
-        closeEditor(); objectWillChange.send()
+        closeEditor()
         Task { await syncOrganizer() }
         if wasHere { await select(.inbox) }
     }
@@ -192,20 +192,20 @@ extension MailStore {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty else { editorMessage = "Give the search a name."; return }
         let s = SavedSearch(name: n, query: query)
-        organizer.put(s); closeEditor(); objectWillChange.send()
+        organizer.put(s); closeEditor()
         Task { await syncOrganizer() }
         Task { await select(.saved(s.id)) }
     }
     func renameSearch(_ id: UUID, to name: String) {
         let n = name.trimmingCharacters(in: .whitespaces)
         guard var s = organizer.searches.first(where: { $0.id == id }), !n.isEmpty else { editorMessage = "Give the search a name."; return }
-        s.name = n; organizer.put(s); closeEditor(); objectWillChange.send()
+        s.name = n; organizer.put(s); closeEditor()
         Task { await syncOrganizer() }
     }
     func deleteSearch(_ id: UUID) async {
         organizer.removeSearch(id)
         let wasHere = mailbox == .saved(id)
-        closeEditor(); objectWillChange.send()
+        closeEditor()
         Task { await syncOrganizer() }
         if wasHere { await select(.inbox) }
     }

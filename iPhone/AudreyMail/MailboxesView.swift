@@ -11,7 +11,7 @@ enum MailboxRoute: Hashable { case mailboxes, drafts, scheduled, sent, archive, 
 
 struct MailboxesView: View {
     var loads = true   // false in the iPad sidebar, which loads once for its folded and open shapes
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var sheet: FolderNameSheet.Mode?
     @State private var deleting: FolderNode?
     @State private var smartSheet: SmartFolderForm.Mode?
@@ -115,7 +115,7 @@ struct MailboxesView: View {
 
 /// The store's last problem message, at the top of a list.
 private struct Banner: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         if let b = store.banner { BannerView(text: b).listRowBackground(Color.clear).listRowInsets(EdgeInsets()).listRowSeparator(.hidden) }
     }
@@ -132,7 +132,7 @@ struct FolderNameSheet: View {
         var id: String { if case .rename(let f) = self { return f.id } else { return "new" } }
     }
     let mode: Mode
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var message: String?
@@ -182,7 +182,7 @@ struct MoveToFolderSheet: View {
     let mail: Mail
     var from: String? = nil   // the folder it was opened from
     let moved: () -> Void
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -212,7 +212,7 @@ struct MoveToFolderSheet: View {
 struct FolderMailsView: View {
     let route: MailboxRoute
     @Binding var path: NavigationPath
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @State private var editing: SmartFolder?
 
@@ -323,7 +323,7 @@ struct FolderMailsView: View {
 // MARK: - Drafts
 
 struct DraftsView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         List {
             Banner()
@@ -348,7 +348,7 @@ struct DraftsView: View {
 // MARK: - Scheduled (read from the Mail server, which holds every scheduled send; changed on the Mac)
 
 struct ScheduledView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         List {
             Banner()
@@ -396,7 +396,7 @@ private struct DraftRowView: View {
 
 struct BlockedListView: View {
     @Binding var path: NavigationPath
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @AppStorage("blockedOrder") private var order = BlockedEntry.Order.newest
     var body: some View {
         List {

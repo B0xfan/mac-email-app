@@ -34,7 +34,7 @@ struct ComposeSeed: Identifiable {
 
 struct ComposeView: View {
     let seed: ComposeSeed
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @Environment(\.dismiss) private var dismiss
     @State private var useSignature = true

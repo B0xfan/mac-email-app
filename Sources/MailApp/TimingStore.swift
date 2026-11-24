@@ -18,12 +18,12 @@ extension MailStore {
             if ms.count > 1 { await batch(ms, text: { "Snoozed \($0) emails until \(TimeParser.short(d))." }) { await self.snooze($0, until: d) } }
             else { for m in ms { await snooze(m, until: d) } }
         case .changeSnooze(let id):
-            timing.change { $0.snoozes[id] = d }; objectWillChange.send()
+            timing.change { $0.snoozes[id] = d }
             showToast("Snoozed until \(TimeParser.short(d)).")
             Task { await syncTimingView() }
         case .changeScheduled(let id):
             guard await serverAgrees(id, newTime: d) else { return }   // an old time still held by the service could send it early
-            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; t.scheduled[i].server = (t.scheduled[i].server == "on" || t.scheduled[i].server == "maybe") ? "on" : nil } }; objectWillChange.send()
+            timing.change { t in if let i = t.scheduled.firstIndex(where: { $0.draftID == id }) { t.scheduled[i].at = d; t.scheduled[i].problem = nil; t.scheduled[i].server = (t.scheduled[i].server == "on" || t.scheduled[i].server == "maybe") ? "on" : nil } }
             showToast("Will send \(TimeParser.short(d)).")
             await syncServer()
         default: break
@@ -136,7 +136,7 @@ extension MailStore {
 
     func unschedule(_ draftID: String) async {
         guard await serverAgrees(draftID) else { return }   // the timing service must let go first
-        timing.change { $0.scheduled.removeAll { $0.draftID == draftID } }; objectWillChange.send()
+        timing.change { $0.scheduled.removeAll { $0.draftID == draftID } }
         showToast("Kept in Drafts. It will not be sent.")
     }
 
@@ -149,7 +149,6 @@ extension MailStore {
                 timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }; dropped += 1
             }
         }
-        if dropped > 0 { objectWillChange.send() }
         return dropped
     }
 
@@ -163,7 +162,7 @@ extension MailStore {
         guard pendingScheduled == nil, undoSend == nil else { return }   // one countdown at a time
         do {
             guard try await gmail.draftExists(id: s.draftID) else {
-                timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }; objectWillChange.send()
+                timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }
                 showToast("\u{201C}\(s.subject)\u{201D} was sent or deleted on another device, so it was taken off Scheduled.", seconds: 8)
                 return
             }
@@ -193,10 +192,9 @@ extension MailStore {
                     t.scheduled.removeAll { $0.draftID == s.draftID }
                     if let r = s.remindAt { t.followUps.append(FollowUp(messageID: sent.id, threadID: sent.threadID, sentAt: Date(), at: r, to: s.to, subject: s.subject)) }
                 }
-                self.objectWillChange.send()
                 if self.toast?.id == tid { self.showToast("Sent.", seconds: 4) }
             } catch GmailError.http(404, _) {   // the draft is gone: the timing service (or the phone) sent it first
-                self.timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }; self.objectWillChange.send()
+                self.timing.change { $0.scheduled.removeAll { $0.draftID == s.draftID } }
                 if self.toast?.id == tid { self.showToast("\u{201C}\(s.subject)\u{201D} was already sent.", seconds: 6) }
             } catch {
                 // the service was told to let go, so tell it again next time (if its release failed, it still holds the job)
@@ -215,7 +213,7 @@ extension MailStore {
             let agreed = await serverAgrees(p.draftID)
             pendingScheduled = nil
             if agreed {
-                timing.change { $0.scheduled.removeAll { $0.draftID == p.draftID } }; objectWillChange.send()
+                timing.change { $0.scheduled.removeAll { $0.draftID == p.draftID } }
                 if toast?.id == p.tid { showToast("Not sent. It is in Drafts.", seconds: 5) }
             } else if toast?.id == p.tid { toast = nil }   // still in Scheduled; the message says why
         }
@@ -248,8 +246,8 @@ extension MailStore {
                 case "replied", "gone": timing.change { $0.followUps.removeAll { $0.messageID == f.messageID } }; return
                 default: timing.change { t in if let i = t.followUps.firstIndex(where: { $0.messageID == f.messageID }) { t.followUps[i].server = "off" } }   // it holds nothing now
                 }
-            } catch TimingServerError.unreachable { markOffline() }   // no answer at all: Mail does it itself
-            catch TimingServerError.refused(400) {}   // the service does not know this reminder: Mail does it itself
+            } catch MailServerError.unreachable { markOffline() }   // no answer at all: Mail does it itself
+            catch MailServerError.refused(400) {}   // the service does not know this reminder: Mail does it itself
             catch { return }   // timed out (it may have acted), busy, 401/403/429: look again next time; acting now could bring back an email archived on the phone
         }
         do {
@@ -284,7 +282,6 @@ extension MailStore {
         for f in timing.data.followUps where f.at <= now { await checkFollowUp(f, now: now) }
         if let s = timing.data.scheduled.filter({ $0.at <= now }).sorted(by: { $0.at < $1.at }).first { await sendScheduled(s) }
         await deleteExpiredBigFiles(now: now)   // after sends: a slow Drive delete must not delay them
-        objectWillChange.send()
     }
 
     // MARK: Quick Replies

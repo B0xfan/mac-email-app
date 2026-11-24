@@ -9,7 +9,7 @@ enum InboxView: String, CaseIterable {
 }
 
 /// What John taught Mail by moving emails between groups. One answer per sender, kept on this Mac (not secret).
-final class CategoryBook {
+@Observable final class CategoryBook {
     private var map: [String: String]
     private let url: URL?
     init(url: URL? = CategoryBook.defaultURL) {
@@ -30,7 +30,7 @@ final class CategoryBook {
 
 extension MailStore {
     func category(of m: Mail) -> MailCategory { categories.learned(m.from.email) ?? .guess(m) }
-    func moveToCategory(_ m: Mail, _ c: MailCategory) { categories.learn(m.from.email, c); objectWillChange.send() }
+    func moveToCategory(_ m: Mail, _ c: MailCategory) { categories.learn(m.from.email, c) }
 }
 
 /// The Smart / Classic / Unread first switch, as drawn in the approved page.
@@ -82,7 +82,7 @@ struct SmartTabButton: View {
 
 /// The inbox rows in the chosen view.
 struct InboxBody: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @ObservedObject var settings: AppSettings
     var body: some View {
         let pins = store.pinnedMails

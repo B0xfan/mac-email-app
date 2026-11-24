@@ -162,7 +162,7 @@ extension MailStore {
 }
 
 struct BigFileStripView: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mail: Mail
     @State private var refresh = 0
     @State private var failed = false

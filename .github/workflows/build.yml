@@ -1,10 +1,28 @@
 # Manual trigger only, on purpose: scripts/auto-commit.sh pushes to main every ~10 minutes, and a push
 # trigger would burn the free GitHub minutes. Start a run with scripts/cloud-build.sh.
 name: build
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      core_only:
+        description: Only the quick check of the shared mail logic (scripts/cloud-build.sh --core)
+        type: boolean
+        default: false
 jobs:
+  # The quick check: the shared mail logic alone (MailCore), no app and no screens. Runs in every run; with core_only it is the whole run.
+  core-check:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the shared mail logic
+        # run the built file directly (like the self-test below); if the system stops it, print why
+        run: |
+          swift build --product MailCoreCheck
+          .build/debug/MailCoreCheck || { rc=$?; codesign -dv --verbose=2 .build/debug/MailCoreCheck 2>&1 | tail -5; log show --last 2m --style compact --predicate 'eventMessage CONTAINS[c] "MailCoreCheck"' | tail -25; exit $rc; }
   # The shared MailCore package must keep compiling for the iPhone. Same manual trigger as the build job; no signing, nothing uploaded.
   ios-core:
+    if: ${{ !inputs.core_only }}
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -15,6 +33,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
   # The iPhone app: builds for the simulator (no signing), runs its own checks on a pretend Gmail, and keeps a picture of every screen.
   ios-app:
+    if: ${{ !inputs.core_only }}
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -33,6 +52,7 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
   build:
+    if: ${{ !inputs.core_only }}
     runs-on: macos-15
     timeout-minutes: 75
     steps:

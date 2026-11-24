@@ -2,7 +2,7 @@ import SwiftUI
 import MailCore
 
 struct NewSendersView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var path: [Mail] = []
     @State private var blockTarget: Mail?
     @State private var askAll = false

@@ -4,7 +4,7 @@ import MailCore
 /// The messages of the open conversation that are folded to one line (approved drawing, Part 2b): the older ones above the open message, any newer ones below it.
 /// Click a line to open that message; the one that was open folds.
 struct ConvoFolds: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let shown: String       // id of the message that is open
     let older: Bool         // true: the lines above the open message (with the "N messages" caption); false: the lines below it
     var body: some View {

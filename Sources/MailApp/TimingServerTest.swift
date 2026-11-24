@@ -293,7 +293,7 @@ extension SelfTest {
         check("link to share: registers with the existing key handling, sends plain UTF-8 (no \\u escapes), returns the page address", urlOK && fake.log == ["register RT3"] && utf8OK)
         fake.shareStatus = 413
         var refused = 0
-        do { _ = try await srv3.makeLink(lf) } catch TimingServerError.refused(let c) { refused = c } catch {}
+        do { _ = try await srv3.makeLink(lf) } catch MailServerError.refused(let c) { refused = c } catch {}
         check("link to share: too large (413) is refused with its code", refused == 413)
         fake.shareStatus = 200
         let store4 = MailStore(auth: SignInModel(), gmail: GmailClient(auth: a3, session: session), book: SenderBook(url: tmp("b")), seen: SeenBook(url: tmp("s")), categories: CategoryBook(url: nil),

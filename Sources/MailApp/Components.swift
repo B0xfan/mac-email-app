@@ -288,7 +288,7 @@ enum SnapshotMode { nonisolated(unsafe) static var on = false; nonisolated(unsaf
 
 /// The tags under the search bar: what Mail understood from the typed words. Clicking a tag removes it and searches again.
 struct SearchChips: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let read: PlainSearch.Result
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -352,5 +352,48 @@ struct AddressTag: View {
             Text(email).font(Theme.small.weight(.semibold)).foregroundStyle(main ? Theme.acc : c.ink).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                 .padding(.horizontal, 7).padding(.vertical, 1).background(RoundedRectangle(cornerRadius: 5).fill(main ? Theme.hovBg : c.soft))
         }
+    }
+}
+
+struct RadioRow: View {
+    let label: String
+    var tag: String? = nil
+    let on: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle().stroke(on ? Theme.acc : Theme.sub, lineWidth: 2).frame(width: 20, height: 20)
+                    if on { Circle().fill(Theme.acc).frame(width: 10, height: 10) }
+                }
+                Text(label).font(Theme.body).foregroundStyle(Theme.text)
+                if let tag {
+                    Text(tag).font(Theme.label).foregroundStyle(Theme.accInk)
+                        .padding(.horizontal, 8).padding(.vertical, 2).background(Capsule().fill(Theme.accSoft))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label).accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+enum Fmt {
+    static func short(_ d: Date) -> String {
+        let c = Calendar.current
+        if c.isDateInToday(d) { return d.formatted(date: .omitted, time: .shortened) }
+        if c.isDateInYesterday(d) { return "Yesterday" }
+        if let days = c.dateComponents([.day], from: d, to: Date()).day, days < 7 { return d.formatted(.dateTime.weekday(.abbreviated)) }
+        return d.formatted(.dateTime.month(.abbreviated).day())
+    }
+    static func long(_ d: Date) -> String {
+        let c = Calendar.current
+        let t = d.formatted(date: .omitted, time: .shortened)
+        if c.isDateInToday(d) { return "Today, \(t)" }
+        if c.isDateInYesterday(d) { return "Yesterday, \(t)" }
+        return d.formatted(date: .abbreviated, time: .shortened)
     }
 }

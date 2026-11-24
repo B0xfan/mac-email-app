@@ -5,7 +5,7 @@ import BackgroundTasks
 
 @main
 struct AudreyMailApp: App {
-    @StateObject private var store: PhoneStore
+    @State private var store: PhoneStore
     private let initialTab: Int
 
     init() {
@@ -20,7 +20,7 @@ struct AudreyMailApp: App {
             let server = PhoneServer(refreshToken: { await auth.refreshTokenForServer() }, keys: KeychainServerKey(), clientID: GoogleConfig.clientID)
             return (PhoneStore(sign: auth, gmail: GmailClient(auth: auth), server: server), 0)
         }
-        _store = StateObject(wrappedValue: made.store)
+        _store = State(initialValue: made.store)
         initialTab = made.tab
     }
 
@@ -33,7 +33,7 @@ struct AudreyMailApp: App {
 
 extension View {
     /// Everything the screens read: the store, the Settings choices and the sender pictures.
-    func phoneEnvironment(_ store: PhoneStore) -> some View { environmentObject(store).environmentObject(store.prefs).environmentObject(store.pics) }
+    func phoneEnvironment(_ store: PhoneStore) -> some View { environment(store).environmentObject(store.prefs).environmentObject(store.pics) }
 }
 
 /// The number on the app icon and the new-mail banners. Both work on the free account: they need only the iPhone's Notifications permission and the background wake-up above, no push.

@@ -2,7 +2,7 @@ import SwiftUI
 import MailCore
 
 struct SearchView: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var text = ""
     @State private var gmailRows: [Mail] = []
     @State private var searching = false

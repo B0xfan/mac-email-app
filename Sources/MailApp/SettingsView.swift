@@ -45,7 +45,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var app: AppModel
-    @ObservedObject private var store: MailStore   // watched so the Accounts card follows sign-out and sign-in
+    private var store: MailStore   // watched so the Accounts card follows sign-out and sign-in
     @ObservedObject private var signIn: SignInModel
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject private var claude = ClaudeAccess.shared
@@ -82,7 +82,7 @@ struct SettingsView: View {
                 .background(Theme.bg)
                 .onAppear { show(sec.v, proxy) }
                 .onChange(of: sec.v) { _, s in show(s, proxy) }
-                .onReceive(app.store.$rulePrefill) { if $0 != nil { sec.v = .rules; proxy.scrollTo(SettingsSection.rules, anchor: .top) } }   // also when Rules is already the section, scrolled away from
+                .onChange(of: app.store.rulePrefill, initial: true) { if $1 != nil { sec.v = .rules; proxy.scrollTo(SettingsSection.rules, anchor: .top) } }   // also when Rules is already the section, scrolled away from
             }
         }
         .foregroundStyle(Theme.text).frame(minWidth: 820, minHeight: 480)
@@ -349,7 +349,7 @@ struct SettingsView: View {
 
 /// "Stored on this Mac": the size of the copy of the mailbox and how many emails are in it, with the button that empties it (the approved drawing, panel 3).
 struct StorageCard: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     @StateObject private var info = Box("")
     @StateObject private var busy = Box(false)
     var body: some View {

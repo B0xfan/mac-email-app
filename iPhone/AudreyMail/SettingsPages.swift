@@ -5,7 +5,7 @@ import MailCore
 // The simple Settings pages: each one reads and writes PhoneSettings (kept on this phone) or the store.
 
 struct AccountsPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @State private var askSignOut = false
     var body: some View {
         SettingsPageList(title: "Accounts", intro: "The email accounts connected to this app.") {
@@ -32,7 +32,7 @@ struct AccountsPage: View {
 }
 
 struct SignaturesPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     var body: some View {
         SettingsPageList(title: "Signatures", intro: "Added to the bottom of new emails.") {
@@ -73,7 +73,7 @@ struct QuickRepliesPage: View {
 }
 
 struct SendingPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     var body: some View {
         SettingsPageList(title: "Sending", intro: "How long you have to change your mind after you press Send.") {
             Section {
@@ -140,7 +140,7 @@ struct InboxSettingsPage: View {
 }
 
 struct LayoutPage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     var body: some View {
         SettingsPageList(title: "Layout", intro: "How the inbox looks. Changes show at once.") {
@@ -226,7 +226,7 @@ struct PrivacyPage: View {
 }
 
 struct StoragePage: View {
-    @EnvironmentObject var store: PhoneStore
+    @Environment(PhoneStore.self) var store
     @EnvironmentObject var prefs: PhoneSettings
     @State private var info = ""
     @State private var busy = false

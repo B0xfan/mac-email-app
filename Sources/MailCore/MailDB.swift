@@ -15,7 +15,7 @@ public struct DBListSpec: Equatable { public var all: [String]; public var none:
 
 public final class MailDB: @unchecked Sendable {
     public static let schemaVersion = 3
-    public static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    nonisolated(unsafe) public static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)   // SQLite's fixed "copy it" marker, never changed; marked so Swift 6 accepts the C pointer type
     public let url: URL
     private var handle: OpaquePointer?
     /// Recursive: the public calls below call each other.

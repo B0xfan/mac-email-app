@@ -94,7 +94,7 @@ public final class SyncEngine: @unchecked Sendable {
     private enum SyncError: Error { case incomplete }
 
     private func syncBody() async {
-        lock.lock(); sawOld = false; lock.unlock()   // a new pass starts reading in full again
+        lock.withLock { sawOld = false }   // a new pass starts reading in full again
         db.ensureFastLookups()
         do {
             if !db.isTracking { try await startFullSync(stale: false) }

@@ -211,7 +211,7 @@ extension MailStore {
 
 /// The banner over a translated email.
 struct TranslatedBanner: View {
-    @ObservedObject var store: MailStore
+    var store: MailStore
     let mail: Mail
     let tr: MailTranslation
     var body: some View {
