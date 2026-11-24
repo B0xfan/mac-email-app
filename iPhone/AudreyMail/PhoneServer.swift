@@ -121,7 +121,7 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
     }
 
     /// One snooze call; 409 (the server is waking this very email) is asked again a few seconds later, up to three times.
-    private func snoozeCall(_ method: String, _ id: String, _ body: [String: Any]? = nil) async throws {
+    nonisolated private func snoozeCall(_ method: String, _ id: String, _ body: [String: Any]? = nil) async throws {   // off the actor, like call(): the body stays with this one request
         for attempt in 0..<4 {
             await snoozePaced()
             let (c, _) = try await call(method, "snoozes/" + id, body)
