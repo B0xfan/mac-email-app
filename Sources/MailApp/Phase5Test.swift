@@ -305,8 +305,8 @@ extension SelfTest {
         var mails: [Mail] = [], full: [String: Mail] = [:], list = ClaudeBlockList(labelID: "Label_B", senders: ["spam@bad.example", "@evil.example"]), listFails = false
         private(set) var queries: [String] = [], reads: [String] = []
         private let l = NSLock()
-        func search(_ q: String, max: Int) async throws -> [Mail] { l.lock(); queries.append(q); l.unlock(); return mails }
-        func message(_ id: String) async throws -> Mail { l.lock(); reads.append(id); l.unlock(); guard let m = full[id] else { throw GmailError.http(404, "gone") }; return m }
+        func search(_ q: String, max: Int) async throws -> [Mail] { l.withLock { queries.append(q) }; return mails }
+        func message(_ id: String) async throws -> Mail { l.withLock { reads.append(id) }; guard let m = full[id] else { throw GmailError.http(404, "gone") }; return m }
         func blockList() async throws -> ClaudeBlockList { if listFails { throw GmailError.offline }; return list }
     }
 
