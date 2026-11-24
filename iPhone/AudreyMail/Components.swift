@@ -176,7 +176,7 @@ struct MailWebView: UIViewRepresentable {
         let c = context.coordinator
         c.view = wv
         c.observation = wv.scrollView.observe(\.contentSize, options: [.new]) { [weak c] sv, _ in
-            let h = sv.contentSize.height
+            let h = MainActor.assumeIsolated { sv.contentSize.height }   // UIKit reports size changes on the main thread
             DispatchQueue.main.async {
                 guard let c, abs(c.height.wrappedValue - h) > 1 else { return }
                 #if DEBUG

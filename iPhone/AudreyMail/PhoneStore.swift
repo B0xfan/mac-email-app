@@ -774,7 +774,7 @@ struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@Main
     }
 
     /// Runs a Gmail change; one refused sign-in is not the end: a fresh token is asked for and the change is tried once more.
-    private func retryingSignIn<T>(_ op: () async throws -> T) async throws -> T {
+    private func retryingSignIn<T: Sendable>(_ op: () async throws -> T) async throws -> T {
         do { return try await op() }
         catch GmailError.signInAgain {
             switch await freshToken() {
