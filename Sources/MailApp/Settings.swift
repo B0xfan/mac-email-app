@@ -65,6 +65,8 @@ enum HomePreview: String, CaseIterable {
     @Published var menuBarAll: Bool { didSet { d.set(menuBarAll, forKey: "menuBarAll") } }
     // Claude access: off until turned on; Blocked senders, Spam and Trash stay hidden from Claude unless this is switched off
     @Published var claudeEnabled: Bool { didSet { d.set(claudeEnabled, forKey: "claudeEnabled") } }
+    /// The saved value, readable from any thread (Claude's requests arrive off the main thread).
+    nonisolated static var claudeHideBlockedSaved: Bool { UserDefaults.standard.object(forKey: "claudeHideBlocked") as? Bool ?? true }
     @Published var claudeHideBlocked: Bool { didSet { d.set(claudeHideBlocked, forKey: "claudeHideBlocked") } }
     @Published var todoList: TodoList { didSet { d.set(todoList.rawValue, forKey: "todoList") } }
     @Published var vaultPath: String { didSet { d.set(vaultPath, forKey: "vaultPath") } }
@@ -107,7 +109,7 @@ enum HomePreview: String, CaseIterable {
         menuBarShow = d.object(forKey: "menuBarShow") as? Bool ?? true
         menuBarAll = d.object(forKey: "menuBarAll") as? Bool ?? false
         claudeEnabled = d.object(forKey: "claudeEnabled") as? Bool ?? false
-        claudeHideBlocked = d.object(forKey: "claudeHideBlocked") as? Bool ?? true
+        claudeHideBlocked = Self.claudeHideBlockedSaved
         todoList = TodoList(rawValue: d.string(forKey: "todoList") ?? "") ?? .obsidian
         vaultPath = d.string(forKey: "vaultPath") ?? ObsidianTask.defaultVault().path
         todoMarks = Self.cappedMarks(d.stringArray(forKey: "todoMarks") ?? [])

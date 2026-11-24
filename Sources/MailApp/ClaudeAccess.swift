@@ -183,7 +183,7 @@ final class ClaudeAccess: ObservableObject {
         guard settings.claudeEnabled else { stop(); message = nil; if userChange, Self.register(false) == .unreadable { message = "Audrey Mail could not change the Claude app's settings, so its entry may still be there." }; return }
         if server == nil {
             let backend = ClaudeBackend(source: GmailClaudeSource(gmail: store.gmail, blockLabelName: store.blockLabelName), blockLabelName: store.blockLabelName,
-                                        hideHidden: { AppSettings.shared.claudeHideBlocked }, log: { t in Task { @MainActor in ClaudeAccess.shared.add(t) } })
+                                        hideHidden: { AppSettings.claudeHideBlockedSaved }, log: { t in Task { @MainActor in ClaudeAccess.shared.add(t) } })
             let s = MCPSocket.Server { await MCPProtocol.handle($0, backend: backend) }
             guard s.start() else { settings.claudeEnabled = false; message = "Audrey Mail could not open its private connection for Claude."; return }
             server = s
