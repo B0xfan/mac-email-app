@@ -8,7 +8,8 @@ let package = Package(
     dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")],   // self-update; embedded by scripts/embed-sparkle.sh
     targets: [
         // the mail logic shared with the iPhone app: Gmail, sync, stored mail, to-do reading, search. No screens, no Mac-only code.
-        .target(name: "MailCore", path: "Sources/MailCore"),
+        // Swift 6 mode: the compiler checks thread safety here; the apps stay on Swift 5 until this has shipped clean
+        .target(name: "MailCore", path: "Sources/MailCore", swiftSettings: [.swiftLanguageMode(.v6)]),
         // the quick check: MailCore's own checks, no app, no screens (swift run MailCoreCheck; scripts/cloud-build.sh --core)
         .executableTarget(name: "MailCoreCheck", dependencies: ["MailCore"], path: "Sources/MailCoreCheck"),
         .executableTarget(name: "MailApp", dependencies: ["MailCore", .product(name: "Sparkle", package: "Sparkle")], path: "Sources/MailApp",
