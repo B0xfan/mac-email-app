@@ -4,6 +4,7 @@ import MailCore
 
 // The quick check: only the shared mail logic (MailCore), no app and no screens, so it builds and runs in a few minutes.
 // Run: swift run MailCoreCheck. Prints PASS/FAIL per check and exits 1 if any failed. Checks that need the app stay in its --selftest.
+setvbuf(stdout, nil, _IOLBF, 0)   // one line at a time, so a run that is stopped still shows how far it got
 var ok = true
 func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
 
