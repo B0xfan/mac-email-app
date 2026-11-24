@@ -12,5 +12,5 @@ After a green cloud build, `scripts/release.sh "what is new"` makes the signed p
 The update signing key is a private file at `~/Library/Application Support/Audrey Mail/update-signing.key` (never in the Keychain, never in the repo; backup in Bitwarden).
 If that key is lost, installed copies cannot be updated and must be reinstalled by hand.
 
-Layout: `Sources/MailCore` is the screen-free mail logic (Gmail, sync, stored mail, to-do reading, search, Smart-tab sorting, block rules) shared with the
+Layout (one-page map with a diagram: `docs/architecture.md`): `Sources/MailCore` is the screen-free mail logic (Gmail, sync, stored mail, to-do reading, search, Smart-tab sorting, block rules) shared with the
 iPhone app; `Sources/MailApp` is the Mac app and uses it. Anything MailCore exposes is `public`; keep Mac-only code (AppKit, Keychain, the home folder) out of it.
