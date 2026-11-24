@@ -205,7 +205,7 @@ struct HTMLMessageView: NSViewRepresentable {
 
 // MARK: - Rich compose editor
 
-final class EditorController: ObservableObject {
+@MainActor final class EditorController: ObservableObject {
     weak var web: WKWebView?
     func run(_ js: String) { web?.evaluateJavaScript(js, completionHandler: nil) }
     func bold() { run("document.execCommand('bold')") }

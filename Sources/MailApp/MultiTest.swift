@@ -263,7 +263,7 @@ extension SelfTest {
 
         // 7. Command-A and Esc only when the mail window is the key window
         let wins: [Bool] = await MainActor.run {
-            func w(_ t: String) -> NSWindow { let x = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true); x.title = t; return x }
+            @MainActor func w(_ t: String) -> NSWindow { let x = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true); x.title = t; return x }
             return [MailStore.isMainWindow(w("Audrey Mail")), MailStore.isMainWindow(w("Audrey Mail Help")), MailStore.isMainWindow(w("Settings")), MailStore.isMainWindow(nil)]
         }
         check("select several: Command-A and Esc act only in the mail window, not Help, Settings or no window", wins == [true, false, false, false])

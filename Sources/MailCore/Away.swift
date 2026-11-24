@@ -3,7 +3,7 @@ import Foundation
 // Away message (Gmail's vacation responder). Gmail holds the setting and sends the reply, so it works with the Mac and the phone off.
 // Mail only reads and writes it (settings.basic scope, already requested). Shared by the Mac and the iPhone.
 
-public struct AwaySettings: Equatable {
+public struct AwaySettings: Equatable, Sendable {
     public var on = false
     public var first = Calendar.current.startOfDay(for: Date())
     public var last: Date?              // last day, nil = until turned off

@@ -33,7 +33,7 @@ public func urlPiece(_ s: String) -> String {
     return s.addingPercentEncoding(withAllowedCharacters: ok) ?? ""
 }
 
-public struct TodoSender {
+public struct TodoSender: Sendable {
     public var session: URLSession = .shared
     public var cal: Calendar = .current
     public init(session: URLSession = .shared, cal: Calendar = .current) { self.session = session; self.cal = cal }

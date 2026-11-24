@@ -5,9 +5,9 @@ import MailCore
 /// Shows the window again when the app is reopened (Finder, Spotlight, Dock) while it is
 /// still running with its window closed. SwiftUI does not forward the reopen request to
 /// the app delegate, so the request is caught directly.
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set by the main window once it has appeared; opens a fresh window after the last one was closed.
-    nonisolated(unsafe) static var openMainWindow: (() -> Void)?
+    static var openMainWindow: (() -> Void)?
     var openMainWindow: (() -> Void)? { Self.openMainWindow }
     /// Set by the main window; SwiftUI's openSettings can only be called from a view.
     nonisolated(unsafe) static var openSettings: (() -> Void)?

@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import WebKit
 import MailCore
+import os
 
 /// `MailApp --listtest <folder>`: draws the real main window off-screen (invisible) in "Unread first" with made-up mail, the way
 /// James reported it: mail arrives, one is opened, more arrives. After every step it counts the teal "selected" row bands in the
@@ -79,10 +80,10 @@ enum ListTest {
         await step("2-open-the-unread-one", expectTeal: 1)
         // clicking the email that is already open again must not reload it (John 2026-10-29)
         store.openMail?.text = "Full text of mad"   // stands in for the full email (this store has no Gmail to fetch it from)
-        let reloaded = Box(false)
-        withObservationTracking { _ = store.openMail } onChange: { reloaded.v = true }
+        let reloaded = OSAllocatedUnfairLock(initialState: false)   // the change callback may come from any thread
+        withObservationTracking { _ = store.openMail } onChange: { reloaded.withLock { $0 = true } }
         await store.open(store.inbox.first { $0.id == "mad" }!)
-        check("reclick: clicking the open email again does not reload it", !reloaded.v)
+        check("reclick: clicking the open email again does not reload it", !reloaded.withLock { $0 })
         store.inbox = [suz, store.inbox.first { $0.id == "mad" }!, wash, pre, vo1]   // two new unread emails arrive
         await step("3-two-arrive", expectTeal: 1)
         func ids() -> [String] { SmartInbox.unreadFirstItems(store.inbox, holding: store.heldOpenID).map(\.id) }

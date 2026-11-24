@@ -337,7 +337,7 @@ public enum MIME {
         return out
     }
 
-    public struct Outgoing {
+    public struct Outgoing: Sendable {
         public var from: String
         public var to: String
         public var cc: String = ""

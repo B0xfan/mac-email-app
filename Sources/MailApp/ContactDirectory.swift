@@ -5,7 +5,7 @@ import MailCore
 
 // MARK: - To field suggestions
 
-final class ContactDirectory {
+@MainActor final class ContactDirectory {
     private(set) var macContacts: [Address] = []
     private(set) var photos: [String: Data] = [:]   // lowercase address -> the Contacts thumbnail
     private(set) var emails = Set<String>()         // every lowercase address in Contacts, with or without a photo
@@ -21,6 +21,13 @@ final class ContactDirectory {
         asked = true
         if status == .notDetermined { _ = try? await store.requestAccess(for: .contacts) }
         guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else { return }
+        let (out, pics) = await Self.read()
+        macContacts = out; photos = pics; emails = Set(out.map(\.email))
+    }
+
+    /// Reads every name, address and thumbnail, off the main thread (a big address book takes a moment).
+    nonisolated private static func read() async -> ([Address], [String: Data]) {
+        let store = CNContactStore()
         let keys = [CNContactGivenNameKey, CNContactFamilyNameKey, CNContactNicknameKey, CNContactEmailAddressesKey, CNContactThumbnailImageDataKey] as [CNKeyDescriptor]
         let req = CNContactFetchRequest(keysToFetch: keys)
         var out: [Address] = [], pics: [String: Data] = [:]
@@ -29,16 +36,16 @@ final class ContactDirectory {
             for e in c.emailAddresses { out.append(Address(name: name.isEmpty ? c.nickname : name, email: (e.value as String).lowercased())) }
             if let t = c.thumbnailImageData { for e in c.emailAddresses { pics[(e.value as String).lowercased()] = t } }
         }
-        macContacts = out; photos = pics; emails = Set(out.map(\.email))
+        return (out, pics)
     }
 
     /// The list closes once what is typed is already a complete address (picked, typed in full, or a reply's sender).
-    static func open(_ found: [Address], typing: String) -> [Address] {
+    nonisolated static func open(_ found: [Address], typing: String) -> [Address] {
         found.contains { $0.email.caseInsensitiveCompare(typing) == .orderedSame } ? [] : found
     }
 
     /// People whose name or address starts a word that matches what was typed. Best matches first, no repeats.
-    static func match(_ typed: String, in people: [Address], limit: Int = 5) -> [Address] {
+    nonisolated static func match(_ typed: String, in people: [Address], limit: Int = 5) -> [Address] {
         let q = typed.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return [] }
         var seen = Set<String>(), scored: [(Int, Address)] = []
@@ -56,12 +63,12 @@ final class ContactDirectory {
     }
 
     /// Splits "a@b.c, Name <d@e.f>, par" into the finished part and the word being typed.
-    static func split(_ text: String) -> (done: String, typing: String) {
+    nonisolated static func split(_ text: String) -> (done: String, typing: String) {
         guard let i = text.lastIndex(of: ",") else { return ("", text.trimmingCharacters(in: .whitespaces)) }
         return (String(text[...i]) + " ", String(text[text.index(after: i)...]).trimmingCharacters(in: .whitespaces))
     }
 
-    static func complete(_ text: String, with a: Address) -> String {
+    nonisolated static func complete(_ text: String, with a: Address) -> String {
         let s = split(text)
         let item = a.name.isEmpty ? a.email : "\(a.name) <\(a.email)>"
         return s.done + item + ", "

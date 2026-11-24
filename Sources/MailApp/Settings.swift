@@ -18,7 +18,7 @@ enum HomePreview: String, CaseIterable {
 }
 
 /// Non-secret preferences only. Tokens never go here.
-final class AppSettings: ObservableObject {
+@MainActor final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     private let d = UserDefaults.standard
 
@@ -40,9 +40,9 @@ final class AppSettings: ObservableObject {
     @Published var checkMinutes: Int { didSet { d.set(checkMinutes, forKey: "checkMinutes") } }
     /// Settings > Storage: mail newer than this many days keeps its full text on this Mac (plus anything John opened); older mail keeps sender, subject and a preview.
     @Published var keepTextDays: Int { didSet { d.set(keepTextDays, forKey: "keepTextDays") } }
-    static let textChoices = [30, SyncEngine.textDefault, 180, 365]   // the default is always one of the choices
-    static let textDefault = SyncEngine.textDefault
-    static func textLabel(_ days: Int) -> String { switch days { case 30: return "30 days"; case 180: return "6 months"; case 365: return "1 year"; default: return "\(days) days" } }
+    nonisolated static let textChoices = [30, SyncEngine.textDefault, 180, 365]   // the default is always one of the choices
+    nonisolated static let textDefault = SyncEngine.textDefault
+    nonisolated static func textLabel(_ days: Int) -> String { switch days { case 30: return "30 days"; case 180: return "6 months"; case 365: return "1 year"; default: return "\(days) days" } }
     /// "Group emails into conversations": off = the inbox reads exactly as before.
     @Published var groupConversations: Bool { didSet { d.set(groupConversations, forKey: "groupConversations") } }
     /// "Open one message at a time" (Settings > Inbox, only used with grouping on): on = opening an older message folds the one already open.
@@ -65,18 +65,20 @@ final class AppSettings: ObservableObject {
     @Published var menuBarAll: Bool { didSet { d.set(menuBarAll, forKey: "menuBarAll") } }
     // Claude access: off until turned on; Blocked senders, Spam and Trash stay hidden from Claude unless this is switched off
     @Published var claudeEnabled: Bool { didSet { d.set(claudeEnabled, forKey: "claudeEnabled") } }
+    /// The saved value, readable from any thread (Claude's requests arrive off the main thread).
+    nonisolated static var claudeHideBlockedSaved: Bool { UserDefaults.standard.object(forKey: "claudeHideBlocked") as? Bool ?? true }
     @Published var claudeHideBlocked: Bool { didSet { d.set(claudeHideBlocked, forKey: "claudeHideBlocked") } }
     @Published var todoList: TodoList { didSet { d.set(todoList.rawValue, forKey: "todoList") } }
     @Published var vaultPath: String { didSet { d.set(vaultPath, forKey: "vaultPath") } }
     /// Conversations already sent to the to-do list (the small check mark on the email).
     @Published var todoMarks: [String] { didSet { d.set(todoMarks, forKey: "todoMarks") } }
     /// Only the latest 500 conversations keep their to-do check mark.
-    static func cappedMarks(_ marks: [String]) -> [String] { Array(marks.suffix(500)) }
-    static let defaultQuickReplies = ["Sounds good, see you then.", "Thanks!", "Got it, I will reply properly soon.", "Can we do another time?"]
-    static let checkChoices = [1, 2, 5, 15, 30]
+    nonisolated static func cappedMarks(_ marks: [String]) -> [String] { Array(marks.suffix(500)) }
+    nonisolated static let defaultQuickReplies = ["Sounds good, see you then.", "Thanks!", "Got it, I will reply properly soon.", "Can we do another time?"]
+    nonisolated static let checkChoices = [1, 2, 5, 15, 30]
     /// Seconds between checks for a stored value; anything unknown falls back to 1 minute.
-    static func checkSeconds(minutes: Int?) -> Double { Double(checkChoices.contains(minutes ?? 1) ? (minutes ?? 1) : 1) * 60 }
-    static func checkLabel(_ m: Int) -> String { m == 1 ? "Every minute" : "Every \(m) minutes" }
+    nonisolated static func checkSeconds(minutes: Int?) -> Double { Double(checkChoices.contains(minutes ?? 1) ? (minutes ?? 1) : 1) * 60 }
+    nonisolated static func checkLabel(_ m: Int) -> String { m == 1 ? "Every minute" : "Every \(m) minutes" }
 
     init() {
         theme = ThemeChoice(rawValue: d.string(forKey: "theme") ?? "") ?? .system
@@ -107,7 +109,7 @@ final class AppSettings: ObservableObject {
         menuBarShow = d.object(forKey: "menuBarShow") as? Bool ?? true
         menuBarAll = d.object(forKey: "menuBarAll") as? Bool ?? false
         claudeEnabled = d.object(forKey: "claudeEnabled") as? Bool ?? false
-        claudeHideBlocked = d.object(forKey: "claudeHideBlocked") as? Bool ?? true
+        claudeHideBlocked = Self.claudeHideBlockedSaved
         todoList = TodoList(rawValue: d.string(forKey: "todoList") ?? "") ?? .obsidian
         vaultPath = d.string(forKey: "vaultPath") ?? ObsidianTask.defaultVault().path
         todoMarks = Self.cappedMarks(d.stringArray(forKey: "todoMarks") ?? [])

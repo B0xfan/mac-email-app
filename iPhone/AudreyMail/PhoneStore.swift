@@ -6,7 +6,7 @@ import MailCore
 
 /// Where the phone keeps its small files (the saved inbox, the new-sender list, the to-do keys). The Google sign-in is never here: that lives in the Keychain only.
 enum Support {
-    static var dir: URL = {
+    static let dir: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AudreyMail")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
@@ -774,7 +774,7 @@ struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@Main
     }
 
     /// Runs a Gmail change; one refused sign-in is not the end: a fresh token is asked for and the change is tried once more.
-    private func retryingSignIn<T>(_ op: () async throws -> T) async throws -> T {
+    private func retryingSignIn<T: Sendable>(_ op: () async throws -> T) async throws -> T {
         do { return try await op() }
         catch GmailError.signInAgain {
             switch await freshToken() {

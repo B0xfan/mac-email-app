@@ -251,7 +251,7 @@ extension SelfTest {
               && Swipe.clamp(900, width: 400) == 300 && Swipe.clamp(-900, width: 400) == -300
               && Swipe.signedDelta(5, naturalScrolling: true) == 5 && Swipe.signedDelta(5, naturalScrolling: false) == -5
               && Swipe.isHorizontal(dx: 8, dy: 2) && !Swipe.isHorizontal(dx: 3, dy: 8) && !Swipe.isHorizontal(dx: 0, dy: 0))
-        let defSet = await MainActor.run { AppSettings() }
+        let defSet = await MainActor.run { let s = AppSettings(); return (swipeRight: s.swipeRight, swipeLeft: s.swipeLeft) }
         check("swipe: choices and defaults (right = Archive, left = Set Aside)",
               SwipeAction.allCases.map(\.title) == ["Archive", "Pin", "Set Aside", "Mark Read or Unread", "Move to Trash", "Do nothing"]
               && (UserDefaults.standard.string(forKey: "swipeRight") != nil || defSet.swipeRight == .archive) && (UserDefaults.standard.string(forKey: "swipeLeft") != nil || defSet.swipeLeft == .aside))

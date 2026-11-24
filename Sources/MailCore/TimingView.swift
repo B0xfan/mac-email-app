@@ -70,7 +70,7 @@ public struct TimingView: Codable, Equatable, Sendable {
     }
 }
 
-public enum TimingViewWrite { case saved(version: Int), conflict(version: Int, TimingView) }
+public enum TimingViewWrite: Sendable { case saved(version: Int), conflict(version: Int, TimingView) }
 
 public protocol TimingViewLink: Sendable {
     func readTiming() async throws -> (version: Int, view: TimingView)

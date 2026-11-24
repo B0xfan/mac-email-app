@@ -1,6 +1,6 @@
 import SwiftUI
 import NaturalLanguage
-import Translation
+@preconcurrency import Translation   // Apple has not marked TranslationSession thread-safe yet; the session is used by one task at a time
 import MailCore
 
 /// Pure helpers for Translate: which emails are foreign, how text is cut for the translator and put back together.
@@ -126,9 +126,12 @@ final class Translator: ObservableObject {
         startNext()
     }
 
+    @available(macOS 15.0, *)
+    nonisolated private static func supportedLanguages() async -> [Locale.Language] { await LanguageAvailability().supportedLanguages }
+
     func loadLanguages() async {
         guard languages.isEmpty, #available(macOS 15.0, *) else { return }
-        let all = await LanguageAvailability().supportedLanguages
+        let all = await Self.supportedLanguages()
         var seen = Set<String>()
         languages = all.compactMap { l -> (String, String)? in
             let code = l.minimalIdentifier
@@ -147,6 +150,13 @@ struct TranslationHost: View {
 
     @available(macOS 15.0, *)
     private struct Runner: View {
+        /// The texts in order; the requests are made here, off the main thread, so they never cross threads.
+        nonisolated static func translate(_ texts: [String], with session: TranslationSession) async throws -> [String] {
+            let reqs = texts.enumerated().map { TranslationSession.Request(sourceText: $1, clientIdentifier: String($0)) }
+            var out = Array(repeating: "", count: texts.count)
+            for r in try await session.translations(from: reqs) { if let i = r.clientIdentifier.flatMap(Int.init), out.indices.contains(i) { out[i] = r.targetText } }
+            return out
+        }
         @ObservedObject var tr: Translator
         @State private var config: TranslationSession.Configuration?
         var body: some View {
@@ -154,11 +164,7 @@ struct TranslationHost: View {
                 .translationTask(config) { session in
                     guard let job = await tr.job else { return }
                     do {
-                        let reqs = job.texts.enumerated().map { TranslationSession.Request(sourceText: $1, clientIdentifier: String($0)) }
-                        let res = try await session.translations(from: reqs)
-                        var out = Array(repeating: "", count: job.texts.count)
-                        for r in res { if let i = r.clientIdentifier.flatMap(Int.init), out.indices.contains(i) { out[i] = r.targetText } }
-                        await tr.finish(job.id, out)
+                        await tr.finish(job.id, try await Self.translate(job.texts, with: session))
                     } catch { await tr.finish(job.id, nil) }
                 }
                 .onChange(of: tr.job) { _, j in
