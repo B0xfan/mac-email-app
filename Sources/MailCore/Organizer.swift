@@ -93,7 +93,7 @@ public struct Organizer: Codable, Equatable, Sendable {
     }
 }
 
-public enum OrganizerWrite { case saved(version: Int), conflict(version: Int, Organizer) }
+public enum OrganizerWrite: Sendable { case saved(version: Int), conflict(version: Int, Organizer) }
 
 /// The server's side of the sharing; the Mac and the phone each have their own way of talking to it.
 public protocol OrganizerLink: Sendable {

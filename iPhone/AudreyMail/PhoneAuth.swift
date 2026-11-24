@@ -6,7 +6,7 @@ import MailCore
 /// The Google sign-in for the phone. Google's "iOS" type client: no secret, the redirect comes back through the app's own web address scheme.
 enum GoogleConfig {
     /// The first part of the client id, set at build time (Info.plist GoogleClientPrefix). Not a secret.
-    static var prefix: String = Bundle.main.object(forInfoDictionaryKey: "GoogleClientPrefix") as? String ?? ""
+    static let prefix: String = Bundle.main.object(forInfoDictionaryKey: "GoogleClientPrefix") as? String ?? ""
     static var configured: Bool { !prefix.isEmpty && !prefix.hasPrefix("$(") && prefix != "NOT-SET" }
     static var clientID: String { prefix + ".apps.googleusercontent.com" }
     static var scheme: String { "com.googleusercontent.apps." + prefix }

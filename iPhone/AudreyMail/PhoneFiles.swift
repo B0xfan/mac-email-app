@@ -47,7 +47,7 @@ final class OpenedBook {
 
 /// The Todoist and ClickUp keys: a file inside this app's own private folder (not the Keychain, not backed up). Same idea as the Mac's private file.
 enum TodoKeyFile {
-    static var url: URL = Support.url("integrations.json")
+    nonisolated(unsafe) static var url: URL = Support.url("integrations.json")   // set once by the self-test before any read; otherwise never changed
     static func load() -> TodoTokens { (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(TodoTokens.self, from: $0) } ?? TodoTokens() }
     static func save(_ t: TodoTokens) throws {
         try JSONEncoder().encode(t).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])

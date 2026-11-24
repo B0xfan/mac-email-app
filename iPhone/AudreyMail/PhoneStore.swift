@@ -6,7 +6,7 @@ import MailCore
 
 /// Where the phone keeps its small files (the saved inbox, the new-sender list, the to-do keys). The Google sign-in is never here: that lives in the Keychain only.
 enum Support {
-    static var dir: URL = {
+    static let dir: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AudreyMail")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
