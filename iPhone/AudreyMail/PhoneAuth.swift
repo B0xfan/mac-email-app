@@ -1,18 +1,10 @@
 import Foundation
 import AuthenticationServices
-import CryptoKit
 import UIKit
 import MailCore
 
 /// The Google sign-in for the phone. Google's "iOS" type client: no secret, the redirect comes back through the app's own web address scheme.
 enum GoogleConfig {
-    static let scopes = [
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/gmail.settings.basic",
-    ]
-    static let authEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-    static let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
     /// The first part of the client id, set at build time (Info.plist GoogleClientPrefix). Not a secret.
     static var prefix: String = Bundle.main.object(forInfoDictionaryKey: "GoogleClientPrefix") as? String ?? ""
     static var configured: Bool { !prefix.isEmpty && !prefix.hasPrefix("$(") && prefix != "NOT-SET" }
@@ -52,15 +44,6 @@ enum SignInKeychain {
     static func delete() { SecItemDelete(query as CFDictionary) }
 }
 
-enum PKCE {
-    static func random(bytes: Int) -> String {
-        var b = [UInt8](repeating: 0, count: bytes)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes, &b)
-        return Base64URL.encode(Data(b))
-    }
-    static func challenge(_ verifier: String) -> String { Base64URL.encode(Data(SHA256.hash(data: Data(verifier.utf8)))) }
-}
-
 /// Shows Google's own sign-in page in the system browser sheet and returns where it ended up.
 @MainActor
 final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
@@ -98,21 +81,11 @@ actor PhoneAuth: PhoneSignIn {
     func signOut() { SignInKeychain.delete(); cached = nil; accessToken = nil; accessExpiry = .distantPast; refreshTask?.cancel(); refreshTask = nil }
     func invalidateAccessToken() { accessToken = nil; accessExpiry = .distantPast }
 
-    static func authURL(state: String, challenge: String) -> URL {
-        var c = URLComponents(url: GoogleConfig.authEndpoint, resolvingAgainstBaseURL: false)!
-        c.queryItems = [
-            .init(name: "client_id", value: GoogleConfig.clientID), .init(name: "redirect_uri", value: GoogleConfig.redirect),
-            .init(name: "response_type", value: "code"), .init(name: "scope", value: GoogleConfig.scopes.joined(separator: " ")),
-            .init(name: "state", value: state), .init(name: "code_challenge", value: challenge), .init(name: "code_challenge_method", value: "S256"),
-            .init(name: "access_type", value: "offline"), .init(name: "prompt", value: "consent"),
-        ]
-        return c.url!
-    }
-
     func signIn() async throws -> String? {
         guard GoogleConfig.configured else { throw AuthError.denied("this build has no Google sign-in set up yet") }
         let verifier = PKCE.random(bytes: 64), state = PKCE.random(bytes: 24)
-        let url = Self.authURL(state: state, challenge: PKCE.challenge(verifier))
+        let url = GoogleSignIn.authURL(clientID: GoogleConfig.clientID, redirect: GoogleConfig.redirect, scopes: GoogleSignIn.gmailScopes,
+                                      state: state, challenge: PKCE.challenge(for: verifier))
         let web = await MainActor.run { WebSignIn() }
         let back = try await web.run(url, scheme: GoogleConfig.scheme)
         let items = URLComponents(url: back, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -120,11 +93,11 @@ actor PhoneAuth: PhoneSignIn {
         if let e = q("error") { throw AuthError.denied(e) }
         guard q("state") == state else { throw AuthError.stateMismatch }
         guard let code = q("code") else { throw AuthError.denied("no code") }
-        let tok = try await tokenRequest(["grant_type": "authorization_code", "code": code, "redirect_uri": GoogleConfig.redirect, "code_verifier": verifier, "client_id": GoogleConfig.clientID])
+        let tok = try await GoogleSignIn.tokenRequest(["grant_type": "authorization_code", "code": code, "redirect_uri": GoogleConfig.redirect, "code_verifier": verifier, "client_id": GoogleConfig.clientID], session: session)
         guard let refresh = tok.refresh_token else { throw AuthError.noRefreshToken }
         accessToken = tok.access_token
         accessExpiry = Date().addingTimeInterval(TimeInterval(tok.expires_in ?? 3600) - 60)
-        let s = StoredSignIn(refreshToken: refresh, email: try? await fetchEmail(token: tok.access_token))
+        let s = StoredSignIn(refreshToken: refresh, email: try? await GoogleSignIn.email(token: tok.access_token, session: session))
         guard SignInKeychain.save(s) else { throw AuthError.denied("the sign-in could not be kept on this phone") }
         cached = s
         return s.email
@@ -143,7 +116,7 @@ actor PhoneAuth: PhoneSignIn {
     private func refresh() async throws -> String {
         guard let s = stored() else { throw AuthError.signInAgain }
         do {
-            let tok = try await tokenRequest(["grant_type": "refresh_token", "refresh_token": s.refreshToken, "client_id": GoogleConfig.clientID])
+            let tok = try await GoogleSignIn.tokenRequest(["grant_type": "refresh_token", "refresh_token": s.refreshToken, "client_id": GoogleConfig.clientID], session: session)
             guard cached != nil else { throw AuthError.signInAgain }   // signed out while this was running: keep nothing
             accessToken = tok.access_token
             accessExpiry = Date().addingTimeInterval(TimeInterval(tok.expires_in ?? 3600) - 60)
@@ -152,30 +125,5 @@ actor PhoneAuth: PhoneSignIn {
             signOut()
             throw AuthError.signInAgain
         }
-    }
-
-    struct TokenResponse: Decodable { let access_token: String; let refresh_token: String?; let expires_in: Int? }
-
-    private func tokenRequest(_ params: [String: String]) async throws -> TokenResponse {
-        var req = URLRequest(url: GoogleConfig.tokenEndpoint)
-        req.httpMethod = "POST"
-        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var allowed = CharacterSet.alphanumerics; allowed.insert(charactersIn: "-._~")
-        req.httpBody = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")" }.joined(separator: "&").data(using: .utf8)
-        let (data, resp): (Data, URLResponse)
-        do { (data, resp) = try await session.data(for: req) } catch { throw AuthError.network(error.localizedDescription) }
-        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
-        if code == 200 { return try JSONDecoder().decode(TokenResponse.self, from: data) }
-        let err = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String ?? "http \(code)"
-        if err == "invalid_grant" { throw AuthError.signInAgain }
-        if code >= 500 || code == 429 { throw AuthError.network("Google is busy, http \(code)") }
-        throw AuthError.denied(err)
-    }
-
-    private func fetchEmail(token: String) async throws -> String? {
-        var req = URLRequest(url: URL(string: GmailClient.base + "/profile")!)
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, _) = try await session.data(for: req)
-        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["emailAddress"] as? String
     }
 }

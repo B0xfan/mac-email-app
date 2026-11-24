@@ -54,8 +54,8 @@ enum SelfTest {
     }
     static func printAuthURL() throws {
         let c = try ClientCredentials.load()
-        let url = GoogleAuth.authURL(clientID: c.clientID, redirect: "http://127.0.0.1:12345", state: "STATE",
-                                     challenge: PKCE.challenge(for: "VERIFIER"))
+        let url = GoogleSignIn.authURL(clientID: c.clientID, redirect: "http://127.0.0.1:12345", scopes: GoogleConfig.scopes, state: "STATE",
+                                       challenge: PKCE.challenge(for: "VERIFIER"))
         print(url.absoluteString)
     }
 
