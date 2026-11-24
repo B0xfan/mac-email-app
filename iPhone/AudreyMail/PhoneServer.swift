@@ -65,9 +65,10 @@ actor PhoneServer: OrganizerLink, TimingViewLink {
     }
 
     /// The shared request (MailCore MailServer); the key lives in the Keychain.
-    private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true) async throws -> (Int, [String: Any]) {
+    /// Not tied to the actor, so the request runs without holding it; the key steps go back through it.
+    nonisolated private func call(_ method: String, _ path: String, _ body: [String: Any]? = nil, keyed: Bool = true) async throws -> sending (Int, [String: Any]) {
         try await MailServer.call(method, base.appendingPathComponent(path), body, session: session,
-                                  keyed: keyed, key: { try await self.key() }, dropKey: { self.keys.save(nil) })
+                                  keyed: keyed, key: { try await self.key() }, dropKey: { await self.forgetKey() })
     }
 
     // MARK: Undo Send
