@@ -354,3 +354,46 @@ struct AddressTag: View {
         }
     }
 }
+
+struct RadioRow: View {
+    let label: String
+    var tag: String? = nil
+    let on: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle().stroke(on ? Theme.acc : Theme.sub, lineWidth: 2).frame(width: 20, height: 20)
+                    if on { Circle().fill(Theme.acc).frame(width: 10, height: 10) }
+                }
+                Text(label).font(Theme.body).foregroundStyle(Theme.text)
+                if let tag {
+                    Text(tag).font(Theme.label).foregroundStyle(Theme.accInk)
+                        .padding(.horizontal, 8).padding(.vertical, 2).background(Capsule().fill(Theme.accSoft))
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(minHeight: 28).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label).accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+enum Fmt {
+    static func short(_ d: Date) -> String {
+        let c = Calendar.current
+        if c.isDateInToday(d) { return d.formatted(date: .omitted, time: .shortened) }
+        if c.isDateInYesterday(d) { return "Yesterday" }
+        if let days = c.dateComponents([.day], from: d, to: Date()).day, days < 7 { return d.formatted(.dateTime.weekday(.abbreviated)) }
+        return d.formatted(.dateTime.month(.abbreviated).day())
+    }
+    static func long(_ d: Date) -> String {
+        let c = Calendar.current
+        let t = d.formatted(date: .omitted, time: .shortened)
+        if c.isDateInToday(d) { return "Today, \(t)" }
+        if c.isDateInYesterday(d) { return "Yesterday, \(t)" }
+        return d.formatted(date: .abbreviated, time: .shortened)
+    }
+}
