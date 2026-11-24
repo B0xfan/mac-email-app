@@ -68,7 +68,8 @@ struct MailApp: App {
         let args = CommandLine.arguments
         setvbuf(stdout, nil, _IOLBF, 0)
         #if TESTHARNESS
-        if ["--selftest", "--snapshot", "--webtest", "--livetest", "--droptest", "--timingshots", "--polishtest", "--settingsshots", "--tiptest", "--helpshots", "--listtest"].contains(where: args.contains) { Keychain.testMode = true }
+        // Every "--" switch is a test or harness run: test mode turns on by itself, so a new switch can never reach the Keychain or the real sign-in file.
+        if args.dropFirst().contains(where: { $0.hasPrefix("--") }) { Keychain.testMode = true }
         if args.contains("--selftest") {
             GmailClient.turnPacingOffForTests()
             Task { exit(await SelfTest.run() ? 0 : 1) }

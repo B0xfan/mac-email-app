@@ -62,6 +62,7 @@ enum SelfTest {
     static func run() async -> Bool {
         var ok = true
         func check(_ name: String, _ cond: Bool) { print((cond ? "PASS " : "FAIL ") + name); if !cond { ok = false } }
+        check("test mode turns on by itself for a \"--\" switch (no Keychain, no real sign-in file)", Keychain.testMode)
 
         // The Google client file is not on the CI runner: skip there only; locally a missing file still FAILs.
         if (try? ClientCredentials.load()) == nil, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] != nil {
