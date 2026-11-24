@@ -3,8 +3,8 @@ import Foundation
 // Rules = Gmail's own filters (settings.basic scope, already requested), so they also work on the phone and with the Mac off.
 // Gmail cannot update a filter in place: Edit creates the new one first, then deletes the old one. Shared by the Mac and the iPhone.
 
-public struct MailRule: Equatable {
-    public enum Importance { case asIs, important, notImportant }
+public struct MailRule: Equatable, Sendable {
+    public enum Importance: Sendable { case asIs, important, notImportant }
     public var id = ""                      // Gmail filter id; empty = not saved yet
     public var from = "", to = "", subject = "", has = "", not = ""
     public var att = false, skip = false, read = false, star = false, trash = false, noSpam = false
@@ -71,7 +71,7 @@ public struct MailRule: Equatable {
     }
 }
 
-public struct RuleRow: Identifiable {
+public struct RuleRow: Identifiable, Sendable {
     public let id: String
     public let rule: MailRule?      // nil = read-only
     public let text: String
@@ -90,7 +90,7 @@ public extension GFilter {
 
 /// Reading and saving rules in Gmail: one set of steps for the Mac and the iPhone.
 public enum RuleBook {
-    public struct Loaded { public let rows: [RuleRow]; public let names: [String: String] }
+    public struct Loaded: Sendable { public let rows: [RuleRow]; public let names: [String: String] }
 
     public static func load(gmail: GmailClient, blockLabel: String) async throws -> Loaded {
         let labels = try await gmail.labels(), fs = try await gmail.filters()
@@ -103,7 +103,7 @@ public enum RuleBook {
         return Loaded(rows: rows, names: names)
     }
 
-    public struct Saved {
+    public struct Saved: Sendable {
         public var error: String?       // the sentence to show, or nil
         public var newID: String?       // the new filter's id when the old copy could not be removed
         public var reload = false       // a filter was made: read the list again

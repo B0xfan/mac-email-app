@@ -20,7 +20,7 @@ enum MenuBarLogic {
 
 /// The "Hidden A" envelope on a 24 grid, 1.8 round stroke, drawn as a template image so macOS tints it for light, dark and a busy menu bar.
 enum MenuBarIcon {
-    static let image: NSImage = {
+    @MainActor static let image: NSImage = {
         let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { r in
             let k = r.width / 24
             func line(_ pts: [(CGFloat, CGFloat)]) -> NSBezierPath {

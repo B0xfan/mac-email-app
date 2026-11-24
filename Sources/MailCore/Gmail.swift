@@ -45,7 +45,7 @@ public struct GFilter: Decodable, Sendable {
     public let criteria: Criteria?
     public let action: Action?
 }
-public struct GSendAs: Decodable {
+public struct GSendAs: Decodable, Sendable {
     public let sendAsEmail: String
     public let displayName: String?
     public let isDefault: Bool?
@@ -90,7 +90,7 @@ public struct GSendAs: Decodable {
     }
 }
 
-public struct GThreadMessage: Equatable { public let id: String; public let labels: [String]; public let date: Date
+public struct GThreadMessage: Equatable, Sendable { public let id: String; public let labels: [String]; public let date: Date
     public init(id: String, labels: [String], date: Date) { self.id = id; self.labels = labels; self.date = date } }
 public struct NotInInbox: Error {}
 

@@ -126,9 +126,12 @@ final class Translator: ObservableObject {
         startNext()
     }
 
+    @available(macOS 15.0, *)
+    nonisolated private static func supportedLanguages() async -> [Locale.Language] { await LanguageAvailability().supportedLanguages }
+
     func loadLanguages() async {
         guard languages.isEmpty, #available(macOS 15.0, *) else { return }
-        let all = await LanguageAvailability().supportedLanguages
+        let all = await Self.supportedLanguages()
         var seen = Set<String>()
         languages = all.compactMap { l -> (String, String)? in
             let code = l.minimalIdentifier

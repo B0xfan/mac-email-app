@@ -18,7 +18,7 @@ enum HomePreview: String, CaseIterable {
 }
 
 /// Non-secret preferences only. Tokens never go here.
-final class AppSettings: ObservableObject {
+@MainActor final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     private let d = UserDefaults.standard
 

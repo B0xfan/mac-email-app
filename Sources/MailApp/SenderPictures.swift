@@ -39,7 +39,7 @@ enum Fetch { case ok(Data), none, error }
     private var flights: [String: [CheckedContinuation<Void, Never>]] = [:]   // domains being fetched, with the rows waiting on them
     private var running = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private lazy var indexReady = Task { [dir] in
+    private lazy var indexReady = Task { @MainActor [dir] in
         let i = await Self.onIO { (try? Data(contentsOf: dir.appendingPathComponent("index.json"))).flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:] }
         self.index = i
     }

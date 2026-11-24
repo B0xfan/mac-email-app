@@ -10,7 +10,7 @@ import SQLite3
 ///  - removing an account also deletes its stored mail (`wipe()`, called by `MailStore.removeAccount`).
 
 /// A list picked from stored mail: has every label in `all`, none of `none`, newest first.
-public struct DBListSpec: Equatable { public var all: [String]; public var none: [String] = []
+public struct DBListSpec: Equatable, Sendable { public var all: [String]; public var none: [String] = []
     public init(all: [String], none: [String] = []) { self.all = all; self.none = none } }
 
 public final class MailDB: @unchecked Sendable {

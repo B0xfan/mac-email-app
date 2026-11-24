@@ -41,7 +41,7 @@ final class SwipeHub {
         guard monitor == nil, !Keychain.testMode else { return }   // headless test modes never listen to the real trackpad
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] e in
             guard let self else { return e }
-            return MainActor.assumeIsolated { self.handle(e) }
+            return MainActor.assumeIsolated { self.handle(e) != nil } ? e : nil   // handle passes the event on unchanged or swallows it
         }
     }
 
