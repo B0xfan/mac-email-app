@@ -187,7 +187,7 @@ public final class MailDB: @unchecked Sendable {
     public func run(_ sql: String, _ args: [Any?] = [], _ row: ((OpaquePointer) -> Void)? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let h = handle else { errors += 1; lastCode = SQLITE_MISUSE; return false }
-        let rc = Self.exec(h, sql, args, row)
+        let rc = Self.exec(h, sql, args, row ?? { _ in })
         if rc != SQLITE_DONE { lastCode = rc; errors += 1 }
         return rc == SQLITE_DONE
     }
@@ -197,11 +197,11 @@ public final class MailDB: @unchecked Sendable {
         readLock.lock()
         if let r = reader { _ = Self.exec(r, sql, args, row); readLock.unlock(); return }
         readLock.unlock()
-        run(sql, args, row)
+        withoutActuallyEscaping(row) { _ = run(sql, args, $0) }
     }
 
     /// Prepares, binds and steps one statement; SQLITE_DONE when it all went through.
-    private static func exec(_ h: OpaquePointer, _ sql: String, _ args: [Any?], _ row: ((OpaquePointer) -> Void)?) -> Int32 {
+    private static func exec(_ h: OpaquePointer, _ sql: String, _ args: [Any?], _ row: (OpaquePointer) -> Void) -> Int32 {
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK, let st else { sqlite3_finalize(st); return sqlite3_errcode(h) }
         for (i, a) in args.enumerated() {
@@ -216,7 +216,7 @@ public final class MailDB: @unchecked Sendable {
             }
         }
         var rc = sqlite3_step(st)
-        while rc == SQLITE_ROW { row?(st); rc = sqlite3_step(st) }
+        while rc == SQLITE_ROW { row(st); rc = sqlite3_step(st) }
         sqlite3_finalize(st)
         return rc
     }
