@@ -193,12 +193,11 @@ public final class MailDB: @unchecked Sendable {
     }
 
     /// A read on the read-only line; it never takes `lock`, so it neither waits for nor holds up a write. Its failures are not counted against a transaction.
-    @discardableResult
-    private func read(_ sql: String, _ args: [Any?], _ row: (OpaquePointer) -> Void) -> Bool {
+    private func read(_ sql: String, _ args: [Any?], _ row: (OpaquePointer) -> Void) {
         readLock.lock()
-        if let r = reader { defer { readLock.unlock() }; return Self.exec(r, sql, args, row) == SQLITE_DONE }
+        if let r = reader { _ = Self.exec(r, sql, args, row); readLock.unlock(); return }
         readLock.unlock()
-        return run(sql, args, row)
+        run(sql, args, row)
     }
 
     /// Prepares, binds and steps one statement; SQLITE_DONE when it all went through.
@@ -470,7 +469,9 @@ public final class MailDB: @unchecked Sendable {
             run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
         }) else { return false }
         reloadHot()
+        lock.lock(); readLock.lock()   // no search is reading while the file is made small: a running one would make the checkpoint wait out the busy timeout
         run("PRAGMA wal_checkpoint(TRUNCATE)"); run("VACUUM")
+        readLock.unlock(); lock.unlock()
         return true
     }
 
