@@ -144,7 +144,9 @@ extension SelfTest {
         // the Inbox on screen: a read of Gmail does not bring back what is waiting to be archived; refresh sends first
         let o7 = await ready("o7.sqlite")
         o7.db.enqueue(.modify, ids: ["i1"], remove: ["INBOX"])
-        let left = await MainActor.run { () -> [String] in o7.st.inbox = [lsMail("i1", ["INBOX"]), lsMail("i2", ["INBOX"])]; o7.st.replayPendingOnScreen(); return o7.st.inbox.map(\.id) }
+        await MainActor.run { o7.st.inbox = [lsMail("i1", ["INBOX"]), lsMail("i2", ["INBOX"])] }
+        await o7.st.replayPendingOnScreen()
+        let left = await MainActor.run { o7.st.inbox.map(\.id) }
         check("on screen: a change still waiting for Gmail is applied again to the Inbox a read of Gmail just filled", left == ["i2"])
         await o7.st.refresh()
         check("on screen: a check sends the waiting changes first, before it reads Gmail", o7.db.outbox().isEmpty && o7.f.writes == ["modify i1 + -INBOX"])

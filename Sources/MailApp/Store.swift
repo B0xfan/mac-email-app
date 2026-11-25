@@ -197,7 +197,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     /// Last inbox list, shown at launch while Gmail refreshes. nil = no cache (tests).
     let cacheURL: URL?
     /// Mail kept on this Mac (plan-local-mail-storage.md). nil = tests and anything that does not use it: every list is then read from Gmail as before.
-    let db: MailDB?
+    let db: MailFile?
     /// Copies the mailbox into `db` in the background and keeps it current (nil without a database).
     @ObservationIgnored var engine: SyncEngine?
     /// Where the attachments John downloaded are kept (a check points it somewhere else).
@@ -211,7 +211,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
 
     init(auth: SignInModel, gmail: GmailClient, book: SenderBook = SenderBook(), seen: SeenBook = SeenBook(), categories: CategoryBook = CategoryBook(), asides: AsideBook = AsideBook(), organizer: OrganizerBook = OrganizerBook(), timing: TimingBook = TimingBook(), timingServer: TimingServer? = nil,
          blockLabelName: String = ProcessInfo.processInfo.environment["MAILAPP_BLOCK_LABEL"] ?? "Blocked", cacheURL: URL? = nil, pendingDir: URL? = nil, db: MailDB? = nil) {
-        self.cacheURL = cacheURL; self.pendingDir = pendingDir; self.db = db
+        self.cacheURL = cacheURL; self.pendingDir = pendingDir; self.db = db.map(MailFile.init)
         self.auth = auth; self.gmail = gmail; self.book = book; self.seen = seen; self.categories = categories; self.asides = asides; self.organizer = organizer; self.timing = timing; self.timingServer = timingServer; self.blockLabelName = blockLabelName
         SenderPictures.shared.contacts = contacts
         SenderPictures.shared.trusted = { [weak self] in self?.logoOK($0) ?? false }
@@ -303,7 +303,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         await auth.signOut(); accountEmail = ""
         await engine?.stopAndWait()   // nothing may still be writing when the stored mail is deleted
         syncProgress = SyncProgress()
-        db?.wipe()
+        await db?.run { $0.wipe() }
         try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments downloaded for this account go with the rest of its mail
         if let u = cacheURL { try? FileManager.default.removeItem(at: u) }
     }
@@ -311,8 +311,11 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     func start() async {
         guard case .signedIn(let email) = auth.state else { return }
         accountEmail = email ?? ""
-        db?.useAccount(accountEmail)   // another account's mail is dropped
-        db?.importInboxCache(at: cacheURL, account: accountEmail)   // once: the saved inbox becomes the first (unconfirmed) rows
+        let (account, cache) = (accountEmail, cacheURL)
+        _ = await db?.run { db in
+            db.useAccount(account)   // another account's mail is dropped
+            return db.importInboxCache(at: cache, account: account)   // once: the saved inbox becomes the first (unconfirmed) rows
+        }
         loadCache()
         await refresh()
         await recoverPendingSends()
@@ -365,7 +368,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
                 let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
                 let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
                 inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
-                replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
+                await replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
                 if deeper.isEmpty { inboxNext = page.next }
                 failedCount = got.failed.count
             }
@@ -405,7 +408,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     func readStoredInbox(more: Int = 0) async -> Bool {
         guard let db else { return false }
         let n = max(Self.inboxPage, inbox.count + more)
-        guard let rows = await storedRead({ db.inboxThreads(limit: n) }) else { return false }
+        guard let rows = await storedRead(db, { db in db.inboxThreads(limit: n) }) else { return false }
         inbox = applySurfaced(rows).sorted { $0.date > $1.date }
         inboxNext = rows.count == n ? String(n) : nil
         inboxFromMac = true
@@ -479,14 +482,14 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         let q = search.trimmingCharacters(in: .whitespaces); searchRan = q
         if let spec = storedSpec(mailbox), let db {   // Archive, Sent and folders once the copy of the mailbox is complete
             let page = Self.otherPage
-            let rows = await storedRead { db.list(spec, limit: page) }   // off the main thread: a big mailbox must not freeze the window
+            let rows = await storedRead(db) { db in db.list(spec, limit: page) }   // off the main thread: a big mailbox must not freeze the window
             guard gen == otherGen else { return }
             other = rows; otherSource = .stored(spec); otherNext = rows.count == Self.otherPage ? String(Self.otherPage) : nil; otherWrites = writesAtStart
             return
         }
         if mailbox == .search, !q.isEmpty, let db, db.isComplete, let words = Self.localWords(q) {   // the Mac first; Gmail only when John asks (searchGmailToo)
             let page = Self.otherPage
-            var mails = await storedRead(while: { gen == self.otherGen }) { db.search(words, limit: page) }   // a replaced search is not run again
+            var mails = await storedRead(db, while: { gen == self.otherGen }) { db in db.search(words, limit: page) }   // a replaced search is not run again
             let more = mails.count == page
             // private notes live on this Mac and Gmail cannot see them; they are searched by the same words
             let have = Set(mails.map(\.threadID))
@@ -561,7 +564,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         if case .storedSearch(let words) = src, let db {   // the next 50 matches from this Mac
             let off = Int(tok) ?? other.count, page = Self.otherPage
             loadingOtherMore = true; defer { loadingOtherMore = false }
-            let rows = await storedRead { db.search(words, limit: page, offset: off) }
+            let rows = await storedRead(db) { db in db.search(words, limit: page, offset: off) }
             guard gen == otherGen else { return }
             let have = Set(other.map(\.id))
             other += rows.filter { !have.contains($0.id) }
@@ -572,7 +575,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
             let off = Int(tok) ?? other.count, page = Self.otherPage
             loadingOtherMore = true; defer { loadingOtherMore = false }
             let last = other.last?.id
-            let rows = await storedRead { db.list(spec, limit: page, offset: off, after: last) }
+            let rows = await storedRead(db) { db in db.list(spec, limit: page, offset: off, after: last) }
             guard gen == otherGen else { return }
             let have = Set(other.map(\.id))
             other += rows.filter { !have.contains($0.id) }

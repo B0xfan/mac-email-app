@@ -171,15 +171,15 @@ extension SelfTest {
         let counter = await MainActor.run { ast.changes }
         nonisolated(unsafe) var reads = 0
         let inboxSpec = DBListSpec(all: ["INBOX"])
-        let answer = await ast.storedRead { () -> [String] in
+        let answer = await ast.storedRead(MailFile(adb)) { db -> [String] in
             reads += 1
-            let rows = adb.list(inboxSpec, limit: 10).map(\.id)
+            let rows = db.list(inboxSpec, limit: 10).map(\.id)
             if reads == 1 { adb.applyLabels(ids: ["r1"], add: [], remove: ["INBOX"]); counter.bump() }   // John archives r1 while the read is under way
             return rows
         }
         check("stored reads: a read that began before John's change is thrown away and made again (2 reads), so the archived message does not come back", reads == 2 && answer == ["r2"])
         nonisolated(unsafe) var busy = 0
-        _ = await ast.storedRead { () -> Int in busy += 1; counter.bump(); return busy }
+        _ = await ast.storedRead(MailFile(adb)) { _ -> Int in busy += 1; counter.bump(); return busy }
         check("stored reads: with changes arriving all the time it gives up after 3 reads instead of looping", busy == 3)
 
         // the wait before a failed change is tried again: one rule for the whole change and for the one-message-at-a-time retry

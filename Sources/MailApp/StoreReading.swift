@@ -169,7 +169,7 @@ extension MailStore {
         guard let l = asideLabelID else { aside = []; return }
         if let db, db.isComplete {   // from this Mac, no request
             let spec = DBListSpec(all: [l], none: ["TRASH", "SPAM"])
-            aside = await storedRead { db.list(spec, limit: GmailClient.all) }
+            aside = await storedRead(db) { db in db.list(spec, limit: GmailClient.all) }
             return
         }
         guard let ids = try? await gmail.listIDs(labels: [l], max: GmailClient.all) else { return }
@@ -336,7 +336,7 @@ extension MailStore {
         guard error != Self.saveFailed else { return nil }   // the failure was saving on this Mac (already shown)
         // Gmail may have changed the attachment's id since the email was read (it is not stable): read the email again and try the same attachment (same place in the list) once more
         if let i = m.attachments.firstIndex(of: a), let fresh = try? await gmail.message(id: m.id, full: true), fresh.attachments.indices.contains(i) {
-            if let db, db.isTracking { let epoch = Int(db.state("epoch") ?? "") ?? 0; _ = await Task.detached { db.keepOpened(fresh, seen: epoch) }.value }   // the kept copy gets the new id too
+            if let db, db.isTracking { let epoch = db.epoch; _ = await db.run { $0.keepOpened(fresh, seen: epoch) } }   // the kept copy gets the new id too
             if let url = await saveAttachment(fresh.attachments[i], of: fresh) { return url }
         }
         error = "Could not download the attachment. Check the connection and try again."

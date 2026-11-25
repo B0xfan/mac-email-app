@@ -2,8 +2,8 @@ import Foundation
 import SQLite3
 
 /// One change made on this Mac that Gmail has not been told about yet (plan step 6). Kept in the database file, so it survives a quit.
-public struct OutboxOp: Equatable {
-    public enum Kind: String, Codable { case modify, trash, untrash }
+public struct OutboxOp: Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable { case modify, trash, untrash }
     public var seq: Int64
     public var kind: Kind
     public var ids: [String]

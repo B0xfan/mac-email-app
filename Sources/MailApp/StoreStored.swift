@@ -1,6 +1,19 @@
 import Foundation
 import MailCore
 
+/// The only way the Mac's screens reach the mail file: every read and write runs off the screen thread, so a call that would make a click wait
+/// on the file cannot be written (the compiler refuses `db.list(...)` on the store). The two flags are kept in memory and cost nothing.
+/// The background copy (`SyncEngine`) holds the file itself and is already off the screen thread.
+struct MailFile: Sendable {
+    private let db: MailDB
+    init(_ db: MailDB) { self.db = db }
+    var isComplete: Bool { db.isComplete }
+    var isTracking: Bool { db.isTracking }
+    /// The full-sync round now running (kept in memory): a row the screen side stores is marked with it.
+    var epoch: Int { Int(db.state("epoch") ?? "") ?? 0 }
+    func run<T: Sendable>(_ work: @escaping @Sendable (MailDB) -> T) async -> T { await Task.detached { work(db) }.value }
+}
+
 /// Lists read from the mail kept on this Mac (plan step 5), and the one place every change to Gmail goes through (step 5: written to both; step 6: local first).
 extension MailStore {
     /// The stored list a box shows, or nil when it must come from Gmail: no database, the first copy is not complete (or is being redone after a gap),
@@ -47,7 +60,7 @@ extension MailStore {
     func storageText() async -> String {
         guard let db else { return "Nothing is stored on this Mac." }
         let base = attachmentsBase
-        let (bytes, count) = await Task.detached { (db.diskBytes() + Self.folderBytes(base), db.storedCount()) }.value   // downloaded attachments count too
+        let (bytes, count) = await db.run { db in (db.diskBytes() + Self.folderBytes(base), db.storedCount()) }   // downloaded attachments count too
         return Self.storageText(bytes: bytes, count: count)
     }
 
@@ -62,7 +75,7 @@ extension MailStore {
     func clearStoredMail() async {
         guard let db else { return }
         await engine?.stopAndWait()   // nothing may be writing while it is emptied
-        let cleared = await Task.detached { db.clearMail() }.value
+        let cleared = await db.run { $0.clearMail() }
         if cleared {   // a failed clear keeps the attachments too
             try? FileManager.default.removeItem(at: attachmentsBase)   // the attachments John downloaded are part of the stored mail
         }
@@ -106,11 +119,11 @@ extension MailStore {
     /// An email in full: from this Mac when its text is kept (no request), otherwise from Gmail, and then kept here (John opened it, so it stays however old it gets).
     /// A message found by a Gmail search is stored by this too.
     func fullMessage(_ id: String) async throws -> Mail {
-        if let db, db.isTracking, let m = await storedRead({ db.openedMail(id) }) { return m }
+        if let db, db.isTracking, let m = await storedRead(db, { db in db.openedMail(id) }) { return m }
         let m = try await gmail.message(id: id, full: true)
         if let db, db.isTracking {
-            let epoch = Int(db.state("epoch") ?? "") ?? 0
-            _ = await Task.detached { db.keepOpened(m, seen: epoch) }.value
+            let epoch = db.epoch
+            _ = await db.run { $0.keepOpened(m, seen: epoch) }
         }
         return m
     }
@@ -118,23 +131,23 @@ extension MailStore {
     /// Reads from the stored mail on a background thread (the copy in the background may be writing). If one of John's own changes (archive, move, trash ...) was made while the
     /// read was under way, its answer may still show the message where it was: it is thrown away and the read is made again (up to 3 times; a fourth change in the same moment
     /// is caught by the list update that change makes itself).
-    func storedRead<T: Sendable>(while wanted: () -> Bool = { true }, _ work: @escaping @Sendable () -> T) async -> T {
+    func storedRead<T: Sendable>(_ file: MailFile, while wanted: () -> Bool = { true }, _ work: @escaping @Sendable (MailDB) -> T) async -> T {
         var tries = 1, c = changes.value
-        var r = await Task.detached { work() }.value
-        while c != changes.value, tries < 3, wanted() { tries += 1; c = changes.value; r = await Task.detached { work() }.value }
+        var r = await file.run(work)
+        while c != changes.value, tries < 3, wanted() { tries += 1; c = changes.value; r = await file.run(work) }
         return r
     }
 
     /// Messages by id: stored ones first (nothing asked of Gmail), the others from Gmail, and kept for next time.
     func rows(for ids: [String]) async -> [Mail] {
         guard let db, db.isTracking else { return await gmail.messages(ids: ids) }
-        var byID = await storedRead { db.messages(ids: ids) }
+        var byID = await storedRead(db) { db in db.messages(ids: ids) }
         let missing = ids.filter { byID[$0] == nil }
         if !missing.isEmpty {
             let got = await gmail.messages(ids: missing)
-            let epoch = Int(db.state("epoch") ?? "") ?? 0
+            let epoch = db.epoch
             // stored, then the changes still waiting for Gmail put back on them, and read from the database again: what is returned is what the database holds, not Gmail's raw copy
-            let kept = await Task.detached { () -> [String: Mail] in db.upsert(got, verified: true, seen: epoch); db.replayOutbox(); return db.messages(ids: got.map(\.id)) }.value
+            let kept = await db.run { db -> [String: Mail] in db.upsert(got, verified: true, seen: epoch); db.replayOutbox(); return db.messages(ids: got.map(\.id)) }
             for m in got { byID[m.id] = kept[m.id] ?? m }   // the database refused it: Gmail's copy is still better than nothing
         }
         return ids.compactMap { byID[$0] }
@@ -146,7 +159,7 @@ extension MailStore {
         if case .stored(let spec)? = otherSource {
             let n = max(other.count, Self.otherPage), gen = otherGen
             Task {
-                let rows = await storedRead { db.list(spec, limit: n) }
+                let rows = await storedRead(db) { db in db.list(spec, limit: n) }
                 guard gen == otherGen, case .stored? = otherSource else { return }   // the screen moved on meanwhile
                 other = rows; otherNext = rows.count == n ? String(n) : nil
             }
@@ -178,9 +191,9 @@ extension MailStore {
     }
 
     /// Changes still waiting for Gmail are put back on what a fresh read of Gmail just put on the screen (the Inbox), so a message just archived does not come back for a moment.
-    func replayPendingOnScreen() {
+    func replayPendingOnScreen() async {
         guard let db else { return }
-        let ops = db.outbox()
+        let ops = await db.run { $0.outbox() }
         guard !ops.isEmpty else { return }
         for op in ops { let e = OutboxOp.effect(op.kind, op.add, op.remove); for id in op.ids { applyLabels(id, add: e.add, remove: e.remove) } }
         inbox.removeAll { !$0.inInbox }
