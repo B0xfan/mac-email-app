@@ -126,6 +126,20 @@ func runChecks() {
     check("stored mail: a full sync's sweep drops what the round did not list and keeps what it did", (swept ?? 0) >= 1 && db.stored(["s1"], verifiedOnly: false).isEmpty && db.stored(["s2", "u1"], verifiedOnly: false) == ["s2", "u1"])
     db.setState("history_id", "42")
     check("stored mail: sync state is kept, tracking starts with a history id", db.state("history_id") == "42" && db.isTracking && !db.isComplete)
+    // a search or list read does not wait for other database work (cloud-reported freeze: an archive click waited 3 to 6 s behind a search on the one shared lock)
+    final class ReadTimes: @unchecked Sendable { var search = -1.0, list = -1.0, found = 0 }
+    let rt = ReadTimes(), readDone = DispatchSemaphore(value: 0)
+    db.holdingLock {   // stands in for a long write or search holding the main line for 1.5 s
+        DispatchQueue.global().async {
+            var t = Date(); rt.found = db.search(["s2"], limit: 5).count; rt.search = Date().timeIntervalSince(t)
+            t = Date(); _ = db.list(DBListSpec(all: ["SENT"]), limit: 5); rt.list = Date().timeIntervalSince(t)
+            readDone.signal()
+        }
+        Thread.sleep(forTimeInterval: 1.5)
+    }
+    _ = readDone.wait(timeout: .now() + 5)
+    check("stored mail: a search and a list read finish while other database work holds the file (each under 0.5 s, the search still finds its email)",
+          rt.search >= 0 && rt.search < 0.5 && rt.list >= 0 && rt.list < 0.5 && rt.found == 1)
     let reopened = MailDB(url: f)
     check("stored mail: closing and opening again finds everything (mail, state)", reopened?.state("history_id") == "42" && reopened?.messages(ids: ["s2"])["s2"]?.subject == "S s2")
 
