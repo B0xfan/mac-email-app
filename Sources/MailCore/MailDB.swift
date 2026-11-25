@@ -499,7 +499,7 @@ public final class MailDB: @unchecked Sendable {
     /// The full text of messages older than `date` is dropped, except for mail John opened. Their sender, subject and preview stay.
     @discardableResult
     public func pruneText(before date: Date) -> Bool {
-        run("UPDATE messages SET body=NULL, search_body=NULL WHERE body_kept=0 AND (body IS NOT NULL OR search_body IS NOT NULL) AND date < ?", [Self.ms(date)])
+        run("UPDATE messages SET body=NULL, search_body=NULL WHERE \(Self.holdsText) AND date < ?", [Self.ms(date)])
     }
 
     /// Confirmed messages newer than `date` whose full text has not been read yet (newest first): the background copy reads them. Drafts are left out (Gmail rewrites them).
@@ -614,9 +614,15 @@ public final class MailDB: @unchecked Sendable {
     }
     @discardableResult
     public func markAllUnverified() -> Bool { run("UPDATE messages SET verified=0") }
-    /// Makes "which rows are unconfirmed" instant. Built once (a few seconds on a big mailbox, so not at launch); later calls cost nothing.
+    /// Makes "which rows are unconfirmed" and "which rows still hold text" (the 6-hourly `pruneText`, 3.2 s reading every row without it) instant.
+    /// Built once (a few seconds on a big mailbox, so not at launch); later calls cost nothing.
     @discardableResult
-    public func ensureFastLookups() -> Bool { run("CREATE INDEX IF NOT EXISTS messages_unverified ON messages(date) WHERE verified=0") }
+    public func ensureFastLookups() -> Bool {
+        run("CREATE INDEX IF NOT EXISTS messages_unverified ON messages(date) WHERE verified=0")
+            && run("CREATE INDEX IF NOT EXISTS messages_with_text ON messages(date) WHERE \(Self.holdsText)")
+    }
+    /// The rows `pruneText` can empty. The index and the query use the same words, so SQLite picks the index.
+    public static let holdsText = "body_kept=0 AND (body IS NOT NULL OR search_body IS NOT NULL)"
 
     public func unverifiedIDs(limit: Int) -> [String] {
         var out: [String] = []

@@ -49,6 +49,9 @@ extension SelfTest {
         fdb.markUnverified(["f3"])
         check("fast lookups: the unconfirmed rows have their own index, the confirmed count skips them, the Inbox list holds only live Inbox mail",
               plan.contains("messages_unverified") && fdb.storedCount() == 2 && fdb.unverifiedIDs(limit: 5) == ["f3"] && fdb.inboxThreads(limit: 10)?.map(\.id) == ["f1"])
+        var prunePlan = ""
+        fdb.run("EXPLAIN QUERY PLAN UPDATE messages SET body=NULL, search_body=NULL WHERE \(MailDB.holdsText) AND date < ?", [Int64(0)], { prunePlan += MailDB.text($0, 3) })
+        check("fast lookups: the 6-hourly text clean-up reads only rows that still hold text (its own index)", prunePlan.contains("messages_with_text"))
 
         // an older read never replaces a newer one
         func hm(_ id: String, _ labels: [String], _ h: Int64?) -> Mail { var m = lsMail(id, labels); m.msgHistory = h; return m }
