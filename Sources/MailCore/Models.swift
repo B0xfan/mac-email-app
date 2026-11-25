@@ -268,11 +268,17 @@ public enum HTMLSafety {
         return t.range(of: hidden, options: .regularExpression) != nil
     }
 
+    nonisolated(unsafe) private static let imgRe = try? NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
+    nonisolated(unsafe) private static let srcRe = try? NSRegularExpression(pattern: #"\bsrc\s*=\s*["']?(https?://[^"'\s>]+)"#, options: [.caseInsensitive])
+    private final class Done { let html: String?; let report: Report; init(_ h: String?, _ r: Report) { html = h; report = r } }
+    /// Results by email text and setting: a redraw of the same email reuses the answer instead of cleaning again. NSCache is thread-safe.
+    nonisolated(unsafe) private static let done: NSCache<NSString, Done> = { let c = NSCache<NSString, Done>(); c.countLimit = 64; return c }()
+
     /// Splits remote images into trackers (removed from the returned HTML) and normal images (left alone, counted).
     public static func process(_ html: String?, blockTrackers: Bool = true) -> (html: String?, report: Report) {
-        guard let html, let re = try? NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive]),
-              let srcRe = try? NSRegularExpression(pattern: #"\bsrc\s*=\s*["']?(https?://[^"'\s>]+)"#, options: [.caseInsensitive])
-        else { return (html, Report(trackers: 0, remoteImages: 0)) }
+        guard let html, let re = imgRe, let srcRe else { return (html, Report(trackers: 0, remoteImages: 0)) }
+        let key = ((blockTrackers ? "1" : "0") + html) as NSString
+        if let d = done.object(forKey: key) { return (d.html, d.report) }
         var out = html, trackers = 0, remote = 0
         let ns = html as NSString
         for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)).reversed() {
@@ -283,7 +289,9 @@ public enum HTMLSafety {
                 out = (out as NSString).replacingCharacters(in: m.range, with: "")
             } else { remote += 1 }
         }
-        return (out, Report(trackers: trackers, remoteImages: remote))
+        let report = Report(trackers: trackers, remoteImages: remote)
+        done.setObject(Done(out, report), forKey: key)
+        return (out, report)
     }
 
     /// Normal images show when the setting is on, or John loaded them for this email, or the sender is on his list.

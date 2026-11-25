@@ -62,6 +62,7 @@ func runChecks() {
     check("images: 3 trackers removed, 1 normal image kept", r.report.trackers == 3 && r.report.remoteImages == 1 && r.html?.contains("hero.jpg") == true && r.html?.contains("sendgrid") == false && r.html?.contains("a.png") == false)
     check("images: tracker line wording", HTMLSafety.Report(trackers: 1, remoteImages: 0).line == "1 tracker blocked" && r.report.line == "3 trackers blocked")
     check("images: tracker blocking off leaves page alone", HTMLSafety.process(page, blockTrackers: false).html == page)
+    check("images: a second clean of the same email gives the same answer, and the setting is part of it", HTMLSafety.process(page).html == r.html && HTMLSafety.process(page).report.trackers == 3 && HTMLSafety.process(page, blockTrackers: false).report.trackers == 0)
     check("images: load decision", HTMLSafety.shouldLoadImages(auto: true, senderAllowed: false, loadedThisEmail: false)
           && !HTMLSafety.shouldLoadImages(auto: false, senderAllowed: false, loadedThisEmail: false)
           && HTMLSafety.shouldLoadImages(auto: false, senderAllowed: true, loadedThisEmail: false)
