@@ -66,6 +66,7 @@ func runChecks() {
     let cidHTML = "<img src=\"cid:img1\"><img src=\"CID:img10\"><img src=\"cid:gone\">"
     let cidParts: [String: CIDPart] = ["img1": CIDPart(mime: "image/png", data: Data("a".utf8)), "img10": CIDPart(mime: "image/gif", attachmentID: "A"), "unused": CIDPart(mime: "image/png")]
     check("inline pictures: only parts the text names are wanted, in order", InlinePictures.wanted(cidHTML, cidParts).map(\.cid) == ["img1", "img10"])
+    check("inline pictures: a part named img1 is not wanted when the text only names cid:img10", InlinePictures.wanted("<img src=\"cid:img10\">", ["img1": CIDPart(mime: "image/png"), "img10": CIDPart(mime: "image/png")]).map(\.cid) == ["img10"])
     let filledCID = InlinePictures.fill(cidHTML, [("img1", "image/png", Data("a".utf8)), ("img10", "image/gif", Data("b".utf8)), ("gone", "image/png", Data())])
     check("inline pictures: cid:img1 never eats cid:img10, any case; an empty picture is left alone", filledCID == "<img src=\"data:image/png;base64,YQ==\"><img src=\"data:image/gif;base64,Yg==\"><img src=\"cid:gone\">")
     check("images: load decision", HTMLSafety.shouldLoadImages(auto: true, senderAllowed: false, loadedThisEmail: false)

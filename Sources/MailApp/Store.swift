@@ -35,6 +35,8 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     }
     var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
     var search = ""
+    /// What the search box holds right now (it keeps typed letters to itself until a search runs); not watched, so typing redraws nothing else.
+    @ObservationIgnored var typedSearch = ""
     @ObservationIgnored var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
     var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     var loadingOtherMore = false
@@ -367,8 +369,9 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
                 // pages deeper than the few walked above stay as they were; the next-page token then still points past them
                 let walkedIDs = Set(page.refs.map(\.id)), oldest = all.map(\.date).min()
                 let deeper = oldest.map { o in have.values.filter { !walkedIDs.contains($0.threadID) && $0.date < o } } ?? []
+                let pending = await pendingOps()   // read first: nothing may pause between showing Gmail's list and putting the waiting changes back on it
                 inbox = applySurfaced(all + deeper).sorted { $0.date > $1.date }
-                await replayPendingOnScreen()   // a change Gmail has not got yet (it was busy) stays applied
+                replayPendingOnScreen(pending)   // a change Gmail has not got yet (it was busy) stays applied
                 if deeper.isEmpty { inboxNext = page.next }
                 failedCount = got.failed.count
             }

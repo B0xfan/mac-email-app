@@ -94,14 +94,16 @@ public enum InlinePictures {
     /// The parts the text refers to, in order, that still need their data fetched or already have it.
     public static func wanted(_ html: String?, _ parts: [String: CIDPart]?) -> [(cid: String, part: CIDPart)] {
         guard let html, let parts, html.localizedCaseInsensitiveContains("cid:") else { return [] }
-        return parts.sorted { $0.key < $1.key }.filter { html.localizedCaseInsensitiveContains("cid:" + $0.key) }.prefix(most).map { ($0.key, $0.value) }
+        return parts.sorted { $0.key < $1.key }.filter { html.range(of: pattern($0.key), options: [.regularExpression, .caseInsensitive]) != nil }.prefix(most).map { ($0.key, $0.value) }
     }
+    /// cid:name, the whole name and nothing longer (cid:img1 never matches cid:img10).
+    static func pattern(_ cid: String) -> String { "cid:" + NSRegularExpression.escapedPattern(for: cid) + "(?![A-Za-z0-9._@$-])" }
     /// Each cid:name, the whole name and nothing longer (cid:img1 never eats cid:img10), becomes the picture's data.
     public static func fill(_ html: String, _ pics: [(cid: String, mime: String, data: Data)]) -> String {
         var h = html
         for p in pics where !p.data.isEmpty && p.data.count <= biggest {
             let uri = "data:\(p.mime);base64,\(p.data.base64EncodedString())"
-            h = h.replacingOccurrences(of: "cid:" + NSRegularExpression.escapedPattern(for: p.cid) + "(?![A-Za-z0-9._@$-])", with: NSRegularExpression.escapedTemplate(for: uri), options: [.regularExpression, .caseInsensitive])
+            h = h.replacingOccurrences(of: pattern(p.cid), with: NSRegularExpression.escapedTemplate(for: uri), options: [.regularExpression, .caseInsensitive])
         }
         return h
     }
@@ -292,14 +294,17 @@ public enum HTMLSafety {
     private final class Done { let html: String?; let report: Report; init(_ h: String?, _ r: Report) { html = h; report = r } }
     /// Results by email, text length and setting: a redraw of the same email reuses the answer instead of cleaning again. Keyed without the text itself,
     /// so a big email (pictures filled in) is not copied or hashed on every redraw. NSCache is thread-safe.
-    nonisolated(unsafe) private static let done: NSCache<NSString, Done> = { let c = NSCache<NSString, Done>(); c.countLimit = 64; return c }()
+    nonisolated(unsafe) private static let done: NSCache<NSString, Done> = { let c = NSCache<NSString, Done>(); c.countLimit = 64; c.totalCostLimit = 64_000_000; return c }()
 
     /// Splits remote images into trackers (removed from the returned HTML) and normal images (left alone, counted).
     /// `cacheID`: the email's id, for a caller that cleans the same email again on each redraw. An email's text never changes under the same id
     /// except when its pictures are filled in, which changes its length.
     public static func process(_ html: String?, blockTrackers: Bool = true, cacheID: String? = nil) -> (html: String?, report: Report) {
         guard let html, let re = imgRe, let srcRe else { return (html, Report(trackers: 0, remoteImages: 0)) }
-        let key = cacheID.map { "\(blockTrackers ? 1 : 0)|\(html.utf8.count)|\($0)" as NSString }
+        let key = cacheID.map { id -> NSString in
+            var h = Hasher(); for b in html.utf8.prefix(4096) { h.combine(b) }; for b in html.utf8.suffix(4096) { h.combine(b) }   // the two ends, not the whole (possibly huge) text
+            return "\(blockTrackers ? 1 : 0)|\(html.utf8.count)|\(h.finalize())|\(id)" as NSString
+        }
         if let key, let d = done.object(forKey: key) { return (d.html, d.report) }
         var out = html, trackers = 0, remote = 0
         let ns = html as NSString
@@ -312,7 +317,7 @@ public enum HTMLSafety {
             } else { remote += 1 }
         }
         let report = Report(trackers: trackers, remoteImages: remote)
-        if let key { done.setObject(Done(out, report), forKey: key) }
+        if let key { done.setObject(Done(out, report), forKey: key, cost: out.utf8.count) }
         return (out, report)
     }
 

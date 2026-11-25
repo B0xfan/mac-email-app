@@ -191,9 +191,13 @@ extension MailStore {
     }
 
     /// Changes still waiting for Gmail are put back on what a fresh read of Gmail just put on the screen (the Inbox), so a message just archived does not come back for a moment.
-    func replayPendingOnScreen() async {
-        guard let db else { return }
-        let ops = await db.run { $0.outbox() }
+    func replayPendingOnScreen() async { replayPendingOnScreen(await pendingOps()) }
+    /// The changes still waiting for Gmail; read again when John makes a change meanwhile, so his newest one is in it.
+    func pendingOps() async -> [OutboxOp] {
+        guard let db else { return [] }
+        return await storedRead(db) { $0.outbox() }
+    }
+    func replayPendingOnScreen(_ ops: [OutboxOp]) {
         guard !ops.isEmpty else { return }
         for op in ops { let e = OutboxOp.effect(op.kind, op.add, op.remove); for id in op.ids { applyLabels(id, add: e.add, remove: e.remove) } }
         inbox.removeAll { !$0.inInbox }
