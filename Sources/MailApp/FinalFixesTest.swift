@@ -54,13 +54,13 @@ extension SelfTest {
         // search: the word index finds head and text matches together, however many the head has
         let hdb = MailDB(url: dir.appendingPathComponent("h.sqlite"))!
         var many: [Mail] = []
-        for i in 0..<(MailDB.headEnough + 1) { var m = lsMail("h\(i)", ["INBOX"], age: Double(i)); m.snippet = "pinkflamingo"; many.append(m) }
+        for i in 0..<201 { var m = lsMail("h\(i)", ["INBOX"], age: Double(i)); m.snippet = "pinkflamingo"; many.append(m) }
         hdb.upsert(many, verified: true)
         let bodyOnly = lsMail("b1", ["INBOX"], age: 1000, text: "a pinkflamingo here")
         hdb.upsert([bodyOnly], verified: true); hdb.setBody(bodyOnly, kept: false)
-        check("search: plenty of head matches still come with the text matches", hdb.search(["pinkflamingo"], limit: 500).count == MailDB.headEnough + 2)
+        check("search: plenty of head matches still come with the text matches", hdb.search(["pinkflamingo"], limit: 500).count == 202)
         hdb.delete(ids: ["h0", "h1"])
-        check("search: with few head matches the text is searched too", hdb.search(["pinkflamingo"], limit: 500).contains { $0.id == "b1" })
+        check("search: a match in the text alone is found after head matches are deleted", hdb.search(["pinkflamingo"], limit: 500).contains { $0.id == "b1" })
 
         // 5. a message Gmail refuses for good stops taking a place in the text pass
         let T = Date(timeIntervalSince1970: 1_700_000_500)

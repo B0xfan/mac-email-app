@@ -96,7 +96,6 @@ public final class SyncEngine: @unchecked Sendable {
     private func syncBody() async {
         lock.withLock { sawOld = false }   // a new pass starts reading in full again
         db.ensureFastLookups()
-        db.fillSearchIndex()   // once, on a file from before the word index; nothing to do after that
         do {
             if !db.isTracking { try await startFullSync(stale: false) }
             else {
@@ -109,6 +108,8 @@ public final class SyncEngine: @unchecked Sendable {
             publish(.upToDate)
         } catch is CancellationError {
         } catch { publish(.waiting) }
+        // once, on a file from before the word index (after the new mail, offline too); the pause between slices lets clicks have the database
+        while !Task.isCancelled, db.fillSearchIndex() { try? await Task.sleep(nanoseconds: 50_000_000) }
     }
 
     /// `exact: false` (every page of the copy) uses the running count instead of counting the table.

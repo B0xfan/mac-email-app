@@ -57,10 +57,14 @@ extension SelfTest {
         // the word index on a file that already held mail: rows changed before and during the fill are indexed once, then the triggers keep it current
         up?.upsert([lsMail("mig2", ["INBOX"], age: 1), lsMail("mig3", ["INBOX"], age: 2)], verified: true)
         up?.setBody(lsMail("mig2", ["INBOX"], age: 1, text: "an okapi went by"), kept: false)
-        up?.fillSearchIndex(slice: 1)
+        _ = up?.fillSearchIndex(slice: 1)   // halfway: row 1 is in the index, rows 2 and 3 not yet
+        up?.setBody(lsMail("mig1", ["INBOX"], text: "a walrus swam"), kept: false)
+        up?.setBody(lsMail("mig3", ["INBOX"], age: 2, text: "a lynx ran"), kept: false)
+        while up?.fillSearchIndex(slice: 1) == true {}
         let ix = { (w: [String]) in up?.search(w, limit: 5).map(\.id) ?? ["failed"] }
         check("word index: filled in slices it finds whole words and starts of words in the head and the text, not letters in the middle of a word",
-              up?.state("fts_upto") == String(Int64.max) && ix(["mig1"]) == ["mig1"] && ix(["mig"]) == ["mig1", "mig2", "mig3"] && ix(["okap"]) == ["mig2"] && ix(["ig1"]).isEmpty)
+              up?.state("fts_upto") == String(Int64.max) && ix(["mig1"]) == ["mig1"] && ix(["mig"]) == ["mig1", "mig2", "mig3"] && ix(["okap"]) == ["mig2"] && ix(["ig1"]).isEmpty
+              && ix(["walrus"]) == ["mig1"] && ix(["lynx"]) == ["mig3"] && up?.fillSearchIndex() == false)
         up?.upsert([lsMail("new1", ["INBOX"], age: 3)], verified: true)
         up?.setBody(lsMail("mig3", ["INBOX"], age: 2, text: "a narwhal note"), kept: false)
         up?.setBody(lsMail("mig2", ["INBOX"], age: 1, text: "nothing here"), kept: false)

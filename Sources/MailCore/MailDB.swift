@@ -183,24 +183,23 @@ public final class MailDB: @unchecked Sendable {
         } ?? false
     }
     /// `fts_upto` once every message is in the word index: every later row is kept current by the triggers.
-    static let indexDone = String(Int64.max)
+    public static let indexDone = String(Int64.max)
 
-    /// The background pass: adds the next slices of messages to the word index until it holds them all (about 6 s in all on John's mailbox; one slice of 5,000 holds the lock about a tenth of a second).
-    /// Each slice and its new `fts_upto` are written together, so a row is added either by a slice or by the triggers, never by both. Stops quietly on a refusal; the next pass goes on from there.
-    public func fillSearchIndex(slice: Int64 = 5000) {
-        while true {
-            let more = transaction { () -> Bool in
-                var upto: Int64 = -1, top: Int64 = 0
-                run("SELECT CAST(value AS INTEGER) FROM sync_state WHERE key='fts_upto'", [], { upto = sqlite3_column_int64($0, 0) })
-                guard upto >= 0, upto < Int64.max else { return false }
-                run("SELECT COALESCE(MAX(rowid), 0) FROM messages", [], { top = sqlite3_column_int64($0, 0) })
-                let next = upto + slice
-                run("INSERT INTO messages_fts(rowid, search_head, search_body) SELECT rowid, search_head, search_body FROM messages WHERE rowid > ? AND rowid <= ?", [upto, next])
-                let written = setState("fts_upto", next >= top ? Self.indexDone : String(next))
-                return written && next < top
-            }
-            guard more == true else { return }
-        }
+    /// The background pass: adds the next slice of messages to the word index; true while slices are left (the pass waits a moment between them, so a click gets the lock).
+    /// About 10 s in all on John's mailbox; a slice of 5,000 held the lock up to 0.9 s, so a slice is 2,000. Each slice and its new `fts_upto` are written together,
+    /// so a row is added either by a slice or by the triggers, never by both. false on a refusal too; the next pass goes on from there.
+    public func fillSearchIndex(slice: Int64 = 2000) -> Bool {
+        guard state("fts_upto") != Self.indexDone else { return false }   // the usual case: no write lock taken
+        return transaction { () -> Bool in
+            var upto: Int64 = -1, top: Int64 = 0
+            run("SELECT CAST(value AS INTEGER) FROM sync_state WHERE key='fts_upto'", [], { upto = sqlite3_column_int64($0, 0) })
+            guard upto >= 0, upto < Int64.max else { return false }
+            run("SELECT COALESCE(MAX(rowid), 0) FROM messages", [], { top = sqlite3_column_int64($0, 0) })
+            let next = upto + slice
+            run("INSERT INTO messages_fts(rowid, search_head, search_body) SELECT rowid, search_head, search_body FROM messages WHERE rowid > ? AND rowid <= ?", [upto, next])
+            let written = setState("fts_upto", next >= top ? Self.indexDone : String(next))
+            return written && next < top
+        } ?? false
     }
 
     /// What a search looks in for a message that has no stored text: sender, recipients, subject and preview, lower case.
@@ -409,40 +408,30 @@ public final class MailDB: @unchecked Sendable {
     // MARK: - Search and the text of emails
 
     /// Messages whose sender, recipients, subject, preview or kept text hold every one of these words (any letter case), newest first. Only confirmed rows, never Trash or Spam.
-    /// Once the word index holds every message it answers the search (whole words and starts of words). Until then the table is scanned for the letters anywhere:
-    /// the head (sender, subject ...) is looked through first, which does not touch the long text; the text is looked through too only when the head finds fewer than `headEnough` messages
-    /// (the same choice for every page of one search, so the pages fit together).
-    public static let headEnough = 200
+    /// Once the word index holds every message it answers the search (whole words and starts of words). Until then, the first few seconds after the update, the table is scanned for the letters anywhere.
+    /// A search whose pages straddle the moment the fill ends can skip or repeat a row between pages; accepted, as it happens once per Mac.
     public func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
         let w = words.filter { !$0.isEmpty }
         var ready = false
         read("SELECT value FROM sync_state WHERE key='fts_upto'", [], { ready = Self.text($0, 0) == Self.indexDone })
+        let (base, bargs) = Self.searchWhere(ready ? [] : w)
+        var sql = Self.selectRows + " WHERE " + base, args = bargs
         if ready {
             guard let q = Self.indexQuery(w) else { return [] }
-            let (base, bargs) = Self.searchWhere([], withText: false)
             // walk the date index and keep the rows the word index found: newest first stops after one page, even for a word in half the mailbox (0.04 s against 3 to 4 s sorting every match)
-            let sql = Self.selectRows + " INDEXED BY messages_date WHERE m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) AND " + base + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
-            var out: [Mail] = []
-            let args: [Any?] = [q] + bargs + [limit, offset]
-            read(sql, args, { if let m = Self.mail($0) { out.append(m) } })
-            return out
+            sql = Self.selectRows + " INDEXED BY messages_date WHERE m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) AND " + base
+            args = [q] + bargs
         }
-        var n = 0
-        let (hs, ha) = Self.searchWhere(w, withText: false)
-        read("SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE \(hs) LIMIT ?)", ha + [Self.headEnough], { n = Int(sqlite3_column_int64($0, 0)) })
-        let (cond, cargs) = n >= Self.headEnough ? (hs, ha) : Self.searchWhere(w, withText: true)
-        let sql = Self.selectRows + " WHERE " + cond + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
-        let args: [Any?] = cargs + [limit, offset]
         var out: [Mail] = []
-        read(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+        read(sql + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?", args + [limit, offset], { if let m = Self.mail($0) { out.append(m) } })
         return out
     }
 
-    private static func searchWhere(_ words: [String], withText: Bool) -> (String, [Any?]) {
+    private static func searchWhere(_ words: [String]) -> (String, [Any?]) {
         var sql = "m.verified=1 AND NOT EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label IN (?, ?))"
         var args: [Any?] = ["TRASH", "SPAM"]
         for w in words {
-            sql += withText ? " AND (m.search_head || ' ' || COALESCE(m.search_body, '')) LIKE ? ESCAPE '\\'" : " AND m.search_head LIKE ? ESCAPE '\\'"
+            sql += " AND (m.search_head || ' ' || COALESCE(m.search_body, '')) LIKE ? ESCAPE '\\'"
             args.append("%" + likeEscaped(w.lowercased()) + "%")
         }
         return (sql, args)
