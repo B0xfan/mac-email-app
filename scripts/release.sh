@@ -36,7 +36,12 @@ N=$(( ${LAST##*.} + 1 )); [ -n "$LAST" ] || N=2
 VER="0.1.$N"; TAG="v$VER"
 
 # The cloud build must contain everything the app is made of as it stands now.
-RUN=$(gh run list --workflow build.yml --status success --limit 1 --json databaseId,headSha -q '.[0] | "\(.databaseId) \(.headSha)"')
+# a full run on main only: a quick-check-only run is also "success" but has no app in it (2026-11-25)
+RUN=""
+for r in $(gh run list --workflow build.yml --branch main --status success --limit 10 --json databaseId -q '.[].databaseId'); do
+  RUN=$(gh run view "$r" --json databaseId,headSha,jobs -q 'select(any(.jobs[]; .name == "ios-app" and .conclusion == "success")) | "\(.databaseId) \(.headSha)"')
+  [ -n "$RUN" ] && break
+done
 [ -n "$RUN" ] || { echo "No successful cloud build yet: run scripts/cloud-build.sh"; exit 1; }
 RUNID=${RUN% *}; SHA=${RUN#* }
 git merge-base --is-ancestor "$SHA" HEAD || { echo "The latest green cloud build ($SHA) is not part of this checkout: git pull, or build again"; exit 1; }
