@@ -34,7 +34,7 @@ struct ReadingContent: View {
         return m.html == nil && m.text == nil && !SnapshotMode.on ? .loading : .text
     }
     var body: some View {
-        let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers)
+        let (cleanHTML, report) = HTMLSafety.process(mail.html, blockTrackers: store.settings.blockTrackers, cacheID: mail.id)
         let sender = mail.from.email.lowercased()
         let loadImgs = HTMLSafety.shouldLoadImages(auto: store.settings.loadImages, senderAllowed: store.settings.imageSenders.contains(sender), loadedThisEmail: store.imagesLoaded.contains(mail.id))
         let warns = store.senderWarnings(mail)

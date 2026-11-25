@@ -88,6 +88,25 @@ public struct Attachment: Hashable, Identifiable, Codable, Sendable {
 public struct CIDPart: Hashable, Codable, Sendable { public var mime: String; public var data: Data?; public var attachmentID: String?
     public init(mime: String, data: Data? = nil, attachmentID: String? = nil) { self.mime = mime; self.data = data; self.attachmentID = attachmentID } }
 
+/// Fills in pictures that sit inside an email. Pure text work, so callers run it off the screen thread: up to 12 pictures of 3 MB turn into a lot of text.
+public enum InlinePictures {
+    public static let most = 12, biggest = 3_000_000
+    /// The parts the text refers to, in order, that still need their data fetched or already have it.
+    public static func wanted(_ html: String?, _ parts: [String: CIDPart]?) -> [(cid: String, part: CIDPart)] {
+        guard let html, let parts, html.localizedCaseInsensitiveContains("cid:") else { return [] }
+        return parts.sorted { $0.key < $1.key }.filter { html.localizedCaseInsensitiveContains("cid:" + $0.key) }.prefix(most).map { ($0.key, $0.value) }
+    }
+    /// Each cid:name, the whole name and nothing longer (cid:img1 never eats cid:img10), becomes the picture's data.
+    public static func fill(_ html: String, _ pics: [(cid: String, mime: String, data: Data)]) -> String {
+        var h = html
+        for p in pics where !p.data.isEmpty && p.data.count <= biggest {
+            let uri = "data:\(p.mime);base64,\(p.data.base64EncodedString())"
+            h = h.replacingOccurrences(of: "cid:" + NSRegularExpression.escapedPattern(for: p.cid) + "(?![A-Za-z0-9._@$-])", with: NSRegularExpression.escapedTemplate(for: uri), options: [.regularExpression, .caseInsensitive])
+        }
+        return h
+    }
+}
+
 public struct UnsubscribeInfo: Hashable, Codable, Sendable {
     public var https: URL?
     public var mailto: URL?
@@ -271,14 +290,17 @@ public enum HTMLSafety {
     nonisolated(unsafe) private static let imgRe = try? NSRegularExpression(pattern: "<img\\b[^>]*>", options: [.caseInsensitive])
     nonisolated(unsafe) private static let srcRe = try? NSRegularExpression(pattern: #"\bsrc\s*=\s*["']?(https?://[^"'\s>]+)"#, options: [.caseInsensitive])
     private final class Done { let html: String?; let report: Report; init(_ h: String?, _ r: Report) { html = h; report = r } }
-    /// Results by email text and setting: a redraw of the same email reuses the answer instead of cleaning again. NSCache is thread-safe.
+    /// Results by email, text length and setting: a redraw of the same email reuses the answer instead of cleaning again. Keyed without the text itself,
+    /// so a big email (pictures filled in) is not copied or hashed on every redraw. NSCache is thread-safe.
     nonisolated(unsafe) private static let done: NSCache<NSString, Done> = { let c = NSCache<NSString, Done>(); c.countLimit = 64; return c }()
 
     /// Splits remote images into trackers (removed from the returned HTML) and normal images (left alone, counted).
-    public static func process(_ html: String?, blockTrackers: Bool = true) -> (html: String?, report: Report) {
+    /// `cacheID`: the email's id, for a caller that cleans the same email again on each redraw. An email's text never changes under the same id
+    /// except when its pictures are filled in, which changes its length.
+    public static func process(_ html: String?, blockTrackers: Bool = true, cacheID: String? = nil) -> (html: String?, report: Report) {
         guard let html, let re = imgRe, let srcRe else { return (html, Report(trackers: 0, remoteImages: 0)) }
-        let key = ((blockTrackers ? "1" : "0") + html) as NSString
-        if let d = done.object(forKey: key) { return (d.html, d.report) }
+        let key = cacheID.map { "\(blockTrackers ? 1 : 0)|\(html.utf8.count)|\($0)" as NSString }
+        if let key, let d = done.object(forKey: key) { return (d.html, d.report) }
         var out = html, trackers = 0, remote = 0
         let ns = html as NSString
         for m in re.matches(in: html, range: NSRange(location: 0, length: ns.length)).reversed() {
@@ -290,7 +312,7 @@ public enum HTMLSafety {
             } else { remote += 1 }
         }
         let report = Report(trackers: trackers, remoteImages: remote)
-        done.setObject(Done(out, report), forKey: key)
+        if let key { done.setObject(Done(out, report), forKey: key) }
         return (out, report)
     }
 

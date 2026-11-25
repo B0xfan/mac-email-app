@@ -62,7 +62,12 @@ func runChecks() {
     check("images: 3 trackers removed, 1 normal image kept", r.report.trackers == 3 && r.report.remoteImages == 1 && r.html?.contains("hero.jpg") == true && r.html?.contains("sendgrid") == false && r.html?.contains("a.png") == false)
     check("images: tracker line wording", HTMLSafety.Report(trackers: 1, remoteImages: 0).line == "1 tracker blocked" && r.report.line == "3 trackers blocked")
     check("images: tracker blocking off leaves page alone", HTMLSafety.process(page, blockTrackers: false).html == page)
-    check("images: a second clean of the same email gives the same answer, and the setting is part of it", HTMLSafety.process(page).html == r.html && HTMLSafety.process(page).report.trackers == 3 && HTMLSafety.process(page, blockTrackers: false).report.trackers == 0)
+    check("images: a second clean of the same email gives the same answer, and the setting is part of it", HTMLSafety.process(page, cacheID: "m1").html == r.html && HTMLSafety.process(page, cacheID: "m1").report.trackers == 3 && HTMLSafety.process(page, blockTrackers: false, cacheID: "m1").report.trackers == 0 && HTMLSafety.process(page + " ", cacheID: "m1").html == r.html.map { $0 + " " })
+    let cidHTML = "<img src=\"cid:img1\"><img src=\"CID:img10\"><img src=\"cid:gone\">"
+    let cidParts: [String: CIDPart] = ["img1": CIDPart(mime: "image/png", data: Data("a".utf8)), "img10": CIDPart(mime: "image/gif", attachmentID: "A"), "unused": CIDPart(mime: "image/png")]
+    check("inline pictures: only parts the text names are wanted, in order", InlinePictures.wanted(cidHTML, cidParts).map(\.cid) == ["img1", "img10"])
+    let filledCID = InlinePictures.fill(cidHTML, [("img1", "image/png", Data("a".utf8)), ("img10", "image/gif", Data("b".utf8)), ("gone", "image/png", Data())])
+    check("inline pictures: cid:img1 never eats cid:img10, any case; an empty picture is left alone", filledCID == "<img src=\"data:image/png;base64,YQ==\"><img src=\"data:image/gif;base64,Yg==\"><img src=\"cid:gone\">")
     check("images: load decision", HTMLSafety.shouldLoadImages(auto: true, senderAllowed: false, loadedThisEmail: false)
           && !HTMLSafety.shouldLoadImages(auto: false, senderAllowed: false, loadedThisEmail: false)
           && HTMLSafety.shouldLoadImages(auto: false, senderAllowed: true, loadedThisEmail: false)

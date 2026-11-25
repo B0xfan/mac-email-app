@@ -49,16 +49,18 @@ extension MailStore {
         for i in aside.indices where aside[i].id == m.id { aside[i].labels.removeAll { $0 == "UNREAD" } }
     }
 
-    /// Pictures that sit inside the email (cid:name in its text) are filled in from the email's own parts.
+    /// Pictures that sit inside the email (cid:name in its text) are filled in from the email's own parts, off the screen thread.
     func withInlineImages(_ m: Mail) async -> Mail {
-        guard var h = m.html, let parts = m.cidParts, h.localizedCaseInsensitiveContains("cid:") else { return m }
-        for (cid, p) in parts.prefix(12) where h.localizedCaseInsensitiveContains("cid:" + cid) {
+        guard let h = m.html else { return m }
+        var pics: [(cid: String, mime: String, data: Data)] = []
+        for (cid, p) in InlinePictures.wanted(h, m.cidParts) {
             var data = p.data
             if data == nil, let a = p.attachmentID { data = try? await gmail.attachment(messageID: m.id, attachmentID: a) }
-            guard let data, !data.isEmpty, data.count <= 3_000_000 else { continue }
-            h = h.replacingOccurrences(of: "cid:" + cid, with: "data:\(p.mime);base64,\(data.base64EncodedString())", options: .caseInsensitive)
+            if let data { pics.append((cid, p.mime, data)) }
         }
-        var x = m; x.html = h
+        guard !pics.isEmpty else { return m }
+        let all = pics
+        var x = m; x.html = await Task.detached { InlinePictures.fill(h, all) }.value
         return x
     }
 

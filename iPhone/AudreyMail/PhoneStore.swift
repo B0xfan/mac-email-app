@@ -535,16 +535,16 @@ struct Toast: Identifiable { let id = UUID(); var text: String; var undo: (@Main
         var full = try await gmail.message(id: m.id, full: true)
         full.siblings = m.siblings; full.convo = m.convo
         defer { if state == .signedIn { opened.put(full) } }   // an email still downloading when you sign out is not kept
-        guard var h = full.html, let parts = full.cidParts, h.localizedCaseInsensitiveContains("cid:") else { return full }
-        for (cid, p) in parts.prefix(12) where h.localizedCaseInsensitiveContains("cid:" + cid) {
+        guard let h = full.html else { return full }
+        var pics: [(cid: String, mime: String, data: Data)] = []
+        for (cid, p) in InlinePictures.wanted(h, full.cidParts) {
             var data = p.data
             if data == nil, let a = p.attachmentID { data = try? await gmail.attachment(messageID: full.id, attachmentID: a) }
-            guard let data, !data.isEmpty, data.count <= 3_000_000 else { continue }
-            let uri = "data:\(p.mime);base64,\(data.base64EncodedString())"
-            // the whole name and nothing longer, so cid:img1 never eats cid:img10
-            h = h.replacingOccurrences(of: "cid:" + NSRegularExpression.escapedPattern(for: cid) + "(?![A-Za-z0-9._@$-])", with: NSRegularExpression.escapedTemplate(for: uri), options: [.regularExpression, .caseInsensitive])
+            if let data { pics.append((cid, p.mime, data)) }
         }
-        full.html = h
+        guard !pics.isEmpty else { return full }
+        let all = pics
+        full.html = await Task.detached { InlinePictures.fill(h, all) }.value   // off the screen thread: up to 12 pictures of 3 MB
         return full
     }
 
