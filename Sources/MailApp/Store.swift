@@ -571,7 +571,8 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         if case .stored(let spec) = src, let db {   // the next 50 from this Mac
             let off = Int(tok) ?? other.count, page = Self.otherPage
             loadingOtherMore = true; defer { loadingOtherMore = false }
-            let rows = await storedRead { db.list(spec, limit: page, offset: off) }
+            let last = other.last?.id
+            let rows = await storedRead { db.list(spec, limit: page, offset: off, after: last) }
             guard gen == otherGen else { return }
             let have = Set(other.map(\.id))
             other += rows.filter { !have.contains($0.id) }

@@ -112,6 +112,10 @@ func runChecks() {
     db.rareLabelLimit = 2000; let viaIndex = (pages(rareSpec, limit: 3), pages(rareAll, limit: 4), db.list(DBListSpec(all: ["INBOX"]), limit: 9).map(\.id))
     db.rareLabelLimit = 0; let viaScan = (pages(rareSpec, limit: 3), pages(rareAll, limit: 4), db.list(DBListSpec(all: ["INBOX"]), limit: 9).map(\.id))
     db.rareLabelLimit = 2000
+    func pagesAfter(_ s: DBListSpec, limit: Int) -> [[String]] { var out: [[String]] = [], last: String?; while true { let p = db.list(s, limit: limit, after: last).map(\.id); if p.isEmpty { return out }; out.append(p); last = p.last } }
+    check("stored mail: paging from the last row shown gives the same rows as paging by count (ties on date included); an unknown id falls back to the count",
+          Array(pagesAfter(rareSpec, limit: 3).joined()) == Array(viaIndex.0.joined()) && Array(pagesAfter(rareAll, limit: 4).joined()) == Array(viaIndex.1.joined())
+          && db.list(rareAll, limit: 2, offset: 2, after: "no-such-id").map(\.id) == Array(viaIndex.1.joined().dropFirst(2).prefix(2)))
     check("stored mail: a rare label starts from the label index and gives the same rows as the full scan (with and without exclusions, paged)",
           viaIndex == viaScan && viaIndex.0.joined().count == 8 && viaIndex.1.joined().count == 10)
     db.delete(ids: many.map(\.id))
