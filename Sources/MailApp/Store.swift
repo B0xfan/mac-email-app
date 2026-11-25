@@ -42,6 +42,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     /// Search: the Mac first. `offer` = the "Search all of Gmail too" card is showing, `searching` = Gmail is being asked, `done` = its older results are added under their own heading.
     enum SearchMore { case hidden, offer, searching, done }
     var searchMore: SearchMore = .hidden
+    var searchesRunning = 0   // above 0: "Searching" shows at once, before any result is back
     /// The ids of the results that came from Gmail (older mail); they sit at the end of the list under their own heading.
     @ObservationIgnored var extraIDs: Set<String> = []
     var extraFirstID: String? { extraIDs.isEmpty ? nil : other.first { extraIDs.contains($0.id) }?.id }
@@ -485,7 +486,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         }
         if mailbox == .search, !q.isEmpty, let db, db.isComplete, let words = Self.localWords(q) {   // the Mac first; Gmail only when John asks (searchGmailToo)
             let page = Self.otherPage
-            var mails = await storedRead { db.search(words, limit: page) }
+            var mails = await storedRead(while: { gen == self.otherGen }) { db.search(words, limit: page) }   // a replaced search is not run again
             let more = mails.count == page
             // private notes live on this Mac and Gmail cannot see them; they are searched by the same words
             let have = Set(mails.map(\.threadID))
@@ -615,6 +616,7 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
         homeShown = false
         selectedID = nil; openMail = nil
         if isSearching { mailbox = .search }
+        searchesRunning += 1; defer { searchesRunning -= 1 }
         await loadOther()
     }
 }

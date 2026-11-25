@@ -118,10 +118,10 @@ extension MailStore {
     /// Reads from the stored mail on a background thread (the copy in the background may be writing). If one of John's own changes (archive, move, trash ...) was made while the
     /// read was under way, its answer may still show the message where it was: it is thrown away and the read is made again (up to 3 times; a fourth change in the same moment
     /// is caught by the list update that change makes itself).
-    func storedRead<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+    func storedRead<T: Sendable>(while wanted: () -> Bool = { true }, _ work: @escaping @Sendable () -> T) async -> T {
         var tries = 1, c = changes.value
         var r = await Task.detached { work() }.value
-        while c != changes.value, tries < 3 { tries += 1; c = changes.value; r = await Task.detached { work() }.value }
+        while c != changes.value, tries < 3, wanted() { tries += 1; c = changes.value; r = await Task.detached { work() }.value }
         return r
     }
 

@@ -88,6 +88,7 @@ struct ListPane: View {
                 if store.mailbox == .search, store.isSearching {
                     HStack(spacing: 8) {
                         Text("Results for \u{201C}\(store.search.trimmingCharacters(in: .whitespaces))\u{201D}" + (store.searchMore != .hidden && store.extraIDs.isEmpty ? " on this Mac" : "")).font(Theme.small).foregroundStyle(Theme.sub).lineLimit(1)
+                        if store.searchesRunning > 0 { ProgressView().controlSize(.small); Text("Searching\u{2026}").font(Theme.small).foregroundStyle(Theme.sub) }
                         Spacer()
                         if !store.currentSearchIsSaved {
                             Button("Save This Search") { store.editorMessage = nil; store.editor = .saveSearch(store.search.trimmingCharacters(in: .whitespaces)) }
