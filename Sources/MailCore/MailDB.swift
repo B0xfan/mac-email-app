@@ -14,7 +14,7 @@ public struct DBListSpec: Equatable, Sendable { public var all: [String]; public
     public init(all: [String], none: [String] = []) { self.all = all; self.none = none } }
 
 public final class MailDB: @unchecked Sendable {
-    public static let schemaVersion = 3
+    public static let schemaVersion = 4
     nonisolated(unsafe) public static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)   // SQLite's fixed "copy it" marker, never changed; marked so Swift 6 accepts the C pointer type
     public let url: URL
     private var handle: OpaquePointer?
@@ -131,6 +131,7 @@ public final class MailDB: @unchecked Sendable {
     /// The steps up from schema 2. Each runs in one transaction and writes its own version, so a stop in the middle repeats that step only.
     private func migrate(from v: Int32) -> Bool {
         if v < 3 { guard upgradeTo3() else { return false } }
+        if v < 4 { guard upgradeTo4() else { return false } }
         return true
     }
 
@@ -158,6 +159,50 @@ public final class MailDB: @unchecked Sendable {
         } ?? false
     }
 
+    /// Schema 4: a word index over `search_head` and `search_body`, so a search reads the index instead of every message (7 to 13 s on John's 500,000 emails, under 0.3 s with it).
+    /// It finds whole words and starts of words, not letters in the middle of a word (John's decision, 2026-10-30). Triggers keep it current for rows up to `fts_upto`;
+    /// a file that already holds mail starts at 0 and `fillSearchIndex` (the background pass) adds the rest a slice at a time, so the one database lock is never held for long.
+    /// The index points at rowids: a VACUUM of a non-empty `messages` could renumber them, so the only VACUUM (`clearMail`) runs on an empty table.
+    private func upgradeTo4() -> Bool {
+        transaction { () -> Bool in
+            let gate = "(SELECT CAST(value AS INTEGER) FROM sync_state WHERE key='fts_upto')"
+            for s in [
+                "CREATE VIRTUAL TABLE messages_fts USING fts5(search_head, search_body, content='messages', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2')",
+                "CREATE TRIGGER messages_fts_add AFTER INSERT ON messages WHEN new.rowid <= \(gate) BEGIN INSERT INTO messages_fts(rowid, search_head, search_body) VALUES (new.rowid, new.search_head, new.search_body); END",
+                "CREATE TRIGGER messages_fts_drop AFTER DELETE ON messages WHEN old.rowid <= \(gate) BEGIN INSERT INTO messages_fts(messages_fts, rowid, search_head, search_body) VALUES ('delete', old.rowid, old.search_head, old.search_body); END",
+                """
+                CREATE TRIGGER messages_fts_change AFTER UPDATE OF search_head, search_body ON messages
+                  WHEN old.rowid <= \(gate) AND (old.search_head IS NOT new.search_head OR old.search_body IS NOT new.search_body) BEGIN
+                  INSERT INTO messages_fts(messages_fts, rowid, search_head, search_body) VALUES ('delete', old.rowid, old.search_head, old.search_body);
+                  INSERT INTO messages_fts(rowid, search_head, search_body) VALUES (new.rowid, new.search_head, new.search_body); END
+                """,
+            ] { guard run(s) else { return false } }
+            var any = false
+            run("SELECT EXISTS (SELECT 1 FROM messages)", [], { any = sqlite3_column_int($0, 0) == 1 })
+            return setState("fts_upto", any ? "0" : Self.indexDone) && run("PRAGMA user_version = 4")
+        } ?? false
+    }
+    /// `fts_upto` once every message is in the word index: every later row is kept current by the triggers.
+    static let indexDone = String(Int64.max)
+
+    /// The background pass: adds the next slices of messages to the word index until it holds them all (about 6 s in all on John's mailbox; one slice of 5,000 holds the lock about a tenth of a second).
+    /// Each slice and its new `fts_upto` are written together, so a row is added either by a slice or by the triggers, never by both. Stops quietly on a refusal; the next pass goes on from there.
+    public func fillSearchIndex(slice: Int64 = 5000) {
+        while true {
+            let more = transaction { () -> Bool in
+                var upto: Int64 = -1, top: Int64 = 0
+                run("SELECT CAST(value AS INTEGER) FROM sync_state WHERE key='fts_upto'", [], { upto = sqlite3_column_int64($0, 0) })
+                guard upto >= 0, upto < Int64.max else { return false }
+                run("SELECT COALESCE(MAX(rowid), 0) FROM messages", [], { top = sqlite3_column_int64($0, 0) })
+                let next = upto + slice
+                run("INSERT INTO messages_fts(rowid, search_head, search_body) SELECT rowid, search_head, search_body FROM messages WHERE rowid > ? AND rowid <= ?", [upto, next])
+                let written = setState("fts_upto", next >= top ? Self.indexDone : String(next))
+                return written && next < top
+            }
+            guard more == true else { return }
+        }
+    }
+
     /// What a search looks in for a message that has no stored text: sender, recipients, subject and preview, lower case.
     public static func head(_ m: Mail) -> String { "\(m.from.display) \(m.from.email) \(m.to) \(m.cc) \(m.subject) \(m.snippet)".lowercased() }
 
@@ -167,7 +212,7 @@ public final class MailDB: @unchecked Sendable {
         var cols = Set<String>()
         run("SELECT name FROM pragma_table_info('outbox')", [], { cols.insert(Self.text($0, 0)) })
         let keep = cols == ["seq", "kind", "payload", "attempts", "retry_at", "created"]
-        guard atomically({ for t in ["messages", "message_labels", "sync_state"] + (keep ? [] : ["outbox"]) { run("DROP TABLE IF EXISTS \(t)") } }) else { return false }
+        guard atomically({ for t in ["messages", "messages_fts", "message_labels", "sync_state"] + (keep ? [] : ["outbox"]) { run("DROP TABLE IF EXISTS \(t)") } }) else { return false }
         return createSchema()
     }
 
@@ -364,12 +409,24 @@ public final class MailDB: @unchecked Sendable {
     // MARK: - Search and the text of emails
 
     /// Messages whose sender, recipients, subject, preview or kept text hold every one of these words (any letter case), newest first. Only confirmed rows, never Trash or Spam.
-    /// shortcut: a scan of the table, not an index (FTS5); fine to tens of thousands of messages, upgrade if a search over a very large mailbox is felt to be slow.
-    /// The head (sender, subject ...) is looked through first, which does not touch the long text; the text is looked through too only when the head finds fewer than `headEnough` messages
+    /// Once the word index holds every message it answers the search (whole words and starts of words). Until then the table is scanned for the letters anywhere:
+    /// the head (sender, subject ...) is looked through first, which does not touch the long text; the text is looked through too only when the head finds fewer than `headEnough` messages
     /// (the same choice for every page of one search, so the pages fit together).
     public static let headEnough = 200
     public func search(_ words: [String], limit: Int, offset: Int = 0) -> [Mail] {
         let w = words.filter { !$0.isEmpty }
+        var ready = false
+        read("SELECT value FROM sync_state WHERE key='fts_upto'", [], { ready = Self.text($0, 0) == Self.indexDone })
+        if ready {
+            guard let q = Self.indexQuery(w) else { return [] }
+            let (base, bargs) = Self.searchWhere([], withText: false)
+            // walk the date index and keep the rows the word index found: newest first stops after one page, even for a word in half the mailbox (0.04 s against 3 to 4 s sorting every match)
+            let sql = Self.selectRows + " INDEXED BY messages_date WHERE m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?) AND " + base + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
+            var out: [Mail] = []
+            let args: [Any?] = [q] + bargs + [limit, offset]
+            read(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+            return out
+        }
         var n = 0
         let (hs, ha) = Self.searchWhere(w, withText: false)
         read("SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE \(hs) LIMIT ?)", ha + [Self.headEnough], { n = Int(sqlite3_column_int64($0, 0)) })
@@ -389,6 +446,13 @@ public final class MailDB: @unchecked Sendable {
             args.append("%" + likeEscaped(w.lowercased()) + "%")
         }
         return (sql, args)
+    }
+
+    /// The words as a word-index query: each one quoted (so nothing in it is read as a query word) and matched as the start of a word; all must match.
+    /// A word with no letter or digit holds nothing the index keeps, so it is left out; nil when none is left (nothing can match).
+    public static func indexQuery(_ words: [String]) -> String? {
+        let parts = words.filter { $0.contains { $0.isLetter || $0.isNumber } }.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"*" }
+        return parts.isEmpty ? nil : parts.joined(separator: " AND ")
     }
 
     /// The word as a LIKE pattern body: % and _ mean themselves.
@@ -465,8 +529,11 @@ public final class MailDB: @unchecked Sendable {
     @discardableResult
     public func clearMail() -> Bool {
         guard atomically({
-            run("DELETE FROM message_labels"); run("DELETE FROM messages")
+            // the state goes first, so the word index triggers stand aside for the half a million deletes; the index is then emptied in one go and is complete again
             run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
+            run("DELETE FROM message_labels"); run("DELETE FROM messages")
+            run("INSERT INTO messages_fts(messages_fts) VALUES('delete-all')")
+            setState("fts_upto", Self.indexDone)
         }) else { return false }
         reloadHot()
         lock.lock(); readLock.lock()   // no search is reading while the file is made small: a running one would make the checkpoint wait out the busy timeout

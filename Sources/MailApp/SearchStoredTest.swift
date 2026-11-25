@@ -18,13 +18,13 @@ extension SelfTest {
 
         // the database: every word must match (any letter case) in sender, subject, preview or kept text; % and _ mean themselves
         let sdb = MailDB(url: dir.appendingPathComponent("find.sqlite"))!
-        sdb.upsert([lsMail("Alpha1", ["INBOX"], age: 0), lsMail("Beta2", ["INBOX"], age: 10), lsMail("pct100%x", ["INBOX"], age: 20), lsMail("trash9", ["TRASH"], age: 5)], verified: true)
+        sdb.upsert([lsMail("Alpha1", ["INBOX"], age: 0), lsMail("Beta2", ["INBOX"], age: 10), lsMail("pct 100%x", ["INBOX"], age: 20), lsMail("trash9", ["TRASH"], age: 5)], verified: true)
         func found(_ w: [String]) -> [String] { sdb.search(w, limit: 10).map(\.id) }
         check("search on this Mac: a word matches any letter case in the subject or preview, every word must match, newest first, and Trash is left out",
-              found(["alpha1"]) == ["Alpha1"] && found(["S", "ALPHA1"]) == ["Alpha1"] && found(["s"]) == ["Alpha1", "Beta2", "pct100%x"] && found(["alpha1", "beta2"]).isEmpty && found(["trash9"]).isEmpty)
+              found(["alpha1"]) == ["Alpha1"] && found(["S", "ALPHA1"]) == ["Alpha1"] && found(["s"]) == ["Alpha1", "Beta2", "pct 100%x"] && found(["alpha1", "beta2"]).isEmpty && found(["trash9"]).isEmpty)
         check("search on this Mac: the sender's name and address are searched too, and % and _ in a word are plain letters, not wild cards",
-              found(["ann@x"]).count == 3 && found(["100%"]) == ["pct100%x"] && found(["100%y"]).isEmpty && found(["_"]).isEmpty)
-        check("search on this Mac: paging by 2 gives the next ones", sdb.search(["s"], limit: 2).map(\.id) == ["Alpha1", "Beta2"] && sdb.search(["s"], limit: 2, offset: 2).map(\.id) == ["pct100%x"])
+              found(["ann@x"]).count == 3 && found(["100%"]) == ["pct 100%x"] && found(["100%y"]).isEmpty && found(["_"]).isEmpty)
+        check("search on this Mac: paging by 2 gives the next ones", sdb.search(["s"], limit: 2).map(\.id) == ["Alpha1", "Beta2"] && sdb.search(["s"], limit: 2, offset: 2).map(\.id) == ["pct 100%x"])
 
         // the text of an opened email: kept and searched, never for a draft or an email with pictures inside it
         let kept = lsMail("k1", ["INBOX"], age: 30, text: "the quarterly zebra report")
@@ -43,13 +43,38 @@ extension SelfTest {
         // schema 3: a schema-2 file gets the new columns and the search text of the messages it already holds
         var v2: MailDB? = MailDB(url: dir.appendingPathComponent("v2.sqlite"))
         v2?.upsert([lsMail("mig1", ["INBOX"])], verified: true)
+        for t in ["messages_fts_add", "messages_fts_drop", "messages_fts_change"] { v2?.run("DROP TRIGGER \(t)") }
+        v2?.run("DROP TABLE messages_fts"); v2?.setState("fts_upto", nil)
         for c in ["search_head", "search_body", "body", "body_kept"] { v2?.run("ALTER TABLE messages DROP COLUMN \(c)") }
         v2?.run("PRAGMA user_version = 2")
         v2 = nil
         let up = MailDB(url: dir.appendingPathComponent("v2.sqlite"))
         var ver: Int32 = 0
         up?.run("PRAGMA user_version", [], { ver = sqlite3_column_int($0, 0) })
-        check("schema 3: a schema-2 file keeps its messages, gains the new columns and can be searched at once", ver == 3 && MailDB.schemaVersion == 3 && up?.search(["mig1"], limit: 5).map(\.id) == ["mig1"] && up?.rowCount() == 1)
+        check("schema 4: a schema-2 file keeps its messages, gains the new columns and the word index, and can be searched at once (letters anywhere until the index is filled)",
+              ver == 4 && MailDB.schemaVersion == 4 && up?.search(["mig1"], limit: 5).map(\.id) == ["mig1"] && up?.search(["ig1"], limit: 5).map(\.id) == ["mig1"] && up?.rowCount() == 1 && up?.state("fts_upto") == "0")
+
+        // the word index on a file that already held mail: rows changed before and during the fill are indexed once, then the triggers keep it current
+        up?.upsert([lsMail("mig2", ["INBOX"], age: 1), lsMail("mig3", ["INBOX"], age: 2)], verified: true)
+        up?.setBody(lsMail("mig2", ["INBOX"], age: 1, text: "an okapi went by"), kept: false)
+        up?.fillSearchIndex(slice: 1)
+        let ix = { (w: [String]) in up?.search(w, limit: 5).map(\.id) ?? ["failed"] }
+        check("word index: filled in slices it finds whole words and starts of words in the head and the text, not letters in the middle of a word",
+              up?.state("fts_upto") == String(Int64.max) && ix(["mig1"]) == ["mig1"] && ix(["mig"]) == ["mig1", "mig2", "mig3"] && ix(["okap"]) == ["mig2"] && ix(["ig1"]).isEmpty)
+        up?.upsert([lsMail("new1", ["INBOX"], age: 3)], verified: true)
+        up?.setBody(lsMail("mig3", ["INBOX"], age: 2, text: "a narwhal note"), kept: false)
+        up?.setBody(lsMail("mig2", ["INBOX"], age: 1, text: "nothing here"), kept: false)
+        up?.delete(ids: ["mig1"])
+        check("word index: new mail, new text, changed text and a deleted email are followed at once", ix(["new1"]) == ["new1"] && ix(["narwhal"]) == ["mig3"] && ix(["okapi"]).isEmpty && ix(["mig1"]).isEmpty)
+        up?.pruneText(before: Date())
+        let sound = up?.run("INSERT INTO messages_fts(messages_fts, rank) VALUES('integrity-check', 1)") ?? false
+        check("word index: dropped text is no longer found, and the index matches the messages exactly", ix(["narwhal"]).isEmpty && ix(["new1"]) == ["new1"] && sound)
+        up?.upsert([lsMail("café9", ["INBOX"], age: 4)], verified: true)
+        check("word index: accents and letter case do not matter, quotes in a word are plain, a word of only signs matches nothing",
+              MailDB.indexQuery(["Café", "a\"b"]) == "\"Café\"* AND \"a\"\"b\"*" && MailDB.indexQuery(["&", "-"]) == nil && ix(["NEW1"]) == ["new1"] && ix(["&"]).isEmpty && ix(["cafe9"]) == ["café9"])
+        up?.clearMail()
+        check("word index: clearing stored mail empties it and it stays complete for the mail that comes next", up?.state("fts_upto") == String(Int64.max) && ix(["new1"]).isEmpty
+              && up?.upsert([lsMail("after1", ["INBOX"])], verified: true) == true && ix(["after1"]) == ["after1"])
 
         // the store: search the Mac first, Gmail only on the button, a Gmail result is stored when it is opened
         let f = FakeGmail(); f.labelsJSON = lsLabels

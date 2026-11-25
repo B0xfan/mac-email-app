@@ -96,6 +96,7 @@ public final class SyncEngine: @unchecked Sendable {
     private func syncBody() async {
         lock.withLock { sawOld = false }   // a new pass starts reading in full again
         db.ensureFastLookups()
+        db.fillSearchIndex()   // once, on a file from before the word index; nothing to do after that
         do {
             if !db.isTracking { try await startFullSync(stale: false) }
             else {
