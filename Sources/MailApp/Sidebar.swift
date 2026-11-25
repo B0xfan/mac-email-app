@@ -7,32 +7,12 @@ import MailCore
 struct SidebarView: View {
     @Bindable var store: MailStore
     @ObservedObject private var layout = AppSettings.shared
-    @FocusState private var searchFocus: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if store.sidebarCompact {
                 IconButton(symbol: "magnifyingglass", label: "Search mail") { store.startSearchPeek() }.frame(maxWidth: .infinity)
             } else {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.sub)
-                TextField("Search mail", text: $store.search)
-                    .textFieldStyle(.plain).focused($searchFocus).foregroundStyle(Theme.text)
-                    .onChange(of: store.focusSearchTick) { _, _ in searchFocus = true }
-                    .onChange(of: searchFocus) { _, f in if !f && !store.isSearching { store.endSearchPeek() } }
-                    .onChange(of: store.isSearching) { _, s in if !s { store.endSearchPeek() } }
-                    .onExitCommand { store.endSearchPeek() }
-                    .onSubmit { Task { if store.search.isEmpty { await store.select(.inbox) } else { await store.runSearch() } } }
-                    .task(id: store.search) {   // searches as John types, a moment after the last key; Return still searches at once
-                        guard searchFocus else { return }
-                        try? await Task.sleep(for: .milliseconds(400)); guard !Task.isCancelled else { return }
-                        let q = store.search.trimmingCharacters(in: .whitespaces)
-                        if q.count >= 2, q != store.searchRan { await store.runSearch() } else if q.isEmpty, store.mailbox == .search { await store.select(.inbox) }
-                    }
-            }
-            .padding(.horizontal, 8).frame(minHeight: 28)
-            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(searchFocus ? Theme.acc : Theme.sub, lineWidth: searchFocus ? 2 : 1))
-            .padding(.bottom, 8)
+            SearchField(store: store)
             }
 
             MaybeScroll { VStack(alignment: .leading, spacing: 4) {
@@ -123,5 +103,37 @@ struct NavRow: View {
         }
         .buttonStyle(.plain).onHover { hover.v = $0 }
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The search box. Typed letters stay here until a search runs, so only this box redraws on each key, not the whole window.
+struct SearchField: View {
+    var store: MailStore
+    @State private var draft = ""
+    @FocusState private var searchFocus: Bool
+    nonisolated static func blank(_ s: String) -> Bool { s.trimmingCharacters(in: .whitespaces).isEmpty }
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.sub)
+            TextField("Search mail", text: $draft)
+                .textFieldStyle(.plain).focused($searchFocus).foregroundStyle(Theme.text)
+                .onChange(of: store.focusSearchTick) { _, _ in searchFocus = true }
+                .onChange(of: searchFocus) { _, f in if !f && Self.blank(draft) { store.endSearchPeek() } }
+                .onChange(of: draft) { _, d in if Self.blank(d) { store.endSearchPeek() } }
+                .onChange(of: store.search) { _, s in if s != draft { draft = s } }   // cleared, saved or set elsewhere
+                .onAppear { draft = store.search }
+                .onExitCommand { store.endSearchPeek() }
+                .onSubmit { store.search = draft; Task { if store.search.isEmpty { await store.select(.inbox) } else { await store.runSearch() } } }
+                .task(id: draft) {   // searches as John types, a moment after the last key; Return still searches at once
+                    guard searchFocus else { return }
+                    try? await Task.sleep(for: .milliseconds(400)); guard !Task.isCancelled else { return }
+                    let q = draft.trimmingCharacters(in: .whitespaces)
+                    if q.count >= 2, q != store.searchRan { store.search = draft; await store.runSearch() } else if q.isEmpty, store.mailbox == .search { await store.select(.inbox) }
+                }
+        }
+        .padding(.horizontal, 8).frame(minHeight: 28)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(searchFocus ? Theme.acc : Theme.sub, lineWidth: searchFocus ? 2 : 1))
+        .padding(.bottom, 8)
     }
 }
