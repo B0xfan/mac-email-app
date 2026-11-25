@@ -24,6 +24,9 @@ public final class MailDB: @unchecked Sendable {
     /// Debug builds only (the self-test): runs `body` while holding the database lock.
     public func holdingLock<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
     #endif
+    /// Searches and list reads use their own read-only line to the file, so a click that writes (archive, mark read) never waits behind a long search: with WAL the reader sees the last saved state.
+    private var reader: OpaquePointer?
+    private let readLock = NSLock()   // taken after `lock`, never before it
     private var depth = 0
     /// Statements that failed so far, and why the last one did. A transaction that sees the count grow is undone.
     private var errors = 0
@@ -82,10 +85,14 @@ public final class MailDB: @unchecked Sendable {
         else if v < Int32(Self.schemaVersion) { guard migrate(from: v) else { return .failed } }
         for s in ["", "-wal", "-shm"] { chmod(url.path + s, 0o600) }
         reloadHot()
+        var r: OpaquePointer?
+        if sqlite3_open_v2(url.path, &r, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let r { sqlite3_busy_timeout(r, 5000); readLock.lock(); reader = r; readLock.unlock() }
+        else if let r { sqlite3_close(r) }   // no reader: reads go through the main line as before
         return .ok
     }
 
     private func closeHandle() {
+        readLock.lock(); if let r = reader { sqlite3_close(r) }; reader = nil; readLock.unlock()
         if let h = handle { sqlite3_close(h) }
         handle = nil
     }
@@ -180,8 +187,23 @@ public final class MailDB: @unchecked Sendable {
     public func run(_ sql: String, _ args: [Any?] = [], _ row: ((OpaquePointer) -> Void)? = nil) -> Bool {
         lock.lock(); defer { lock.unlock() }
         guard let h = handle else { errors += 1; lastCode = SQLITE_MISUSE; return false }
+        let rc = Self.exec(h, sql, args, row ?? { _ in })
+        if rc != SQLITE_DONE { lastCode = rc; errors += 1 }
+        return rc == SQLITE_DONE
+    }
+
+    /// A read on the read-only line; it never takes `lock`, so it neither waits for nor holds up a write. Its failures are not counted against a transaction.
+    private func read(_ sql: String, _ args: [Any?], _ row: (OpaquePointer) -> Void) {
+        readLock.lock()
+        if let r = reader { _ = Self.exec(r, sql, args, row); readLock.unlock(); return }
+        readLock.unlock()
+        withoutActuallyEscaping(row) { _ = run(sql, args, $0) }
+    }
+
+    /// Prepares, binds and steps one statement; SQLITE_DONE when it all went through.
+    private static func exec(_ h: OpaquePointer, _ sql: String, _ args: [Any?], _ row: (OpaquePointer) -> Void) -> Int32 {
         var st: OpaquePointer?
-        guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK, let st else { lastCode = sqlite3_errcode(h); errors += 1; sqlite3_finalize(st); return false }
+        guard sqlite3_prepare_v2(h, sql, -1, &st, nil) == SQLITE_OK, let st else { sqlite3_finalize(st); return sqlite3_errcode(h) }
         for (i, a) in args.enumerated() {
             let n = Int32(i + 1)
             switch a {
@@ -194,10 +216,9 @@ public final class MailDB: @unchecked Sendable {
             }
         }
         var rc = sqlite3_step(st)
-        while rc == SQLITE_ROW { row?(st); rc = sqlite3_step(st) }
+        while rc == SQLITE_ROW { row(st); rc = sqlite3_step(st) }
         sqlite3_finalize(st)
-        if rc != SQLITE_DONE { lastCode = rc; errors += 1 }
-        return rc == SQLITE_DONE
+        return rc
     }
 
     public static func text(_ st: OpaquePointer, _ i: Int32) -> String { sqlite3_column_text(st, i).map { String(cString: $0) } ?? "" }
@@ -328,7 +349,7 @@ public final class MailDB: @unchecked Sendable {
         for l in spec.all {
             // a rare label (Snoozed, Set Aside) starts from the label index instead of walking every message by date; same rows either way
             var n = 0
-            run("SELECT COUNT(*) FROM (SELECT 1 FROM message_labels WHERE label=? LIMIT ?)", [l, rareLabelLimit], { n = Int(sqlite3_column_int64($0, 0)) })
+            read("SELECT COUNT(*) FROM (SELECT 1 FROM message_labels WHERE label=? LIMIT ?)", [l, rareLabelLimit], { n = Int(sqlite3_column_int64($0, 0)) })
             sql += n < rareLabelLimit ? " AND m.id IN (SELECT msg FROM message_labels WHERE label=?)" : " AND EXISTS (SELECT 1 FROM message_labels x WHERE x.msg=m.id AND x.label=?)"
             args.append(l)
         }
@@ -336,7 +357,7 @@ public final class MailDB: @unchecked Sendable {
         sql += " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
         args.append(limit); args.append(offset)
         var out: [Mail] = []
-        run(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+        read(sql, args, { if let m = Self.mail($0) { out.append(m) } })
         return out
     }
 
@@ -351,12 +372,12 @@ public final class MailDB: @unchecked Sendable {
         let w = words.filter { !$0.isEmpty }
         var n = 0
         let (hs, ha) = Self.searchWhere(w, withText: false)
-        run("SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE \(hs) LIMIT ?)", ha + [Self.headEnough], { n = Int(sqlite3_column_int64($0, 0)) })
+        read("SELECT COUNT(*) FROM (SELECT 1 FROM messages m WHERE \(hs) LIMIT ?)", ha + [Self.headEnough], { n = Int(sqlite3_column_int64($0, 0)) })
         let (cond, cargs) = n >= Self.headEnough ? (hs, ha) : Self.searchWhere(w, withText: true)
         let sql = Self.selectRows + " WHERE " + cond + " ORDER BY m.date DESC, m.id DESC LIMIT ? OFFSET ?"
         let args: [Any?] = cargs + [limit, offset]
         var out: [Mail] = []
-        run(sql, args, { if let m = Self.mail($0) { out.append(m) } })
+        read(sql, args, { if let m = Self.mail($0) { out.append(m) } })
         return out
     }
 
@@ -448,7 +469,9 @@ public final class MailDB: @unchecked Sendable {
             run("DELETE FROM sync_state WHERE key NOT IN (?, ?)", ["account", "cache_imported"])
         }) else { return false }
         reloadHot()
+        lock.lock(); readLock.lock()   // no search is reading while the file is made small: a running one would make the checkpoint wait out the busy timeout
         run("PRAGMA wal_checkpoint(TRUNCATE)"); run("VACUUM")
+        readLock.unlock(); lock.unlock()
         return true
     }
 
