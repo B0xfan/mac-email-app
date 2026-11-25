@@ -36,7 +36,8 @@ enum ComposeMode: Equatable, Codable { case new, reply(String), forward(String) 
     var imagesLoaded: Set<String> = []   // emails John chose "Load Images" for, this session
     var search = ""
     /// What the search box holds right now (it keeps typed letters to itself until a search runs); not watched, so typing redraws nothing else.
-    @ObservationIgnored var typedSearch = ""
+    /// nil while the box is not on screen (the folded strip): the search then set elsewhere is what counts.
+    @ObservationIgnored var typedSearch: String?
     @ObservationIgnored var searchRan = ""   // the words the open list was last loaded for, so search-as-you-type never loads it twice
     var otherNext: String?             // Gmail page token for the next page of the open list (nil = that was the last page)
     var loadingOtherMore = false

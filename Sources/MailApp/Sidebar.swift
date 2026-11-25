@@ -122,6 +122,7 @@ struct SearchField: View {
                 .onChange(of: draft) { _, d in store.typedSearch = d; if Self.blank(d) { store.endSearchPeek() } }
                 .onChange(of: store.search) { _, s in if s != draft { draft = s } }   // cleared, saved or set elsewhere
                 .onAppear { draft = store.search; store.typedSearch = draft }
+                .onDisappear { store.typedSearch = nil }
                 .onExitCommand { store.endSearchPeek() }
                 .onSubmit { store.search = draft; Task { if store.search.isEmpty { await store.select(.inbox) } else { await store.runSearch() } } }
                 .task(id: draft) {   // searches as John types, a moment after the last key; Return still searches at once
