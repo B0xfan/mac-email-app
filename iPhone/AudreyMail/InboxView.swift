@@ -453,14 +453,18 @@ struct FlowRow: Layout {
 struct SmartTabs: View {
     @Environment(PhoneStore.self) var store
     var body: some View {
-        HStack(spacing: 6) {
+        TabRow(spacing: 6) {
             ForEach(MailCategory.allCases, id: \.self) { c in
                 let on = store.tab == c, n = store.unread(in: c)
                 Button { store.setTab(c) } label: {
                     HStack(spacing: 5) {
-                        Text(c.title).font(.system(size: 13, weight: on ? .bold : .semibold)).lineLimit(1).minimumScaleFactor(0.85)
+                        ZStack {   // the bold width is always held, so the edges stay put when a tab is picked
+                            Text(c.title).font(.system(size: 13, weight: .bold)).hidden()
+                            Text(c.title).font(.system(size: 13, weight: on ? .bold : .semibold))
+                        }.lineLimit(1).minimumScaleFactor(0.85)
                         if n > 0 { Text("\(n)").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accText).padding(.horizontal, 6).background(Capsule().fill(Theme.acc)) }
                     }
+                    .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, minHeight: 36)
                     .background(RoundedRectangle(cornerRadius: 10).fill(on ? Theme.selStrong : Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(on ? Theme.acc : Theme.line, lineWidth: 1))
@@ -470,5 +474,30 @@ struct SmartTabs: View {
             }
         }
         .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 10)
+    }
+}
+
+/// A row where each item gets the width its own words need plus an equal share of the spare room, so a long name with a number is never squeezed into a third. When even that does not fit, each shrinks in proportion (the words then shrink).
+struct TabRow: Layout {
+    var spacing: CGFloat
+    static func widths(ideal: [CGFloat], room: CGFloat) -> [CGFloat] {
+        let total = ideal.reduce(0, +), spare = room - total
+        return spare >= 0 ? ideal.map { $0 + spare / CGFloat(ideal.count) } : ideal.map { $0 * room / total }   // spare < 0 means total > 0
+    }
+    private func plan(_ proposal: ProposedViewSize, _ views: Subviews) -> (widths: [CGFloat], height: CGFloat) {
+        let ideal = views.map { $0.sizeThatFits(.unspecified).width }
+        let gaps = spacing * CGFloat(max(views.count - 1, 0))
+        let w = Self.widths(ideal: ideal, room: max(proposal.width.map { $0 - gaps } ?? ideal.reduce(0, +), 0))
+        return (w, zip(views, w).map { $0.sizeThatFits(ProposedViewSize(width: $1, height: proposal.height)).height }.max() ?? 0)
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let p = plan(proposal, subviews)
+        return CGSize(width: p.widths.reduce(0, +) + spacing * CGFloat(max(subviews.count - 1, 0)), height: p.height)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for (v, w) in zip(subviews, plan(ProposedViewSize(width: bounds.width, height: bounds.height), subviews).widths) {
+            v.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: w, height: bounds.height)); x += w + spacing
+        }
     }
 }

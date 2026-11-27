@@ -576,6 +576,9 @@ enum DemoSelfTest {
         check("the Settings start as the phone has always behaved: Archive right, Trash left, one preview line, pictures hidden, no sender pictures, screening on, no check timer, back to the list after archiving",
               prefs.swipeRight == .archive && prefs.swipeLeft == .trash && prefs.previewLines == 1 && !prefs.loadImages && prefs.blockTrackers && !prefs.senderPictures && prefs.screenNewSenders
               && prefs.checkMinutes == 0 && prefs.afterArchive == .list && !prefs.groupConversations && prefs.inboxMode == .smart && prefs.theme == .system && prefs.signature.isEmpty && prefs.recentDays == 2)
+        let tabW = TabRow.widths(ideal: [60, 120, 110], room: 320), tabTight = TabRow.widths(ideal: [50, 100, 100], room: 200)
+        check("the Smart tabs give each name the width it needs plus an equal share of the spare room, and each shrinks in proportion only when even that does not fit",
+              tabW == [70, 130, 120] && tabTight == [40, 80, 80])
         let peopleUnread = store.unread(in: .people), allUnread = store.totalUnread
         check("the icon number starts as unread from People, and All unread counts the whole inbox (more than People here)",
               prefs.badge == .people && store.badgeCount == peopleUnread + store.pinnedMails.filter { $0.unread && MailCategory.guess($0) == .people }.count && peopleUnread > 0 && allUnread > peopleUnread)
