@@ -6,8 +6,8 @@ import MailCore
 struct MailRow: View {
     let mail: Mail
     var pinned = false
-    var tag: String? = nil        // "Back Tue 3:00 PM" on a Snoozed row, "No reply yet"
-    var below: String? = nil      // the line under the subject: "Back from snooze"
+    var tag: String? = nil        // "No reply yet"
+    var below: String? = nil      // the line under the subject: "Back from snooze", or a Snoozed row's "Back Sat, Nov 28, 10:06 PM" (too wide beside the name)
     var fromText: String? = nil   // "You, to Maya" on a "No reply yet" row
     var count: Int? = nil         // the number of messages when emails are grouped into conversations
     var bare = false              // Focused view and Select: the list draws the unread dot and the done circle in place of the picture

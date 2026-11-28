@@ -282,7 +282,7 @@ struct FolderMailsView: View {
             if let b = store.banner { BannerView(text: b) }
             List {
                 ForEach(rows) { m in
-                    Button { path.append(FolderOpen(mail: m, folder: folderID)) } label: { MailRow(mail: m, tag: route == .snoozed ? store.backText(m) : nil) }
+                    Button { path.append(FolderOpen(mail: m, folder: folderID)) } label: { MailRow(mail: m, below: route == .snoozed ? store.backText(m) : nil) }
                         .buttonStyle(.plain)
                         .listRowBackground(Theme.card).listRowSeparatorTint(Theme.line)
                         .listRowInsets(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 16))
