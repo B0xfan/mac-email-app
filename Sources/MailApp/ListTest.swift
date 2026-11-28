@@ -212,6 +212,14 @@ enum ListTest {
         LiveTest.grab(win, "\(dir)/list-16-search-hover.png")
         SnapshotMode.on = false; SnapshotMode.barRow = nil
 
+        // Snoozed: each row says when it comes back, day and date (John 2026-11-28), for a look
+        let sn17 = mail("sn17", "Priya Shah", hoursAgo: 3, unread: false)
+        store.timing.change { $0.snoozes["sn17"] = Date().addingTimeInterval(9 * 86400) }
+        store.snoozed = [sn17]; store.search = ""; store.mailbox = .snoozed
+        await LiveTest.pump(0.8)
+        LiveTest.grab(win, "\(dir)/list-17-snoozed-back-date.png")
+        store.timing.change { $0.snoozes["sn17"] = nil }; store.snoozed = []
+
         // Settings > Storage, drawn in a window that is never shown (the picture goes with the others, for a look)
         let app = AppModel.current ?? AppModel()
         let sw = NSWindow(contentRect: NSRect(x: -3000, y: -3000, width: 960, height: 560), styleMask: [.borderless], backing: .buffered, defer: false)

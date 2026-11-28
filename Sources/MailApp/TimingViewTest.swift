@@ -63,7 +63,7 @@ extension SelfTest {
         let shown = mine.applied(to: mail)
         check("timing view: a returned email shows the time it came back and keeps when it arrived; applying twice changes nothing", shown.date == Date(timeIntervalSince1970: 1_900_000_000) && shown.arrived == mail.date && mine.applied(to: shown) == shown)
         check("timing view: once it is no longer returned it goes back to its own time", TimingView().applied(to: shown).date == mail.date && TimingView().applied(to: shown).arrived == nil)
-        check("timing view: a Snoozed row says Back and the time, the same words as the Mac", mine.backText("a1") == "Back " + TimeParser.short(Date(timeIntervalSince1970: 2_000_000_000)) && mine.backText("nope") == nil)
+        check("timing view: a Snoozed row says Back, the day and date and the time, the same words as the Mac", mine.backText("a1") == TimingView.backLabel(Date(timeIntervalSince1970: 2_000_000_000)) && TimingView.backLabel(Date(timeIntervalSince1970: 2_000_000_000)).contains(", ") && mine.backText("nope") == nil)
         check("timing view: the line under a returned email is the Mac's", mine.backLine("b1", arrived: mail.date)?.hasPrefix("\u{263E} Back from snooze \u{00B7} arrived ") == true && mine.backLine("a1", arrived: nil) == nil)
 
         var big = TimingData()

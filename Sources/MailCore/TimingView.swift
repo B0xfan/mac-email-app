@@ -52,8 +52,10 @@ public struct TimingView: Codable, Equatable, Sendable {
     public static func short(_ d: Date) -> String { shortFormat.string(from: d) }
     nonisolated(unsafe) private static let shortFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE h:mm a"; f.timeZone = .autoupdatingCurrent; f.locale = .autoupdatingCurrent; return f }()
     nonisolated(unsafe) private static let arrivedFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "MMM d, h:mm a"; f.timeZone = .autoupdatingCurrent; f.locale = .autoupdatingCurrent; return f }()
-    /// The tag on a Snoozed row.
-    public func backText(_ id: String) -> String? { snoozes[id].map { "Back " + Self.short(Date(timeIntervalSince1970: TimeInterval($0))) } }
+    /// The tag on a Snoozed row: "Back Wed, Dec 3, 8:00 AM" (the date too, so a snooze weeks away reads right).
+    public static func backLabel(_ d: Date) -> String { "Back " + backFormat.string(from: d) }
+    nonisolated(unsafe) private static let backFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "EEE, MMM d, h:mm a"; f.timeZone = .autoupdatingCurrent; f.locale = .autoupdatingCurrent; return f }()
+    public func backText(_ id: String) -> String? { snoozes[id].map { Self.backLabel(Date(timeIntervalSince1970: TimeInterval($0))) } }
     /// The line under a returned email's subject; nil once it has been opened (or when it is not tagged).
     public func backLine(_ id: String, arrived: Date?) -> String? { backTag.contains(id) ? Self.backLine(arrived: arrived) : nil }
     public static func backLine(arrived: Date?) -> String {

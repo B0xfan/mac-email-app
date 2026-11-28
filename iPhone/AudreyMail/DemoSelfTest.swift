@@ -548,7 +548,7 @@ enum DemoSelfTest {
         box.with { b in b.srvTVVersion = 3; b.srvTV = ["snoozes": ["z1": nowS + 5 * 3600, "z2": nowS + 86400], "surfaced": ["m6": nowS - 60], "back_tag": ["m6"], "no_reply": ["m2"]] }
         await store.syncTimingView()
         await store.openList(.label("Label_snoozed"))
-        check("a Snoozed row says Back and the time, the same words as the Mac", store.backText(store.folderMails.first { $0.id == "z1" }!) == "Back " + TimingView.short(Date(timeIntervalSince1970: TimeInterval(nowS + 5 * 3600))))
+        check("a Snoozed row says Back, the day and date and the time, the same words as the Mac", store.backText(store.folderMails.first { $0.id == "z1" }!) == TimingView.backLabel(Date(timeIntervalSince1970: TimeInterval(nowS + 5 * 3600))))
         check("a returned email goes to the top of the inbox with the time it came back, and remembers when it arrived", store.inbox.first?.id == "m6" && store.inbox.first?.arrived == ownTime && abs(store.inbox.first!.date.timeIntervalSince1970 - Double(nowS - 60)) < 1)
         check("its line says Back from snooze while unread, and goes once it is read", store.backLine(row("m6")!)?.hasPrefix("\u{263E} Back from snooze") == true && store.backLine({ var r = row("m6")!; r.labels.removeAll { $0 == "UNREAD" }; return r }()) == nil)
         check("an email that came back because nobody replied is marked", store.isNoReply(row("m2")!) && !store.isNoReply(row("m1")!))
